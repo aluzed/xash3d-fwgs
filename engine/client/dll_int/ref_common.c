@@ -418,6 +418,11 @@ static const ref_api_t gEngfuncs =
 	SW_LockBuffer,
 	SW_UnlockBuffer,
 
+	Vulkan_GetVkGetInstanceProcAddr,
+	Vulkan_GetInstanceExtensions,
+	Vulkan_CreateSurface,
+	Vulkan_GetDrawableSize,
+
 	R_FatPVS,
 	GL_GetOverviewParms,
 	Sys_DoubleTime,

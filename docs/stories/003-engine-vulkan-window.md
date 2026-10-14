@@ -16,22 +16,31 @@ mode changes / fullscreen / resize notifications.
 Out: any Vulkan object creation besides what SDL needs.
 
 ## Tasks
-- [ ] Add `REF_VULKAN` to `ref_graphic_apis_t` (append, do not renumber).
-- [ ] Add engine callbacks in `ref_api_t`:
+- [x] Add `REF_VULKAN` to `ref_graphic_apis_t` (append, do not renumber).
+- [x] Add engine callbacks in `ref_api_t`:
       `Vulkan_GetInstanceExtensions( uint *count, const char **names )`,
       `Vulkan_CreateSurface( void *instance, void *surface )`,
       `Vulkan_GetDrawableSize( int *w, int *h )`, and expose
       `SDL_Vulkan_GetVkGetInstanceProcAddr` (so `ref_vk` does not link
-      libvulkan directly).
-- [ ] Bump `REF_API_VERSION` and document the change in the header changelog.
-- [ ] Platform SDL: create window with `SDL_WINDOW_VULKAN`, load the Vulkan
-      library (`SDL_Vulkan_LoadLibrary`), no GL context.
-- [ ] Null / unsupported platforms return failure cleanly so the engine falls
-      back to the next renderer in the list.
+      libvulkan directly): `Vulkan_GetVkGetInstanceProcAddr`.
+- [x] Bump `REF_API_VERSION` (21) and document the change in the header changelog.
+- [x] Platform SDL2: create window with `SDL_WINDOW_VULKAN`, load the Vulkan
+      library (`SDL_Vulkan_LoadLibrary`), no GL context, no GL swap interval.
+      SDL3 is not installed on the dev machine, so it only fails cleanly.
+- [x] Null / unsupported platforms return failure cleanly so the engine falls
+      back to the next renderer in the list (SDL1, SDL3, DOS, fbdev; stubs
+      in `vid_common.c`).
 
 ## Acceptance criteria
 - `ref_gl` and `ref_soft` behave exactly as before (regression harness clean).
 - A test renderer requesting `REF_VULKAN` gets a window and a valid surface.
+
+## Results
+- `ref_gl` regression captures after the change: 30/30 bit-identical.
+- `ref_soft` is not part of the default build (`RefDll('soft', ...,
+  all_renderers = False)`), not re-tested.
+- The Vulkan window and surface are exercised by the `ref_vk` skeleton
+  (story 004).
 
 ## Dependencies
 001.

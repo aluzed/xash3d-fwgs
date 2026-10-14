@@ -81,7 +81,9 @@ GNU General Public License for more details.
 // 19. Added R_Set2DOffset. Translates everything drawn in 2D mode, including TriAPI, by the given
 //     screen-space offset until it's changed again. Used to draw VGUI panels in their own coordinates.
 // 20. R_ClearAllDecals now accepts includePermanent argument.
-#define REF_API_VERSION 20
+// 21. Added REF_VULKAN graphics API and Vulkan_* window callbacks, so a renderer can create a
+//     Vulkan surface on the engine window without linking the Vulkan loader itself.
+#define REF_API_VERSION 21
 
 #define TF_SKY		(TF_SKYSIDE|TF_NOMIPMAP|TF_ALLOW_NEAREST)
 #define TF_FONT		(TF_NOMIPMAP|TF_CLAMP|TF_ALLOW_NEAREST)
@@ -252,6 +254,7 @@ typedef enum ref_graphic_apis_e
 	REF_SOFTWARE,	// hypothetical: just make a surface to draw on, in software
 	REF_GL,		// create GL context
 	REF_D3D,	// Direct3D
+	REF_VULKAN,	// create a window usable with Vulkan, no context
 } ref_graphic_apis_t;
 
 typedef enum
@@ -487,6 +490,14 @@ typedef struct ref_api_s
 	qboolean (*SW_CreateBuffer)( int width, int height, uint *stride, uint *bpp, uint *r, uint *g, uint *b );
 	void *(*SW_LockBuffer)( void );
 	void (*SW_UnlockBuffer)( void );
+
+	// Vulkan, valid after R_Init_Video( REF_VULKAN ) succeeded
+	void *(*Vulkan_GetVkGetInstanceProcAddr)( void ); // PFN_vkGetInstanceProcAddr of the loader the engine opened
+	// instance extensions the window needs, names is NULL to query the count
+	qboolean (*Vulkan_GetInstanceExtensions)( unsigned int *count, const char **names );
+	// instance is a VkInstance, surface points to a VkSurfaceKHR to fill
+	qboolean (*Vulkan_CreateSurface)( void *instance, void *surface );
+	void (*Vulkan_GetDrawableSize)( int *width, int *height ); // in pixels, for the swapchain extent
 
 	// renderapi
 	int		(*R_FatPVS)( const float *org, float radius, byte *visbuffer, qboolean merge, qboolean fullvis );

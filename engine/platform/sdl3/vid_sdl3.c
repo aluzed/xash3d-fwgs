@@ -473,6 +473,9 @@ qboolean R_Init_Video( ref_graphic_apis_t type )
 
 		break;
 	}
+	case REF_VULKAN:
+		Con_Reportf( S_ERROR "Vulkan renderers aren't supported on this platform\n" );
+		return false;
 	default:
 		Host_Error( "Can't initialize unknown context type %d!\n", type );
 		break;

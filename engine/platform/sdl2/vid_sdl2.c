@@ -21,6 +21,7 @@ GNU General Public License for more details.
 
 // include it after because it breaks definitions in net_api.h wtf
 #include <SDL_syswm.h>
+#include <SDL_vulkan.h>
 
 #if XASH_PSVITA
 #include <vrtld.h>
@@ -355,6 +356,10 @@ GL_UpdateSwapInterval
 */
 void GL_UpdateSwapInterval( void )
 {
+	// Vulkan renderers pick their present mode from gl_vsync themselves
+	if( glw_state.vulkan )
+		return;
+
 	if( FBitSet( gl_vsync.flags, FCVAR_CHANGED ))
 	{
 		ClearBits( gl_vsync.flags, FCVAR_CHANGED );
@@ -388,6 +393,8 @@ static void VID_GetWindowSizeInPixels( SDL_Window *window, SDL_Renderer *rendere
 #else
 	if( glw_state.software )
 		SDL_GetRendererOutputSize( renderer, w, h );
+	else if( glw_state.vulkan )
+		SDL_Vulkan_GetDrawableSize( window, w, h );
 	else
 		SDL_GL_GetDrawableSize( window, w, h );
 #endif
@@ -669,7 +676,9 @@ static rserr_t VID_CreateWindow( const int input_width, const int input_height, 
 	SetBits( flags, SDL_WINDOW_ALLOW_HIGHDPI );
 #endif // !XASH_WIN32
 
-	if( !glw_state.software )
+	if( glw_state.vulkan )
+		SetBits( flags, SDL_WINDOW_VULKAN );
+	else if( !glw_state.software )
 		SetBits( flags, SDL_WINDOW_OPENGL );
 
 	if( vid_maximized.value )
@@ -681,7 +690,8 @@ static rserr_t VID_CreateWindow( const int input_width, const int input_height, 
 
 	if( !host.hWnd )
 	{
-		err = glw_state.software ? rserr_unknown : rserr_invalid_context;
+		// only GL has fallback attributes to retry with
+		err = glw_state.software || glw_state.vulkan ? rserr_unknown : rserr_invalid_context;
 		goto cleanup;
 	}
 
@@ -720,7 +730,7 @@ static rserr_t VID_CreateWindow( const int input_width, const int input_height, 
 			Con_Printf( "SDL_Renderer %s initialized\n", info.name );
 		}
 	}
-	else
+	else if( !glw_state.vulkan ) // Vulkan renderers create their own surface
 	{
 		glw_state.context = SDL_GL_CreateContext( host.hWnd );
 
@@ -922,6 +932,16 @@ qboolean R_Init_Video( ref_graphic_apis_t type )
 	case REF_SOFTWARE:
 		glw_state.software = true;
 		break;
+	case REF_VULKAN:
+		// the renderer gets vkGetInstanceProcAddr from this library,
+		// so it never links the Vulkan loader itself
+		if( SDL_Vulkan_LoadLibrary( NULL ) < 0 )
+		{
+			Con_Reportf( S_ERROR "Couldn't initialize Vulkan: %s\n", SDL_GetError( ));
+			return false;
+		}
+		glw_state.vulkan = true;
+		break;
 	case REF_GL:
 		if( !glw_state.safe && Sys_GetParmFromCmdLine( "-safegl", safe ) )
 			glw_state.safe = bound( SAFE_NO, Q_atoi( safe ), SAFE_DONTCARE );
@@ -941,7 +961,15 @@ qboolean R_Init_Video( ref_graphic_apis_t type )
 	}
 
 	if( !VID_SetMode( ))
+	{
+		// leave a clean state for the next renderer the engine tries
+		if( glw_state.vulkan )
+		{
+			SDL_Vulkan_UnloadLibrary();
+			glw_state.vulkan = false;
+		}
 		return false;
+	}
 
 	switch( type )
 	{
@@ -1155,9 +1183,89 @@ void R_Free_Video( void )
 
 	VID_DestroyWindow ();
 
+	if( glw_state.vulkan )
+	{
+		SDL_Vulkan_UnloadLibrary();
+		glw_state.vulkan = false;
+	}
+
 	R_FreeVideoModes();
 
 	ref.dllFuncs.GL_ClearExtensions();
+}
+
+/*
+==================
+Vulkan_GetVkGetInstanceProcAddr
+==================
+*/
+void *Vulkan_GetVkGetInstanceProcAddr( void )
+{
+	if( !glw_state.vulkan )
+		return NULL;
+
+	return SDL_Vulkan_GetVkGetInstanceProcAddr();
+}
+
+/*
+==================
+Vulkan_GetInstanceExtensions
+
+names is NULL to query the count, otherwise count is the capacity of names
+==================
+*/
+qboolean Vulkan_GetInstanceExtensions( unsigned int *count, const char **names )
+{
+	if( !glw_state.vulkan || !host.hWnd )
+	{
+		*count = 0;
+		return false;
+	}
+
+	if( !SDL_Vulkan_GetInstanceExtensions( host.hWnd, count, names ))
+	{
+		Con_Reportf( S_ERROR "%s: %s\n", __func__, SDL_GetError( ));
+		return false;
+	}
+
+	return true;
+}
+
+/*
+==================
+Vulkan_CreateSurface
+
+instance is a VkInstance, surface points to the VkSurfaceKHR to fill
+==================
+*/
+qboolean Vulkan_CreateSurface( void *instance, void *surface )
+{
+	if( !glw_state.vulkan || !host.hWnd )
+		return false;
+
+	if( !SDL_Vulkan_CreateSurface( host.hWnd, (VkInstance)instance, (VkSurfaceKHR *)surface ))
+	{
+		Con_Reportf( S_ERROR "%s: %s\n", __func__, SDL_GetError( ));
+		return false;
+	}
+
+	return true;
+}
+
+/*
+==================
+Vulkan_GetDrawableSize
+==================
+*/
+void Vulkan_GetDrawableSize( int *width, int *height )
+{
+	if( !glw_state.vulkan || !host.hWnd )
+	{
+		*width = *height = 0;
+		return;
+	}
+
+	SDL_Vulkan_GetDrawableSize( host.hWnd, width, height );
 }
 
 void VID_Info_f( void )

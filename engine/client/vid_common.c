@@ -262,6 +262,34 @@ void VID_Init( void )
 	R_Init(); // init renderer
 }
 
+#if XASH_SDL != 2
+/*
+=================
+Vulkan window support, only implemented by the SDL2 platform
+=================
+*/
+void *Vulkan_GetVkGetInstanceProcAddr( void )
+{
+	return NULL;
+}
+
+qboolean Vulkan_GetInstanceExtensions( unsigned int *count, const char **names )
+{
+	*count = 0;
+	return false;
+}
+
+qboolean Vulkan_CreateSurface( void *instance, void *surface )
+{
+	return false;
+}
+
+void Vulkan_GetDrawableSize( int *width, int *height )
+{
+	*width = *height = 0;
+}
+#endif // XASH_SDL != 2
+
 #if XASH_ENGINE_TESTS
 #include "tests.h"
 
