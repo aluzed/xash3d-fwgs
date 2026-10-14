@@ -855,29 +855,28 @@ static void VK_FlushFrame( void )
 
 /*
 =================
-VK_ScreenShot
+VK_ReadPixels
+
+copies a rectangle of the frame so far into rgba (w * h * 4 bytes, rows
+top to bottom), waiting for the GPU
 =================
 */
-qboolean VK_ScreenShot( const char *filename, int shot_type )
+qboolean VK_ReadPixels( int x, int y, int w, int h, byte *rgba )
 {
 	vk_frame_t *frame = &vk_frame.frames[vk_frame.frame_index];
-	uint flags = 0;
-	int width = 0, height = 0;
 	VkBuffer buffer = VK_NULL_HANDLE;
 	VkDeviceMemory memory = VK_NULL_HANDLE;
 	VkMemoryRequirements req;
-	rgbdata_t *shot;
 	void *data;
-	qboolean result;
 	int type;
 
-	if( !vk_frame.recording )
+	if( !vk_frame.recording || w <= 0 || h <= 0 || x < 0 || y < 0
+		|| x + w > (int)vk_frame.color.width || y + h > (int)vk_frame.color.height )
 		return false;
 
 	VK_EndMainPass();
 	VK_FlushUploads();
 
-	const uint32_t w = vk_frame.color.width, h = vk_frame.color.height;
 	const VkDeviceSize size = (VkDeviceSize)w * h * 4;
 
 	VkBufferCreateInfo info = {
@@ -906,13 +905,14 @@ qboolean VK_ScreenShot( const char *filename, int shot_type )
 	}
 
 	vkBindBufferMemory( vk.device, buffer, memory, 0 );
-	VK_SetObjectName( VK_OBJECT_TYPE_BUFFER, (uint64_t)buffer, "screenshot readback" );
+	VK_SetObjectName( VK_OBJECT_TYPE_BUFFER, (uint64_t)buffer, "pixel readback" );
 
-	VK_BeginLabel( frame->cmd, "screenshot" );
+	VK_BeginLabel( frame->cmd, "read pixels" );
 	VK_ImageBarrier( frame->cmd, &vk_frame.color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL );
 
 	VkBufferImageCopy copy = {
 		.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+		.imageOffset = { x, y, 0 },
 		.imageExtent = { w, h, 1 },
 	};
 
@@ -920,6 +920,31 @@ qboolean VK_ScreenShot( const char *filename, int shot_type )
 	VK_EndLabel( frame->cmd );
 
 	VK_FlushFrame();
+
+	vkMapMemory( vk.device, memory, 0, size, 0, &data );
+	memcpy( rgba, data, size );
+	vkUnmapMemory( vk.device, memory );
+
+	vkDestroyBuffer( vk.device, buffer, NULL );
+	vkFreeMemory( vk.device, memory, NULL );
+
+	return true;
+}
+
+/*
+=================
+VK_ScreenShot
+=================
+*/
+qboolean VK_ScreenShot( const char *filename, int shot_type )
+{
+	uint flags = 0;
+	int width = 0, height = 0;
+	rgbdata_t *shot;
+	qboolean result;
+
+	const uint32_t w = vk_frame.color.width, h = vk_frame.color.height;
+	const size_t size = (size_t)w * h * 4;
 
 	// rows are top to bottom already, unlike glReadPixels
 	shot = Mem_Calloc( r_temppool, sizeof( rgbdata_t ));
@@ -930,12 +955,11 @@ qboolean VK_ScreenShot( const char *filename, int shot_type )
 	shot->size = size;
 	shot->buffer = Mem_Malloc( r_temppool, size );
 
-	vkMapMemory( vk.device, memory, 0, size, 0, &data );
-	memcpy( shot->buffer, data, size );
-	vkUnmapMemory( vk.device, memory );
-
-	vkDestroyBuffer( vk.device, buffer, NULL );
-	vkFreeMemory( vk.device, memory, NULL );
+	if( !VK_ReadPixels( 0, 0, w, h, shot->buffer ))
+	{
+		gEngfuncs.FS_FreeImage( shot );
+		return false;
+	}
 
 	switch( shot_type )
 	{
@@ -962,6 +986,135 @@ qboolean VK_ScreenShot( const char *filename, int shot_type )
 	result = gEngfuncs.FS_SaveImage( filename, shot );
 	gEngfuncs.fsapi->AllowDirectPaths( false );
 	gEngfuncs.FS_FreeImage( shot );
+
+	return result;
+}
+
+/*
+=================
+VK_CubemapShot
+
+ref_gl/gl_backend.c VID_CubemapShot: six 90 degree views drawn in the
+bottom left corner of the frame and read back one by one. glReadPixels
+gives rows bottom to top and the side flags expect it, so the rows are
+turned over the same way.
+=================
+*/
+// used for 'env' and 'sky' shots
+typedef struct envmap_s
+{
+	vec3_t	angles;
+	int	flags;
+} envmap_t;
+
+static const envmap_t r_skyBoxInfo[6] =
+{
+{{   0, 270, 180}, IMAGE_FLIP_X },
+{{   0,  90, 180}, IMAGE_FLIP_X },
+{{ -90,   0, 180}, IMAGE_FLIP_X },
+{{  90,   0, 180}, IMAGE_FLIP_X },
+{{   0,   0, 180}, IMAGE_FLIP_X },
+{{   0, 180, 180}, IMAGE_FLIP_X },
+};
+
+static const envmap_t r_envMapInfo[6] =
+{
+{{  0,   0,  90}, 0 },
+{{  0, 180, -90}, 0 },
+{{  0,  90,   0}, 0 },
+{{  0, 270, 180}, 0 },
+{{-90, 180, -90}, 0 },
+{{ 90,   0,  90}, 0 }
+};
+
+qboolean VK_CubemapShot( const char *base, uint size, const float *vieworg, qboolean skyshot )
+{
+	if( !FBitSet( RI.rvp.flags, RF_DRAW_WORLD ) || !WORLDMODEL || !vk_frame.recording )
+		return false;
+
+	// make sure the specified size is valid
+	uint i = 1;
+	while( i < size ) i <<= 1;
+
+	if( i != size ) return false;
+	if( size > gpGlobals->width || size > gpGlobals->height )
+		return false;
+	if( size > vk_frame.color.width || size > vk_frame.color.height )
+		return false;
+
+	// alloc space
+	byte *rgba = Mem_Malloc( r_temppool, size * size * 4 );
+	byte *temp = Mem_Malloc( r_temppool, size * size * 3 );
+	byte *buffer = Mem_Malloc( r_temppool, size * size * 3 * 6 );
+	rgbdata_t *r_shot = Mem_Calloc( r_temppool, sizeof( rgbdata_t ));
+	rgbdata_t *r_side = Mem_Calloc( r_temppool, sizeof( rgbdata_t ));
+	qboolean ok = true;
+
+	// use client vieworg
+	if( !vieworg ) vieworg = RI.rvp.vieworigin;
+
+	for( i = 0; i < 6 && ok; i++ )
+	{
+		// go into 3d mode
+		R_Set2DMode( false );
+
+		int flags;
+		if( skyshot )
+		{
+			R_DrawCubemapView( vieworg, r_skyBoxInfo[i].angles, size );
+			flags = r_skyBoxInfo[i].flags;
+		}
+		else
+		{
+			R_DrawCubemapView( vieworg, r_envMapInfo[i].angles, size );
+			flags = r_envMapInfo[i].flags;
+		}
+
+		// the bottom left corner, read bottom row first like glReadPixels
+		ok = VK_ReadPixels( 0, vk_frame.color.height - size, size, size, rgba );
+		for( uint row = 0; row < size && ok; row++ )
+		{
+			const byte *src = rgba + ( size - 1 - row ) * size * 4;
+			byte *dst = temp + row * size * 3;
+
+			for( uint x = 0; x < size; x++ )
+			{
+				dst[x * 3 + 0] = src[x * 4 + 0];
+				dst[x * 3 + 1] = src[x * 4 + 1];
+				dst[x * 3 + 2] = src[x * 4 + 2];
+			}
+		}
+
+		r_side->flags = IMAGE_HAS_COLOR;
+		r_side->width = r_side->height = size;
+		r_side->type = PF_RGB_24;
+		r_side->size = r_side->width * r_side->height * 3;
+		r_side->buffer = temp;
+
+		if( flags ) gEngfuncs.Image_Process( &r_side, 0, 0, flags, 0.0f );
+		memcpy( buffer + (size * size * 3 * i), r_side->buffer, size * size * 3 );
+	}
+
+	Mem_Free( rgba );
+
+	r_shot->flags = IMAGE_HAS_COLOR;
+	r_shot->flags |= (skyshot) ? IMAGE_SKYBOX : IMAGE_CUBEMAP;
+	r_shot->width = size;
+	r_shot->height = size;
+	r_shot->type = PF_RGB_24;
+	r_shot->size = r_shot->width * r_shot->height * 3 * 6;
+	r_shot->palette = NULL;
+	r_shot->buffer = buffer;
+
+	// make sure what we have right extension
+	string basename;
+	Q_strncpy( basename, base, sizeof( basename ));
+	COM_ReplaceExtension( basename, ".tga", sizeof( basename ));
+
+	// write image as 6 sides
+	int result = ok && gEngfuncs.FS_SaveImage( basename, r_shot );
+	gEngfuncs.FS_FreeImage( r_shot );
+	gEngfuncs.FS_FreeImage( r_side );
 
 	return result;
 }

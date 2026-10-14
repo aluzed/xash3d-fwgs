@@ -113,6 +113,10 @@ SHOT_SCENES = [
                "ui_xhair_background 0", "crosshair_import XH-04404-4607R-CEG1R-W08GC-0314T-07JM1-7ZZZZ-ZZ05T",
                "menu_crosshair", "wait 60", "shot imported", "menu_crosshair_presets", "wait 60", "shot presets",
                "crosshair_export"]},
+    # envshot / skyshot write valve/gfx/env/cubetest*.tga; the shot is only there to end the run
+    {"name": "cubemap_valve", "game": "valve", "map": "c2a5", "server": [],
+     "lines": ["wait 100"] + HL_SETUP + ["wait 200", "envshot cubetest_env", "wait 20",
+               "skyshot cubetest_sky", "wait 20", "shot view"]},
     {"name": "hud_valve", "game": "valve", "map": "c2a5", "server": [],
      "lines": ["gl_clear 1", "r_norefresh 1", "wait 100"] + HL_SETUP + ["wait 200", "shot hud"]},
     # customizable crosshair (cs16-client xhair_*), over a black screen

@@ -2957,14 +2957,14 @@ static void R_RenderScene( void )
 		int scene_width, scene_height;
 
 		VK_MainExtent( &scene_width, &scene_height );
+		// VK_SetViewport takes the bottom left corner like glViewport
 		x = RI.rvp.viewport[0] * scene_width / gpGlobals->width;
+		y = RI.rvp.viewport[1] * scene_height / gpGlobals->height;
 		int x2 = (( RI.rvp.viewport[0] + RI.rvp.viewport[2] ) * scene_width + gpGlobals->width - 1 ) / gpGlobals->width;
-		int y_top = scene_height - RI.rvp.viewport[1] * scene_height / gpGlobals->height;
-		int y2 = scene_height - (( RI.rvp.viewport[1] + RI.rvp.viewport[3] ) * scene_height + gpGlobals->height - 1 ) / gpGlobals->height;
+		int y2 = (( RI.rvp.viewport[1] + RI.rvp.viewport[3] ) * scene_height + gpGlobals->height - 1 ) / gpGlobals->height;
 
-		y = y2;
 		w = x2 - x;
-		h = y_top - y2;
+		h = y2 - y;
 	}
 
 	VK_SetViewport( x, y, w, h );
@@ -3019,6 +3019,33 @@ void GL_RenderFrame( const struct ref_viewpass_s *rvp )
 
 	tr.realframecount++; // right called after viewmodel events
 	R_RenderScene();
+}
+
+/*
+===============
+R_DrawCubemapView
+===============
+*/
+void R_DrawCubemapView( const vec3_t origin, const vec3_t angles, int size )
+{
+	ref_viewpass_t rvp;
+
+	// basic params
+	rvp.flags = rvp.viewentity = 0;
+	SetBits( rvp.flags, RF_DRAW_WORLD );
+	SetBits( rvp.flags, RF_DRAW_CUBEMAP );
+
+	rvp.viewport[0] = rvp.viewport[1] = 0;
+	rvp.viewport[2] = rvp.viewport[3] = size;
+	rvp.fov_x = rvp.fov_y = 90.0f; // this is a final fov value
+
+	// setup origin & angles
+	VectorCopy( origin, rvp.vieworigin );
+	VectorCopy( angles, rvp.viewangles );
+
+	GL_RenderFrame( &rvp );
+
+	RI.viewleaf = NULL; // force markleafs next frame
 }
 
 /*

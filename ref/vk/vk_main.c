@@ -181,8 +181,7 @@ static qboolean VID_ScreenShot( const char *filename, int shot_type )
 
 static qboolean VID_CubemapShot( const char *base, uint size, const float *vieworg, qboolean skyshot )
 {
-	VK_STUB();
-	return false;
+	return VK_CubemapShot( base, size, vieworg, skyshot );
 }
 
 /*

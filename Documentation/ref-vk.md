@@ -77,7 +77,6 @@ renderers): the three Half-Life demos run 15-18 % faster than with
 - Studio skinning and lighting run on the CPU like `ref_gl`.
 - `r_shadows` draws without `ref_gl`'s stencil test, so overlapping shadow
   triangles may darken twice.
-- `VID_CubemapShot` (`envshot`, `skyshot`) isn't implemented.
 - Not checked against `ref_gl` by an automatic capture yet: translucent
   world water (`sv_wateralpha`), `func_water` entities, player sprays,
   decals on transparent surfaces.
