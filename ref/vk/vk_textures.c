@@ -1322,6 +1322,11 @@ int VK_WhiteTexture( void )
 	return vk_tex.whiteTexture;
 }
 
+int VK_ParticleTexture( void )
+{
+	return vk_tex.particleTexture;
+}
+
 int VK_DefaultTexture( void )
 {
 	return vk_tex.defaultTexture;

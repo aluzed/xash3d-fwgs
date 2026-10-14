@@ -250,12 +250,19 @@ TriAPI entry points of ref_interface_t (gl_triapi.c)
 */
 void TriRenderMode( int mode )
 {
+	imm.tex_replace = false;
+
 	switch( mode )
 	{
 	case kRenderNormal:
 		imm.blend = false;
+		imm.raster.depth_write = VK_TRUE;
 		break;
 	case kRenderTransAlpha:
+		imm.blend = true;
+		imm.blend_func = VK_BLEND_ALPHA;
+		imm.raster.depth_write = VK_FALSE;
+		break;
 	case kRenderTransColor:
 	case kRenderTransTexture:
 		imm.blend = true;
@@ -265,6 +272,7 @@ void TriRenderMode( int mode )
 	case kRenderTransAdd:
 		imm.blend = true;
 		imm.blend_func = VK_BLEND_ADD;
+		imm.raster.depth_write = VK_FALSE;
 		break;
 	}
 }
@@ -289,15 +297,6 @@ void VK_ImmEnd( void )
 
 void TriEnd( void )
 {
-	// client 3D TriAPI needs its GL state (story 019)
-	if( !imm.in2d )
-	{
-		VK_STUB();
-		imm.primitive = -1;
-		imm.num_prim = 0;
-		return;
-	}
-
 	VK_ImmEnd();
 }
 

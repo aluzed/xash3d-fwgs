@@ -391,6 +391,7 @@ typedef struct
 	matrix4x4 objectMatrix;
 	cl_entity_t *currententity;
 	model_t *currentmodel;
+	cl_entity_t *currentbeam; // beam entity being drawn
 	float skyMins[2][SKYBOX_MAX_SIDES];
 	float skyMaxs[2][SKYBOX_MAX_SIDES];
 } vk_refinst_t;
@@ -405,6 +406,8 @@ typedef struct
 	vk_draw_list_t *draw_list;
 	cl_entity_t *viewent;    // the view model
 	dlight_t *elights;       // entity lights
+	color24 *palette;        // quake palette, particle colours
+	double frametime;        // of the scene, beams and particles
 	byte *texgammatable;
 	uint16_t *lightgammatable;
 	uint16_t *screengammatable;
@@ -437,6 +440,8 @@ typedef struct
 
 extern vk_refinst_t RI;
 extern vk_globals_t tr;
+
+#define WORLDMODEL ( tr.worldmodel )
 
 #define R_ModelOpaque( rm ) ( rm == kRenderNormal )
 #define CL_IsViewEntityLocalPlayer() ( gp_cl->viewentity == ( gp_cl->playernum + 1 ))
@@ -492,6 +497,8 @@ void VK_ShutdownWorld( void );
 void VK_WorldBeginFrame( void );
 void VK_ComputeMVP( float out[16], const matrix4x4 modelview );
 qboolean R_CullModel( const cl_entity_t *e, const vec3_t absmin, const vec3_t absmax );
+qboolean R_CullBox( const vec3_t mins, const vec3_t maxs );
+void CL_DrawParticlesExternal( const ref_viewpass_t *rvp, qboolean trans_pass, float frametime );
 int R_WorldToScreen( const vec3_t point, vec3_t screen );
 void R_ScreenToWorld( const vec3_t screen, vec3_t point );
 int TriWorldToScreen( const float *world, float *screen );
@@ -512,6 +519,13 @@ void R_PopScene( void );
 void R_ClearScene( void );
 qboolean R_AddEntity( struct cl_entity_s *clent, int type );
 int CL_FxBlend( cl_entity_t *e );
+
+//
+// vk_rpart.c, vk_beams.c
+//
+void CL_DrawParticles( double frametime, particle_t *cl_active_particles, float partsize );
+void CL_DrawTracers( double frametime, particle_t *cl_active_tracers );
+void CL_DrawBeams( int fTrans, BEAM *active_beams );
 
 //
 // vk_sprite.c
@@ -606,6 +620,7 @@ void VK_CheckTextureParams( void );
 void VK_UpdateTextureRegion( int texnum, int x, int y, int width, int height, const byte *rgba );
 int VK_TextureForDraw( int texnum );
 int VK_WhiteTexture( void );
+int VK_ParticleTexture( void );
 int VK_DefaultTexture( void );
 #define Mod_AllowMaterials() ( host_allow_materials->value && !FBitSet( gp_host->features, ENGINE_DISABLE_HDTEXTURES ))
 qboolean R_SearchForTextureReplacement( char *out, size_t size, const char *modelname, const char *fmt, ... ) FORMAT_CHECK( 4 );

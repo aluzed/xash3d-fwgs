@@ -62,7 +62,6 @@ static const float r_turbsin[] =
 vk_refinst_t RI;
 vk_globals_t tr;
 
-#define WORLDMODEL ( tr.worldmodel )
 #define BLOCK_SIZE ( tr.block_size )
 
 static uint r_blocklights[BLOCK_SIZE_MAX * BLOCK_SIZE_MAX * 3];
@@ -225,6 +224,11 @@ static qboolean VK_FrustumCullBox( const vk_frustum_t *out, const vec3_t mins, c
 }
 
 // gl_cull.c
+qboolean R_CullBox( const vec3_t mins, const vec3_t maxs )
+{
+	return VK_FrustumCullBox( &RI.frustum, mins, maxs, 0 );
+}
+
 qboolean R_CullModel( const cl_entity_t *e, const vec3_t absmin, const vec3_t absmax )
 {
 	if( e == tr.viewent )
@@ -2596,7 +2600,7 @@ R_DrawEntitiesOnList
 */
 static void R_DrawEntitiesOnList( VkCommandBuffer cmd )
 {
-	const double frametime = gp_cl->time - gp_cl->oldtime;
+	const double frametime = tr.frametime;
 
 	tr.blend = 1.0f;
 	VK_BindBrushGeometry( cmd );
@@ -2673,10 +2677,15 @@ static void R_DrawEntitiesOnList( VkCommandBuffer cmd )
 	}
 
 	if( FBitSet( RI.rvp.flags, RF_DRAW_WORLD ))
+	{
+		VK_ImmTexReplace( false );
 		gEngfuncs.pfnDrawTransparentTriangles();
+	}
 
 	if( !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ))
 		gEngfuncs.CL_DrawEFX( frametime, true );
+
+	VK_ImmBlendEnable( false ); // Trinity Render issues
 
 	if( !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ))
 		R_DrawViewModel();
@@ -2694,6 +2703,11 @@ static void R_RenderScene( void )
 	cmd = VK_BeginMainPass();
 	if( !cmd )
 		return;
+
+	// frametime is valid only for normal pass
+	if( !FBitSet( RI.rvp.flags, RF_DRAW_CUBEMAP ))
+		tr.frametime = gp_cl->time - gp_cl->oldtime;
+	else tr.frametime = 0.0;
 
 	tr.framecount++;
 	if( WORLDMODEL )
@@ -2780,6 +2794,35 @@ void GL_RenderFrame( const struct ref_viewpass_s *rvp )
 
 /*
 =================
+CL_DrawParticlesExternal
+
+render API: effects drawn from a custom renderer's own view
+=================
+*/
+void CL_DrawParticlesExternal( const ref_viewpass_t *rvp, qboolean trans_pass, float frametime )
+{
+	static vk_refinst_t oldRI;
+
+	oldRI = RI;
+
+	RI.rvp = *rvp;
+	RI.farClip = 0;
+	R_SetupFrustum();
+	R_SetupModelviewMatrix( RI.worldviewMatrix );
+	R_SetupProjectionMatrix( RI.projectionMatrix );
+	Matrix4x4_Concat( RI.worldviewProjectionMatrix, RI.projectionMatrix, RI.worldviewMatrix );
+	VK_ImmLoadModelview( RI.worldviewMatrix );
+	tr.frametime = frametime;
+
+	gEngfuncs.CL_DrawEFX( frametime, trans_pass );
+
+	// restore internal state
+	RI = oldRI;
+	VK_ImmLoadModelview( RI.worldviewMatrix );
+}
+
+/*
+=================
 R_NewMap
 =================
 */
@@ -2837,6 +2880,7 @@ void VK_InitWorld( void )
 	tr.screengammatable = (uint16_t *)ENGINE_GET_PARM( PARM_GET_SCREENGAMMATABLE_PTR );
 	tr.lineargammatable = (uint16_t *)ENGINE_GET_PARM( PARM_GET_LINEARGAMMATABLE_PTR );
 	tr.elights = (dlight_t *)ENGINE_GET_PARM( PARM_GET_ELIGHTS_PTR );
+	tr.palette = (color24 *)ENGINE_GET_PARM( PARM_GET_PALETTE_PTR );
 	tr.block_size = BLOCK_SIZE_DEFAULT;
 
 	gEngfuncs.Cvar_RegisterVariable( &gl_overbright );

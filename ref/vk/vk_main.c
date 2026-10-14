@@ -287,21 +287,6 @@ static qboolean Mod_ProcessRenderData( model_t *mod, qboolean create, const byte
 	return true;
 }
 
-static void CL_DrawParticles( double frametime, particle_t *particles, float partsize )
-{
-	VK_STUB();
-}
-
-static void CL_DrawTracers( double frametime, particle_t *tracers )
-{
-	VK_STUB();
-}
-
-static void CL_DrawBeams( int fTrans, BEAM *beams )
-{
-	VK_STUB();
-}
-
 static qboolean R_SpeedsMessage( char *out, size_t size )
 {
 	return false;
@@ -393,11 +378,6 @@ static void RAPI_UpdateTexSize( int texnum, int width, int height, int depth )
 	;
 }
 
-static void RAPI_DrawParticles( const struct ref_viewpass_s *rvp, qboolean trans_pass, float frametime )
-{
-	VK_STUB();
-}
-
 static struct mstudiotex_s *RAPI_StudioGetTexture( struct cl_entity_s *e )
 {
 	VK_STUB();
@@ -429,7 +409,7 @@ static void R_FillRenderAPI( render_api_t *api )
 	api->GL_TextureTarget        = RAPI_GLStubUInt;
 	api->GL_TexCoordArrayMode    = RAPI_GLStubUInt;
 	api->GL_UpdateTexSize        = RAPI_UpdateTexSize;
-	api->GL_DrawParticles        = RAPI_DrawParticles;
+	api->GL_DrawParticles        = CL_DrawParticlesExternal;
 	api->LightVec                = R_LightVec; // ref_common
 	api->StudioGetTexture        = RAPI_StudioGetTexture;
 	api->GL_GetProcAddress       = RAPI_GetProcAddress;
