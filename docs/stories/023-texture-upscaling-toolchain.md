@@ -17,6 +17,14 @@ an ML model, derives PBR maps, and outputs a `materials/` pack (022 layout).
 - [ ] Compression stage to KTX2 BC formats with mipmaps.
 - [ ] Incremental: only reprocess changed inputs; manifest with hashes.
 
+## Progress (2026-10-14)
+- [~] Compression stage, pulled forward for 022's test pack:
+      `utils/ktx2enc` (built with `--enable-utils`) turns a PNG into a
+      KTX2 with every mip level, BC7 (colour, linear data) or BC5 (normal
+      maps) or BC4, with bc7enc / rgbcx (`3rdparty/bc7enc_rdo` submodule,
+      MIT). Colour levels are averaged in linear light, normal map levels
+      renormalized. Not incremental yet, no manifest.
+
 ## Acceptance criteria
 - One command produces a pack for `cstrike` and one for `valve` from the
   Steam install.

@@ -1,0 +1,24 @@
+#! /usr/bin/env python
+# encoding: utf-8
+
+def options(opt):
+	pass
+
+def configure(conf):
+	conf.env.HAVE_BC7ENC = bool(conf.path.find_node('../../3rdparty/bc7enc_rdo/bc7enc.cpp'))
+	if not conf.env.HAVE_BC7ENC:
+		conf.msg('ktx2enc', 'skipped, run: git submodule update --init 3rdparty/bc7enc_rdo', color = 'YELLOW')
+
+def build(bld):
+	if not bld.env.HAVE_BC7ENC:
+		return
+
+	bc7enc = '../../3rdparty/bc7enc_rdo/'
+	bld.program(source = [ 'ktx2enc.cpp', bc7enc + 'bc7enc.cpp', bc7enc + 'rgbcx.cpp', bc7enc + 'lodepng.cpp' ],
+		target = 'ktx2enc',
+		includes = [ '.', bc7enc ],
+		cxxflags = [ '-std=c++17', '-O2' ] if bld.env.COMPILER_CC != 'msvc' else [ '/std:c++17', '/O2' ],
+		use = 'M',
+		install_path = bld.env.BINDIR,
+		subsystem = bld.env.CONSOLE_SUBSYSTEM
+	)

@@ -55,3 +55,6 @@
 [submodule "3rdparty/smaa"]
 	path = 3rdparty/smaa
 	url = https://github.com/iryoku/smaa.git
+[submodule "3rdparty/bc7enc_rdo"]
+	path = 3rdparty/bc7enc_rdo
+	url = https://github.com/richgel999/bc7enc_rdo.git
