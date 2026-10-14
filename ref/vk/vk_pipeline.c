@@ -179,12 +179,116 @@ void VK_WriteFogDescriptor( int frame, VkBuffer buffer, VkDeviceSize offset, VkD
 	vkUpdateDescriptorSets( vk.device, 1, &write, 0, NULL );
 }
 
-// the textures and the fog table of the frame being recorded
+/*
+=================
+World data sets: the material and surface buffers, one set per frame in
+flight, rewritten at the start of a frame when a buffer changed
+=================
+*/
+static qboolean VK_CreateWorldDataSets( void )
+{
+	VkDescriptorBindingFlags flags[2] = { VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT };
+
+	VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+		.bindingCount = 2,
+		.pBindingFlags = flags,
+	};
+
+	VkDescriptorSetLayoutBinding bindings[2] = {
+		{ VK_BINDING_MATERIALS, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT },
+		{ VK_BINDING_SURFACES, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT },
+	};
+
+	VkDescriptorSetLayoutCreateInfo layout = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		.pNext = &binding_flags,
+		.bindingCount = 2,
+		.pBindings = bindings,
+	};
+
+	if( vkCreateDescriptorSetLayout( vk.device, &layout, NULL, &vk_pipe.world_layout ) != VK_SUCCESS )
+		return false;
+
+	VkDescriptorPoolSize size = {
+		.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+		.descriptorCount = 2 * VK_FRAMES_IN_FLIGHT,
+	};
+
+	VkDescriptorPoolCreateInfo pool = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+		.maxSets = VK_FRAMES_IN_FLIGHT,
+		.poolSizeCount = 1,
+		.pPoolSizes = &size,
+	};
+
+	if( vkCreateDescriptorPool( vk.device, &pool, NULL, &vk_pipe.world_pool ) != VK_SUCCESS )
+		return false;
+
+	VkDescriptorSetLayout layouts[VK_FRAMES_IN_FLIGHT];
+	for( int i = 0; i < VK_FRAMES_IN_FLIGHT; i++ )
+		layouts[i] = vk_pipe.world_layout;
+
+	VkDescriptorSetAllocateInfo alloc = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+		.descriptorPool = vk_pipe.world_pool,
+		.descriptorSetCount = VK_FRAMES_IN_FLIGHT,
+		.pSetLayouts = layouts,
+	};
+
+	if( vkAllocateDescriptorSets( vk.device, &alloc, vk_pipe.world_sets ) != VK_SUCCESS )
+		return false;
+
+	VK_SetObjectName( VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, (uint64_t)vk_pipe.world_layout, "world data layout" );
+	return true;
+}
+
+// takes effect from the next frame that starts
+void VK_WriteWorldDataDescriptor( int binding, VkBuffer buffer, VkDeviceSize range )
+{
+	vk_pipe.world_buffers[binding] = buffer;
+	vk_pipe.world_ranges[binding] = range;
+	vk_pipe.world_generation++;
+}
+
+void VK_WorldDataBeginFrame( int frame )
+{
+	VkDescriptorBufferInfo infos[2];
+	VkWriteDescriptorSet writes[2];
+	int count = 0;
+
+	if( vk_pipe.world_written[frame] == vk_pipe.world_generation )
+		return;
+
+	for( int i = 0; i < 2; i++ )
+	{
+		if( !vk_pipe.world_buffers[i] )
+			continue;
+
+		infos[count] = (VkDescriptorBufferInfo){ vk_pipe.world_buffers[i], 0, vk_pipe.world_ranges[i] };
+		writes[count] = (VkWriteDescriptorSet){
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = vk_pipe.world_sets[frame],
+			.dstBinding = i,
+			.descriptorCount = 1,
+			.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+			.pBufferInfo = &infos[count],
+		};
+		count++;
+	}
+
+	if( count )
+		vkUpdateDescriptorSets( vk.device, count, writes, 0, NULL );
+
+	vk_pipe.world_written[frame] = vk_pipe.world_generation;
+}
+
+// the textures, the fog table and the world data of the frame being recorded
 void VK_BindDescriptorSets( VkCommandBuffer cmd )
 {
-	VkDescriptorSet sets[2] = { vk_pipe.texture_set, vk_pipe.fog_sets[VK_FrameIndex( )] };
+	VkDescriptorSet sets[3] = { vk_pipe.texture_set, vk_pipe.fog_sets[VK_FrameIndex( )], vk_pipe.world_sets[VK_FrameIndex( )] };
 
-	vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipe.layout, 0, 2, sets, 0, NULL );
+	vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipe.layout, 0, 3, sets, 0, NULL );
 }
 
 void VK_WriteTextureDescriptor( int texnum, VkImageView view, VkSampler sampler )
@@ -659,7 +763,13 @@ qboolean VK_InitPipelines( void )
 		return false;
 	}
 
-	VkDescriptorSetLayout set_layouts[2] = { vk_pipe.texture_layout, vk_pipe.fog_layout };
+	if( !VK_CreateWorldDataSets( ))
+	{
+		gEngfuncs.Con_Printf( S_ERROR "ref_vk: can't create the world data sets\n" );
+		return false;
+	}
+
+	VkDescriptorSetLayout set_layouts[3] = { vk_pipe.texture_layout, vk_pipe.fog_layout, vk_pipe.world_layout };
 
 	VkPushConstantRange push = {
 		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -668,7 +778,7 @@ qboolean VK_InitPipelines( void )
 
 	VkPipelineLayoutCreateInfo layout = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.setLayoutCount = 2,
+		.setLayoutCount = 3,
 		.pSetLayouts = set_layouts,
 		.pushConstantRangeCount = 1,
 		.pPushConstantRanges = &push,
@@ -728,6 +838,10 @@ void VK_ShutdownPipelines( void )
 		vkDestroyDescriptorPool( vk.device, vk_pipe.fog_pool, NULL );
 	if( vk_pipe.fog_layout )
 		vkDestroyDescriptorSetLayout( vk.device, vk_pipe.fog_layout, NULL );
+	if( vk_pipe.world_pool )
+		vkDestroyDescriptorPool( vk.device, vk_pipe.world_pool, NULL );
+	if( vk_pipe.world_layout )
+		vkDestroyDescriptorSetLayout( vk.device, vk_pipe.world_layout, NULL );
 
 	memset( &vk_pipe, 0, sizeof( vk_pipe ));
 }

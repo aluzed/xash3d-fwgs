@@ -266,6 +266,7 @@ void VK_RunDeferred( uint64_t completed );
 void *VK_UploadStaging( VkDeviceSize size, VkBuffer *buffer, VkDeviceSize *offset, VkCommandBuffer *cmd );
 void VK_FlushUploads( void );
 void VK_BeginDynamic( int frame );
+void VK_UploadBufferRegion( VkCommandBuffer cmd, VkBuffer src, VkDeviceSize src_offset, VkBuffer dst, VkDeviceSize dst_offset, VkDeviceSize size );
 void *VK_DynamicAlloc( VkDeviceSize size, VkDeviceSize align, VkBuffer *buffer, VkDeviceSize *offset );
 
 //
@@ -325,6 +326,7 @@ typedef struct vk_world_push_s
 	int alpha_test;
 	float tcoffset[2];
 	int fog;         // VK_FogIndex
+	int material;    // VK_MaterialIndex, 0 for none
 } vk_world_push_t;
 
 #define VK_PUSH_CONSTANTS_SIZE 128
@@ -347,6 +349,13 @@ typedef struct vk_pipelines_s
 	VkDescriptorSetLayout fog_layout;
 	VkDescriptorPool fog_pool;
 	VkDescriptorSet fog_sets[VK_FRAMES_IN_FLIGHT];
+	VkDescriptorSetLayout world_layout;
+	VkDescriptorPool world_pool;
+	VkDescriptorSet world_sets[VK_FRAMES_IN_FLIGHT];
+	VkBuffer world_buffers[2];     // VK_BINDING_MATERIALS, VK_BINDING_SURFACES
+	VkDeviceSize world_ranges[2];
+	int world_generation;          // bumped when a buffer changes
+	int world_written[VK_FRAMES_IN_FLIGHT];
 	VkPipelineLayout layout;
 	VkPipelineCache cache;
 	VkPipeline imm[VK_TARGET_COUNT][VK_TOPOLOGY_COUNT][VK_BLEND_ALL];
@@ -361,6 +370,8 @@ void VK_ShutdownPipelines( void );
 void VK_WriteTextureDescriptor( int texnum, VkImageView view, VkSampler sampler );
 void VK_WriteFogDescriptor( int frame, VkBuffer buffer, VkDeviceSize offset, VkDeviceSize range );
 void VK_BindDescriptorSets( VkCommandBuffer cmd );
+void VK_WriteWorldDataDescriptor( int binding, VkBuffer buffer, VkDeviceSize range );
+void VK_WorldDataBeginFrame( int frame );
 VkPipeline VK_WorldPipeline( vk_blend_t blend, qboolean depth_write, qboolean depth_equal );
 VkPipeline VK_ImmPipeline( vk_topology_t topology, vk_blend_t blend );
 qboolean VK_CreateHDRPipelines( void );
@@ -427,6 +438,24 @@ void VK_MainExtent( int *width, int *height );
 VkFormat VK_MainColorFormat( void );
 VkFormat VK_MainDepthFormat( void );
 qboolean VK_FormatHasStencil( VkFormat format );
+
+//
+// vk_material.c: .mat files, the maps of a game texture
+//
+void VK_InitMaterials( void );
+void VK_ShutdownMaterials( void );
+void VK_MaterialsBeginFrame( void );
+void VK_FindMaterial( int texnum, const char *modelname, const char *texname, qboolean common, int texflags );
+void VK_MaterialTextureFreed( int texnum );
+int VK_MaterialAlbedo( int texnum );
+int VK_MaterialIndex( int texnum );
+qboolean VK_MaterialShades( int texnum );
+qboolean VK_MaterialHasNormal( int texnum );
+
+//
+// vk_deluxe.c: light directions of the lightmaps
+//
+void VK_BuildDeluxemaps( byte **pages, int block_size );
 
 //
 // vk_post.c: HDR scene and post-processing (r_vk_quality)
@@ -527,6 +556,7 @@ typedef struct
 	int skytexturenum;
 	int block_size;
 	int lightmapTextures[MAX_LIGHTMAPS];
+	int deluxeTextures[MAX_LIGHTMAPS]; // light directions of each page (vk_deluxe.c), 0 for none
 	int current_lightmap_texture;
 	atlas_t atlas;
 	byte lightmap_buffer[BLOCK_SIZE_MAX * BLOCK_SIZE_MAX * 4];

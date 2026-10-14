@@ -29,6 +29,12 @@ GNU General Public License for more details.
 #define VK_BINDING_FOG       0
 #define VK_MAX_FOG_STATES    256  // 32 bytes each, index 0 is "no fog"
 
+// set 2: world data of the enhanced look, indexed from the push constants and
+// gl_InstanceIndex (world_material.glsl)
+#define VK_SET_WORLD         2
+#define VK_BINDING_MATERIALS 0    // vk_material.c
+#define VK_BINDING_SURFACES  1    // vk_world.c, one entry per surface of the world model
+
 // glFogi( GL_FOG_MODE )
 #define VK_FOG_LINEAR        1
 #define VK_FOG_EXP           2
@@ -41,5 +47,6 @@ GNU General Public License for more details.
 #define VK_WORLD_MODE_TEXTURE   0 // texture pass
 #define VK_WORLD_MODE_LIGHTMAP  1 // lightmap pass, lightmap * glColor
 #define VK_WORLD_MODE_COLOR     2 // untextured, glColor only
+#define VK_WORLD_MODE_MATERIAL  3 // enhanced look: specular and emissive, added
 
 #endif // VK_SHADER_BINDINGS_H

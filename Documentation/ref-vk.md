@@ -135,6 +135,29 @@ menu has the choice ("Rendering quality", classic or enhanced) while
   0.14 with FXAA).
   Each effect has its own switch for slower GPUs.
 
+## Materials
+
+`.mat` files give a game texture its high resolution and PBR maps (see
+`Documentation/hd-textures.md`), with `host_allow_materials 1`. The
+classic look takes their albedo only; `enhanced` also uses the normal,
+roughness / metalness / occlusion and emissive maps on world surfaces:
+
+- The lightmap pass multiplies the lightmap by the normal map's lighting
+  (against the flat surface's) and the occlusion; metals lose their
+  diffuse light.
+- A material pass then adds, blended additively, the GGX specular
+  reflection of the dominant light and the emission.
+- The dominant light direction of each lightmap sample is computed at map
+  load (`vk_deluxe.c`): direct light of the light entities, the sun
+  (`light_environment`, seen when a ray towards it reaches the sky) and
+  the texture lights, with rays through the world BSP. 164 ms for
+  de_dust2's 168 000 samples. Stored next to the lightmap pages, RGBA8:
+  direction in rgb, the share of the light coming from it in alpha (0 for
+  light from everywhere, where the normal map changes nothing).
+- `r_lightmap 1` shows the lighting with the normal maps.
+- Each surface's tangent frame is in a storage buffer, read through the
+  draw's instance index, and the materials in another (descriptor set 2).
+
 ## Performance
 
 `timedemo` on an RTX 2080 Ti (driver 580, 1280x720, same demos for both

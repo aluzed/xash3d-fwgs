@@ -40,6 +40,7 @@ static qboolean R_Init( void )
 	// every cvar before R_Init_Video: it executes vulkan.cfg, which would
 	// otherwise create them as plain user cvars and break the registration
 	VK_InitTextures();
+	VK_InitMaterials();
 	VK_InitImm();
 	VK_InitWorld();
 	R_StudioInit();
@@ -72,6 +73,10 @@ static qboolean R_Init( void )
 		return false;
 	}
 
+	// DDS and KTX2 files keep their BC blocks, uploaded as they are
+	if( vk.caps.texture_compression_bc )
+		gEngfuncs.Image_AddCmdFlags( IL_DDS_HARDWARE );
+
 	VK_InitProfile();
 	VK_CreateInitialSwapchain();
 
@@ -82,6 +87,7 @@ static void R_Shutdown( void )
 {
 	VK_ShutdownProfile();
 	VK_ShutdownWorld();
+	VK_ShutdownMaterials();
 	VK_ShutdownPost();
 	VK_ShutdownTextures();
 	VK_ShutdownFog();

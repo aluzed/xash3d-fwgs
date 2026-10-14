@@ -76,7 +76,19 @@ static struct
 	uint32_t *num_indices;
 	byte *dlit;            // the page holds dynamic light for this surface
 	int num_surfaces;
+	vk_buffer_t surfaces;  // vk_surface_gpu_t per surface, the enhanced look's
 } vk_wgeo;
+
+// mirrors world_material.glsl: what a surface's draws read from
+// gl_InstanceIndex, set to the surface number
+typedef struct
+{
+	vec4_t tangent;   // texture s axis
+	vec4_t bitangent; // image up: minus the texture t axis
+	vec4_t normal;    // facing the drawn side
+	int deluxe;       // texture of the light directions of its lightmap page, 0 for none
+	int pad[3];
+} vk_surface_gpu_t;
 
 
 void R_ProcessEntData( qboolean allocate, cl_entity_t *entities, unsigned int max_entities )
@@ -821,11 +833,12 @@ GPU geometry: every polygon of the world model, fanned into triangles
 */
 static void VK_FreeWorldGeometry( void )
 {
-	if( vk_wgeo.vertices.buffer || vk_wgeo.indices.buffer )
+	if( vk_wgeo.vertices.buffer || vk_wgeo.indices.buffer || vk_wgeo.surfaces.buffer )
 	{
 		vkDeviceWaitIdle( vk.device ); // map change, frames may still read them
 		VK_DestroyBuffer( &vk_wgeo.vertices );
 		VK_DestroyBuffer( &vk_wgeo.indices );
+		VK_DestroyBuffer( &vk_wgeo.surfaces );
 	}
 
 	if( vk_wgeo.first_index )
@@ -852,6 +865,56 @@ static void VK_UploadBuffer( vk_buffer_t *dst, const void *data, VkDeviceSize si
 
 	VkBufferCopy copy = { offset, 0, size };
 	vkCmdCopyBuffer( cmd, staging, dst->buffer, 1, &copy );
+}
+
+/*
+=================
+VK_BuildSurfaceData
+
+the tangent frame of each surface: GoldSrc texture coordinates grow
+rightwards and downwards in the image, normal maps have green up
+=================
+*/
+static void VK_BuildSurfaceData( void )
+{
+	const model_t *mod = WORLDMODEL;
+	const VkDeviceSize size = Q_max( mod->numsurfaces, 1 ) * sizeof( vk_surface_gpu_t );
+	VkBuffer staging;
+	VkDeviceSize offset;
+	VkCommandBuffer cmd;
+	vk_surface_gpu_t *data;
+
+	if( !VK_CreateBuffer( &vk_wgeo.surfaces, "world surfaces", size,
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT ))
+		return;
+
+	if( !( data = VK_UploadStaging( size, &staging, &offset, &cmd )))
+		return;
+
+	memset( data, 0, size );
+
+	for( int i = 0; i < mod->numsurfaces; i++ )
+	{
+		const msurface_t *surf = &mod->surfaces[i];
+		vk_surface_gpu_t *out = &data[i];
+
+		if( !surf->texinfo || !surf->plane )
+			continue;
+
+		VectorNormalize2( surf->texinfo->vecs[0], out->tangent );
+		VectorNormalize2( surf->texinfo->vecs[1], out->bitangent );
+		VectorNegate( out->bitangent, out->bitangent );
+
+		if( FBitSet( surf->flags, SURF_PLANEBACK ))
+			VectorNegate( surf->plane->normal, out->normal );
+		else VectorCopy( surf->plane->normal, out->normal );
+
+		if( surf->lightmaptexturenum >= 0 && surf->lightmaptexturenum < MAX_LIGHTMAPS && tr.deluxeTextures[surf->lightmaptexturenum] )
+			out->deluxe = VK_TextureForDraw( tr.deluxeTextures[surf->lightmaptexturenum] );
+	}
+
+	VK_UploadBufferRegion( cmd, staging, offset, vk_wgeo.surfaces.buffer, 0, size );
+	VK_WriteWorldDataDescriptor( VK_BINDING_SURFACES, vk_wgeo.surfaces.buffer, size );
 }
 
 static void VK_BuildWorldGeometry( void )
@@ -917,6 +980,8 @@ static void VK_BuildWorldGeometry( void )
 
 	Mem_Free( verts );
 	Mem_Free( indices );
+
+	VK_BuildSurfaceData();
 
 	gEngfuncs.Con_Reportf( "ref_vk: world geometry %u vertices, %u indices\n", (uint)num_verts, (uint)num_indices );
 }
@@ -1707,10 +1772,11 @@ static void VK_PushWorld( VkCommandBuffer cmd, vk_world_push_t *push )
 		0, sizeof( *push ), push );
 }
 
+// the instance is the surface: world_material.glsl reads its data with it
 static void VK_DrawSurface( VkCommandBuffer cmd, int surfnum )
 {
 	if( vk_wgeo.num_indices[surfnum] )
-		vkCmdDrawIndexed( cmd, vk_wgeo.num_indices[surfnum], 1, vk_wgeo.first_index[surfnum], 0, 0 );
+		vkCmdDrawIndexed( cmd, vk_wgeo.num_indices[surfnum], 1, vk_wgeo.first_index[surfnum], 0, surfnum );
 }
 
 // R_HasLightmap of ref_gl
@@ -1966,6 +2032,57 @@ static void VK_ResumeBrushDraws( VkCommandBuffer cmd, const vk_brush_state_t *st
 		VK_PushWorld( cmd, push );
 }
 
+/*
+=================
+VK_DrawMaterialPass
+
+after the lightmaps, in the enhanced look: what the materials add on top,
+specular reflection of the dominant light and emission
+=================
+*/
+static void VK_DrawMaterialPass( VkCommandBuffer cmd, const vk_brush_state_t *st, vk_world_push_t *push )
+{
+	vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, VK_WorldPipeline( VK_BLEND_ONE_ONE, false, st->lightmap_equal ));
+
+	push->mode = VK_WORLD_MODE_MATERIAL;
+	push->material = 0;
+	push->texture = -1;
+	// the light the lightmap pass gives, in gamma space: twice with overbright
+	if( st->lightmap_blend == VK_BLEND_OVERBRIGHT )
+		push->scale *= 2.0f;
+	VectorCopy( tr.modelorg, push->color ); // the eye, in model space
+
+	for( int i = 0; i < MAX_LIGHTMAPS; i++ )
+	{
+		qboolean pushed = false;
+
+		if( !lightmap_surfaces[i] )
+			continue;
+
+		push->lightmap = VK_TextureForDraw( tr.lightmapTextures[i] );
+
+		for( msurface_t *surf = lightmap_surfaces[i]; surf != NULL; surf = surf->info->lightmapchain )
+		{
+			const int gl_texnum = R_TextureAnimation( surf )->gl_texturenum;
+			const int material = VK_MaterialIndex( gl_texnum );
+			const int texture = VK_TextureForDraw( VK_MaterialAlbedo( gl_texnum ));
+
+			if( !VK_MaterialShades( gl_texnum ))
+				continue;
+
+			if( !pushed || material != push->material || texture != push->texture )
+			{
+				push->material = material;
+				push->texture = texture;
+				VK_PushWorld( cmd, push );
+				pushed = true;
+			}
+
+			VK_DrawSurface( cmd, surf - WORLDMODEL->surfaces );
+		}
+	}
+}
+
 static void VK_DrawBrushSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int count, const vk_brush_state_t *st, const matrix4x4 modelview )
 {
 	vk_world_push_t push = { 0 };
@@ -2000,7 +2117,7 @@ static void VK_DrawBrushSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 		if( st->mode == VK_WORLD_MODE_TEXTURE )
 		{
 			const int gl_texnum = R_TextureAnimation( s )->gl_texturenum;
-			const int texnum = VK_TextureForDraw( gl_texnum );
+			const int texnum = VK_TextureForDraw( VK_MaterialAlbedo( gl_texnum ));
 			float sOffset = 0.0f, tOffset = 0.0f;
 
 			if( FBitSet( s->flags, SURF_CONVEYOR ))
@@ -2088,6 +2205,11 @@ static void VK_DrawBrushSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 	push.alpha_test = false;
 	push.tcoffset[0] = push.tcoffset[1] = 0.0f;
 	push.fog = VK_FogIndex();
+	push.material = 0;
+
+	// the enhanced look: normal maps and occlusion darken the lightmap
+	const qboolean materials = VK_ColorTarget() == VK_TARGET_HDR; // r_lightmap 1 shows their lighting alone
+	qboolean any_shading = false;
 
 	for( int i = 0; i < MAX_LIGHTMAPS; i++ )
 	{
@@ -2098,8 +2220,27 @@ static void VK_DrawBrushSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 		VK_PushWorld( cmd, &push );
 
 		for( msurface_t *surf = lightmap_surfaces[i]; surf != NULL; surf = surf->info->lightmapchain )
+		{
+			if( materials )
+			{
+				const int gl_texnum = R_TextureAnimation( surf )->gl_texturenum;
+				const int material = VK_MaterialIndex( gl_texnum );
+
+				if( material != push.material )
+				{
+					push.material = material;
+					VK_PushWorld( cmd, &push );
+				}
+
+				any_shading |= VK_MaterialShades( gl_texnum );
+			}
+
 			VK_DrawSurface( cmd, surf - WORLDMODEL->surfaces );
+		}
 	}
+
+	if( any_shading )
+		VK_DrawMaterialPass( cmd, st, &push );
 
 	// restore fog here
 	GL_ResetFogColor();
@@ -3116,6 +3257,70 @@ void CL_DrawParticlesExternal( const ref_viewpass_t *rvp, qboolean trans_pass, f
 	VK_ImmLoadModelview( RI.worldviewMatrix );
 }
 
+static void VK_FreeDeluxePages( void )
+{
+	for( int i = 0; i < MAX_LIGHTMAPS; i++ )
+		GL_FreeTexture( tr.deluxeTextures[i] );
+
+	memset( tr.deluxeTextures, 0, sizeof( tr.deluxeTextures ));
+}
+
+// the light directions, when a world material has a normal map to use them
+static void VK_BuildDeluxePages( void )
+{
+	const int num_pages = tr.current_lightmap_texture; // LM_UploadBlock counted the last one
+	byte *pages[MAX_LIGHTMAPS] = { 0 };
+	qboolean needed = false;
+
+	VK_FreeDeluxePages();
+
+	for( int i = 0; i < WORLDMODEL->numtextures && !needed; i++ )
+		needed = WORLDMODEL->textures[i] && VK_MaterialHasNormal( WORLDMODEL->textures[i]->gl_texturenum );
+
+	if( !needed || !WORLDMODEL->lightdata )
+		return;
+
+	for( int i = 0; i < num_pages && i < MAX_LIGHTMAPS; i++ )
+		pages[i] = Mem_Calloc( r_temppool, BLOCK_SIZE * BLOCK_SIZE * 4 );
+
+	VK_BuildDeluxemaps( pages, BLOCK_SIZE );
+
+	for( int i = 0; i < num_pages && i < MAX_LIGHTMAPS; i++ )
+	{
+		rgbdata_t pic = { 0 };
+		char name[16];
+
+		Q_snprintf( name, sizeof( name ), "*deluxe%i", i );
+		pic.width = pic.height = BLOCK_SIZE;
+		pic.type = PF_RGBA_32;
+		pic.size = BLOCK_SIZE * BLOCK_SIZE * 4;
+		pic.flags = IMAGE_HAS_COLOR|IMAGE_HAS_ALPHA;
+		pic.buffer = pages[i];
+		tr.deluxeTextures[i] = GL_LoadTextureFromBuffer( name, &pic, TF_NOMIPMAP|TF_ATLAS_PAGE, false );
+		Mem_Free( pages[i] );
+	}
+}
+
+// materials/<map>/<texture>.mat, then materials/common, as the engine
+// looks for the TGA replacements (Mod_SearchForTextureReplacement)
+static void VK_FindWorldMaterials( void )
+{
+	for( int i = 0; i < WORLDMODEL->numtextures; i++ )
+	{
+		texture_t *tx = WORLDMODEL->textures[i];
+		char name[sizeof( tx->name )];
+
+		if( !tx || !tx->name[0] )
+			continue;
+
+		Q_strncpy( name, tx->name, sizeof( name ));
+		if( name[0] == '*' )
+			name[0] = '!';
+
+		VK_FindMaterial( tx->gl_texturenum, WORLDMODEL->name, name, true, 0 );
+	}
+}
+
 /*
 =================
 R_NewMap
@@ -3148,8 +3353,10 @@ void R_NewMap( void )
 		tx->texturechain = NULL;
 	}
 
+	VK_FindWorldMaterials();
 	VK_BuildLightmaps();
-	VK_BuildWorldGeometry();
+	VK_BuildDeluxePages();
+	VK_BuildWorldGeometry(); // after the light directions: the surfaces point at their pages
 
 	if( gEngfuncs.drawFuncs->R_NewMap != NULL )
 		gEngfuncs.drawFuncs->R_NewMap();

@@ -420,6 +420,10 @@ static VkFormat VK_CompressedFormat( pixformat_t type )
 	case PF_BC7_SRGB:
 	case PF_BC7_UNORM: return VK_FORMAT_BC7_UNORM_BLOCK; // ref_gl uploads both as UNORM
 	case PF_ATI2: return VK_FORMAT_BC5_UNORM_BLOCK;
+	case PF_BC4_UNSIGNED: return VK_FORMAT_BC4_UNORM_BLOCK; // material masks (KTX2)
+	case PF_BC4_SIGNED: return VK_FORMAT_BC4_SNORM_BLOCK;
+	case PF_BC5_UNSIGNED: return VK_FORMAT_BC5_UNORM_BLOCK; // normal maps (KTX2)
+	case PF_BC5_SIGNED: return VK_FORMAT_BC5_SNORM_BLOCK;
 	default: return VK_FORMAT_UNDEFINED;
 	}
 }
@@ -1133,6 +1137,7 @@ void GL_FreeTexture( unsigned int texnum )
 	if( vk_textures[texnum].region_pending )
 		VK_ResolveRegionUploads();
 
+	VK_MaterialTextureFreed( texnum );
 	VK_DeleteTexture( &vk_textures[texnum] );
 }
 

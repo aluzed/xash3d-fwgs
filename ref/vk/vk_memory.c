@@ -792,3 +792,39 @@ void VK_ShutdownMemory( void )
 	memset( &vk_upload, 0, sizeof( vk_upload ));
 	memset( vk_dynamic, 0, sizeof( vk_dynamic ));
 }
+
+/*
+=================
+VK_UploadBufferRegion
+
+a copy from staging into a buffer the frames read: the frames before it
+are done with the old contents, the ones after see the new ones
+=================
+*/
+void VK_UploadBufferRegion( VkCommandBuffer cmd, VkBuffer src, VkDeviceSize src_offset, VkBuffer dst, VkDeviceSize dst_offset, VkDeviceSize size )
+{
+	VkMemoryBarrier2 barrier = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+		.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+		.srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
+		.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT,
+		.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+	};
+
+	VkDependencyInfo dep = {
+		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+		.memoryBarrierCount = 1,
+		.pMemoryBarriers = &barrier,
+	};
+
+	VkBufferCopy copy = { src_offset, dst_offset, size };
+
+	vkCmdPipelineBarrier2( cmd, &dep );
+	vkCmdCopyBuffer( cmd, src, dst, 1, &copy );
+
+	barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+	barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+	barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+	barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT;
+	vkCmdPipelineBarrier2( cmd, &dep );
+}

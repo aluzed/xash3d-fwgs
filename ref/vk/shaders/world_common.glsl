@@ -14,4 +14,7 @@ layout( push_constant ) uniform world_push_s
 	int alpha_test;  // GL_ALPHA_TEST enabled
 	vec2 tcoffset;   // conveyor scroll added to the texture coordinates
 	int fog;         // fog state, 0 when GL_FOG is off
+	int material;    // enhanced look: index in the materials, 0 for none
 } pc;
+// VK_WORLD_MODE_MATERIAL: color.xyz is the eye in model space, scale the
+// lightmap's scale as the lightmap pass blends it
