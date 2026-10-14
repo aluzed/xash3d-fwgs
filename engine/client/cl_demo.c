@@ -1006,32 +1006,46 @@ static qboolean CL_DemoReadMessageQuake( byte *buffer, size_t *length )
 ==============
 timedemo frame times
 
-the time of every frame, for the slowest frames that an average hides
+the time of every frame, for the slowest frames that an average hides.
+Frames that start or end while the client isn't active are loading (the
+first frames of the demo, a level change inside it): they are left out,
+the lows are about play
 ==============
 */
 #define TIMEDEMO_MAX_FRAMES ( 1 << 20 )
 
 static float  *td_frametimes;
 static int    td_numframes;
+static int    td_loadingframes;
 static double td_lastframe;
+static qboolean td_lastactive;
 
 static void CL_TimeDemoResetFrames( void )
 {
 	td_numframes = 0;
+	td_loadingframes = 0;
 	td_lastframe = 0.0;
+	td_lastactive = false;
 }
 
 static void CL_TimeDemoFrame( void )
 {
-	// the first frame ends the loading and isn't counted, like td_starttime
-	if( td_lastframe > 0.0 && td_numframes < TIMEDEMO_MAX_FRAMES )
+	const qboolean active = cls.state == ca_active;
+
+	if( td_lastframe > 0.0 )
 	{
-		if( !td_frametimes )
-			td_frametimes = Mem_Malloc( host.mempool, TIMEDEMO_MAX_FRAMES * sizeof( *td_frametimes ));
-		td_frametimes[td_numframes++] = host.realtime - td_lastframe;
+		if( !active || !td_lastactive )
+			td_loadingframes++;
+		else if( td_numframes < TIMEDEMO_MAX_FRAMES )
+		{
+			if( !td_frametimes )
+				td_frametimes = Mem_Malloc( host.mempool, TIMEDEMO_MAX_FRAMES * sizeof( *td_frametimes ));
+			td_frametimes[td_numframes++] = host.realtime - td_lastframe;
+		}
 	}
 
 	td_lastframe = host.realtime;
+	td_lastactive = active;
 }
 
 static int CL_TimeDemoCompareFrames( const void *a, const void *b )
@@ -1296,8 +1310,8 @@ static void CL_FinishTimeDemo( void )
 	if( td_numframes > 0 )
 	{
 		qsort( td_frametimes, td_numframes, sizeof( *td_frametimes ), CL_TimeDemoCompareFrames );
-		Con_Printf( "timedemo lows: 1%% %5.3f fps, 0.1%% %5.3f fps, slowest frame %5.3f ms\n",
-			CL_TimeDemoLow( 10 ), CL_TimeDemoLow( 1 ), td_frametimes[0] * 1000.0 );
+		Con_Printf( "timedemo lows: 1%% %5.3f fps, 0.1%% %5.3f fps, slowest frame %5.3f ms (%i loading frames left out)\n",
+			CL_TimeDemoLow( 10 ), CL_TimeDemoLow( 1 ), td_frametimes[0] * 1000.0, td_loadingframes );
 	}
 	CL_TimeDemoResetFrames();
 	host.allow_console = temp;

@@ -69,17 +69,21 @@ renderers): the three Half-Life demos run 15-18 % faster than with
 `ref_gl`, the three Counter-Strike demos 48-57 % faster.
 
 `timedemo` also prints the 1 % and 0.1 % lows (average frame rate of the
-slowest frames) and the slowest frame. On the long harness demos
-(`long_c2a5`, `long_de_dust2`, about 2500 frames, 3 runs):
+slowest frames) and the slowest frame, leaving out the frames that start
+or end while the client isn't active: the loading at the start of a demo
+and the level changes inside it (the 30-250 ms frames, in
+`svc_resourcelist` checking the resources and the first `svc_clientdata`).
+On the long harness demos (`long_c2a5`, about 2500 frames with five level
+changes, `long_de_dust2`, 3 runs):
 
-| Demo            | ref_gl avg / 1 % low | ref_vk avg / 1 % low |
-|-----------------|----------------------|----------------------|
-| `long_c2a5`     | 1558 / 35 fps        | 1791 / 43 fps        |
-| `long_de_dust2` | 1733 / 38 fps        | 2169 / 64 fps        |
+| Demo            | ref_gl avg / 1 % / 0.1 % low | ref_vk avg / 1 % / 0.1 % low |
+|-----------------|------------------------------|------------------------------|
+| `long_c2a5`     | 1567 / 541 / 196 fps         | 1814 / 707 / 275 fps         |
+| `long_de_dust2` | 1736 / 851 / 220 fps         | 2159 / 726 / 220 fps         |
 
-The lows of both renderers come from a few 30-100 ms frames in pairs
-along the demo, the same with OpenGL: not a renderer cost, still to be
-traced in the engine.
+No frame of play takes more than 6.5 ms with either renderer. On
+de_dust2 the 1 % low of ref_vk is below ref_gl's although its average is
+higher: a few slower frames to look at.
 
 ## Differences with ref_gl and known issues
 
