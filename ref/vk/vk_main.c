@@ -41,6 +41,7 @@ static qboolean R_Init( void )
 	// otherwise create them as plain user cvars and break the registration
 	VK_InitTextures();
 	VK_InitMaterials();
+	VK_InitStream();
 	VK_InitImm();
 	VK_InitWorld();
 	R_StudioInit();
@@ -49,6 +50,7 @@ static qboolean R_Init( void )
 	VK_RegisterFogCvars();
 	VK_RegisterProfileCvars();
 	VK_RegisterPostCvars();
+	VK_RegisterStreamCvars();
 	R_ClearDecals();
 
 	// the engine falls back to the next renderer when this fails
@@ -89,6 +91,7 @@ static void R_Shutdown( void )
 	VK_ShutdownProfile();
 	VK_ShutdownWorld();
 	VK_ShutdownMaterials();
+	VK_ShutdownStream();
 	VK_ShutdownPost();
 	VK_ShutdownTextures();
 	VK_ShutdownFog();

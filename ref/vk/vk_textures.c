@@ -1503,3 +1503,103 @@ void VK_ShutdownTextures( void )
 	VK_FreeSamplers( false );
 	vk_numTextures = 0;
 }
+
+/*
+=================
+Streamed texture slots (vk_stream.c)
+
+a slot whose image is made level by level by the streaming code: created
+empty in TRANSFER_DST, filled with VK_StreamSlotUpload and copies from the
+previous image, then VK_StreamSlotReady makes it sampleable
+=================
+*/
+int VK_StreamSlotCreate( int texnum, const char *name, VkFormat format, int width, int height, int levels, texFlags_t flags )
+{
+	vk_texture_t *tex;
+
+	// a slot of this stream gets a new image, the old one goes when unused
+	if( texnum > 0 && texnum < VK_MAX_TEXTURES && vk_textures[texnum].used )
+	{
+		tex = &vk_textures[texnum];
+		VK_ReleaseTextureImage( tex );
+	}
+	else if( !( tex = VK_AllocTexture( name, flags )))
+		return 0;
+
+	tex->width = tex->srcWidth = width;
+	tex->height = tex->srcHeight = height;
+	tex->depth = 1;
+	tex->numMips = levels;
+	tex->samples = 4;
+
+	if( !VK_CreateTextureImage( tex, format, 1, false ))
+	{
+		VK_DeleteTexture( tex );
+		return 0;
+	}
+
+	VK_TextureToTransfer( tex, true );
+	return tex - vk_textures;
+}
+
+VkImage VK_StreamSlotImage( int texnum )
+{
+	return texnum > 0 && texnum < VK_MAX_TEXTURES ? vk_textures[texnum].image : VK_NULL_HANDLE;
+}
+
+void VK_StreamSlotUpload( int texnum, int level, int width, int height, const byte *data, size_t size )
+{
+	vk_texture_t *tex = &vk_textures[texnum];
+
+	VK_UploadLevel( tex, level, 0, width, height, data, size );
+	tex->size += size;
+}
+
+// rows y .. y + height of a level already in a staging buffer: no copy
+// on the CPU, and a big level can come over several frames
+void VK_StreamSlotCopyBuffer( int texnum, int level, int y, int width, int height, VkBuffer buffer, VkDeviceSize offset, size_t size )
+{
+	vk_texture_t *tex = &vk_textures[texnum];
+	VkBuffer staging;
+	VkDeviceSize staging_offset;
+	VkCommandBuffer cmd;
+
+	VK_UploadStaging( 0, &staging, &staging_offset, &cmd );
+
+	VkBufferImageCopy copy = {
+		.bufferOffset = offset,
+		.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, level, 0, 1 },
+		.imageOffset = { 0, y, 0 },
+		.imageExtent = { width, height, 1 },
+	};
+
+	vkCmdCopyBufferToImage( cmd, buffer, tex->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy );
+	tex->size += size;
+}
+
+// the copies from the previous image: their size counts too
+void VK_StreamSlotAddSize( int texnum, size_t size )
+{
+	vk_textures[texnum].size += size;
+}
+
+void VK_StreamSlotReady( int texnum )
+{
+	vk_texture_t *tex = &vk_textures[texnum];
+
+	VK_TextureToShader( tex );
+	VK_ApplyTextureParams( tex );
+}
+
+// a slot without the image, kept for the next one
+void VK_StreamSlotRelease( int texnum )
+{
+	if( texnum > 0 && texnum < VK_MAX_TEXTURES && vk_textures[texnum].used )
+		VK_ReleaseTextureImage( &vk_textures[texnum] );
+}
+
+void VK_StreamSlotFree( int texnum )
+{
+	if( texnum > 0 && texnum < VK_MAX_TEXTURES && vk_textures[texnum].used )
+		VK_DeleteTexture( &vk_textures[texnum] );
+}

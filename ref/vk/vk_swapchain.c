@@ -761,6 +761,7 @@ void VK_BeginFrame( qboolean clear_scene )
 		VK_RunDeferred( vk_frame.frame_count - VK_FRAMES_IN_FLIGHT );
 	VK_BeginDynamic( vk_frame.frame_index );
 	VK_FogBeginFrame( vk_frame.frame_index );
+	VK_StreamBeginFrame();    // may switch the textures of materials
 	VK_MaterialsBeginFrame();
 	VK_WorldDataBeginFrame( vk_frame.frame_index );
 	VK_CheckTextureParams();

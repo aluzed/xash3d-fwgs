@@ -46,10 +46,14 @@ materials in a storage buffer the world shaders index (world_material.glsl).
 
 #define VK_MAX_MATERIALS 2048
 
+/*
+A map is a texture number, or minus a stream handle for the KTX2 files
+vk_stream.c reads level by level: its texture changes as it grows.
+*/
 typedef struct
 {
 	char path[MAX_QPATH];   // of the .mat, to share it between textures
-	int albedo, normal, rma, emissive, height; // texture numbers, 0 when absent
+	int albedo, normal, rma, emissive, height; // maps, 0 when absent
 	float emissive_strength;
 	qboolean reflective;
 	int refs;               // game textures using it
@@ -96,6 +100,9 @@ static int VK_LoadMaterialMap( const char *mat_path, const char *value, int flag
 	}
 	else Q_strncpy( path, value, sizeof( path ));
 
+	if( !Q_stricmp( COM_FileExtension( path ), "ktx2" ) && ( texnum = VK_StreamOpen( path )) > 0 )
+		return -texnum;
+
 	texnum = GL_LoadTexture( path, NULL, 0, flags );
 
 	if( !texnum )
@@ -104,11 +111,24 @@ static int VK_LoadMaterialMap( const char *mat_path, const char *value, int flag
 	return texnum;
 }
 
+// the texture a map samples now
+static int VK_MapTexture( int map )
+{
+	return map < 0 ? VK_StreamTexture( -map ) : map;
+}
+
 // GL_LoadTexture gives the same texture to every .mat naming the same file
 static void VK_ReleaseMap( const vk_material_t *owner, int texnum )
 {
 	if( !texnum )
 		return;
+
+	// streams count their users
+	if( texnum < 0 )
+	{
+		VK_StreamRelease( -texnum );
+		return;
+	}
 
 	for( int i = 1; i < vk_mat.count; i++ )
 	{
@@ -295,7 +315,37 @@ int VK_MaterialAlbedo( int texnum )
 {
 	const vk_material_t *mat = VK_MaterialForTexture( texnum );
 
-	return mat && mat->albedo ? mat->albedo : texnum;
+	return mat && mat->albedo ? VK_MapTexture( mat->albedo ) : texnum;
+}
+
+// a stream changed texture: the materials buffer follows
+void VK_MaterialsChanged( void )
+{
+	vk_mat.dirty = true;
+}
+
+/*
+=================
+VK_MaterialNoteUse
+
+a draw of the game texture, where one of its texels covers need screen
+pixels: the streamed maps grow to what it shows
+=================
+*/
+void VK_MaterialNoteUse( int texnum, float need, int game_width )
+{
+	const vk_material_t *mat = VK_MaterialForTexture( texnum );
+
+	if( !mat )
+		return;
+
+	const int maps[5] = { mat->albedo, mat->normal, mat->rma, mat->emissive, mat->height };
+
+	for( int i = 0; i < 5; i++ )
+	{
+		if( maps[i] < 0 )
+			VK_StreamNoteUse( -maps[i], need, game_width );
+	}
 }
 
 // the material index the world shaders take, 0 for none
@@ -365,10 +415,10 @@ static qboolean VK_UploadMaterials( void )
 		if( !mat->path[0] )
 			continue;
 
-		dst[i].albedo = mat->albedo;
-		dst[i].normal = mat->normal;
-		dst[i].rma = mat->rma;
-		dst[i].emissive = mat->emissive;
+		dst[i].albedo = VK_MapTexture( mat->albedo );
+		dst[i].normal = VK_MapTexture( mat->normal );
+		dst[i].rma = VK_MapTexture( mat->rma );
+		dst[i].emissive = VK_MapTexture( mat->emissive );
 		dst[i].emissive_strength = mat->emissive_strength;
 		dst[i].flags = mat->reflective ? VK_MATERIAL_REFLECTIVE : 0;
 	}

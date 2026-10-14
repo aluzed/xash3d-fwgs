@@ -451,6 +451,20 @@ int VK_MaterialAlbedo( int texnum );
 int VK_MaterialIndex( int texnum );
 qboolean VK_MaterialShades( int texnum );
 qboolean VK_MaterialHasNormal( int texnum );
+void VK_MaterialsChanged( void );
+void VK_MaterialNoteUse( int texnum, float need, int game_width );
+
+//
+// vk_stream.c: mip level streaming of KTX2 material maps
+//
+void VK_RegisterStreamCvars( void );
+void VK_InitStream( void );
+void VK_ShutdownStream( void );
+void VK_StreamBeginFrame( void );
+int VK_StreamOpen( const char *path );
+void VK_StreamRelease( int handle );
+int VK_StreamTexture( int handle );
+void VK_StreamNoteUse( int handle, float need, int game_width );
 
 //
 // vk_deluxe.c: light directions of the lightmaps
@@ -821,6 +835,14 @@ void R_GetDetailScaleForTexture( int texture, float *xScale, float *yScale );
 void R_SetDetailScaleForTexture( int texture, float xScale, float yScale );
 void VK_CheckTextureParams( void );
 void VK_UpdateTextureRegion( int texnum, int x, int y, int width, int height, const byte *rgba );
+int VK_StreamSlotCreate( int texnum, const char *name, VkFormat format, int width, int height, int levels, texFlags_t flags );
+VkImage VK_StreamSlotImage( int texnum );
+void VK_StreamSlotUpload( int texnum, int level, int width, int height, const byte *data, size_t size );
+void VK_StreamSlotAddSize( int texnum, size_t size );
+void VK_StreamSlotCopyBuffer( int texnum, int level, int y, int width, int height, VkBuffer buffer, VkDeviceSize offset, size_t size );
+void VK_StreamSlotReady( int texnum );
+void VK_StreamSlotRelease( int texnum );
+void VK_StreamSlotFree( int texnum );
 int VK_TextureForDraw( int texnum );
 void VK_ResolveRegionUploads( void );
 int VK_WhiteTexture( void );

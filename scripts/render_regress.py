@@ -275,7 +275,8 @@ SHOT_SCENES = [
     # directory (cstrike/materials/maps/de_dust2.bsp/*.mat)
     {"name": "materials_cstrike", "game": "cstrike", "map": "de_dust2",
      "server": CS_SERVER + ["+host_allow_materials", "2"],
-     "lines": ["wait 250"] + CS_SETUP + ["hud_draw 0", "r_drawviewmodel 0", "wait 150", "shot classic",
+     "lines": ["wait 250"] + CS_SETUP + ["hud_draw 0", "r_drawviewmodel 0", "con_notifytime 0", "wait 150",
+                                         "r_vk_streaminfo all", "shot classic",
                                          "r_vk_quality enhanced"] + HDR_NONE + ["wait 10", "shot linear",
                                          "r_vk_tonemap 3", "r_vk_ssao 1", "r_vk_aa 2", "wait 60", "shot enhanced",
                                          "r_lightmap 1", "wait 10", "shot lighting",
@@ -283,7 +284,8 @@ SHOT_SCENES = [
                                          # out of the tunnel, into the sun
                                          "+forward", "wait 120", "-forward", "+right", "wait 40", "-right",
                                          "wait 10", "shot sun_classic", "r_vk_quality enhanced", "wait 60", "shot sun_enhanced",
-                                         "r_lightmap 1", "wait 10", "shot sun_lighting", "r_lightmap 0"]},
+                                         "r_lightmap 1", "wait 10", "shot sun_lighting", "r_lightmap 0",
+                                         "r_vk_streaminfo all"]},
     {"name": "hud_cstrike", "game": "cstrike", "map": "de_dust2", "server": CS_SERVER,
      "lines": ["gl_clear 1", "r_norefresh 1", "wait 250"] + CS_SETUP
               + ["wait 150", "shot hud", "+showscores", "wait 30", "shot scores", "-showscores",

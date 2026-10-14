@@ -62,6 +62,9 @@ Vulkan specific:
 | `r_vk_log_stubs`  | `0`     | log every unimplemented call once                              |
 | `r_vk_gpu_profile` | `0`    | GPU time of each part of the frame (timestamps)                |
 | `r_vk_gpu_profile_slow` | `0.35` | GPU frame time (ms) above which the profile counts a frame as slow |
+| `r_vk_texture_budget` | `1024` | megabytes of GPU memory for streamed material maps |
+| `r_vk_texture_stream` | `1` | stream the mip levels of KTX2 material maps, 0 loads them whole |
+| `r_vk_texture_upload` | `512` | megabytes a second of streamed maps sent to the GPU |
 
 Commands: `r_vk_meminfo` (GPU memory usage), `texturelist`,
 `r_vk_gpu_profile_print` and `r_vk_gpu_profile_reset`. With
@@ -155,6 +158,24 @@ roughness / metalness / occlusion and emissive maps on world surfaces:
   direction in rgb, the share of the light coming from it in alpha (0 for
   light from everywhere, where the normal map changes nothing).
 - `r_lightmap 1` shows the lighting with the normal maps.
+- KTX2 maps are streamed (`vk_stream.c`): at load only the levels up to
+  256 pixels are read; every frame the draws give the screen size of a
+  texel of each material, which gives the level each map needs; the
+  missing levels are read on a worker thread (only their bytes, straight
+  into a staging buffer) and a new image takes them with the levels
+  already there (GPU copy), sent at `r_vk_texture_upload` megabytes a
+  second so that no frame waits for a whole level. Past
+  `r_vk_texture_budget` megabytes (reads in flight counted), the maps
+  unseen for two seconds go back to their small levels; when none is, a
+  map grows less than it would like, so the maps on screen never take
+  turns. Each map switches between two texture slots, so no frame in
+  flight sees its image change. `r_vk_texture_stream 0` loads them whole;
+  `r_vk_streaminfo [all]` shows where they are.
+- Test pack: every de_dust2 texture at 4096 pixels (`scripts/texpack.py`,
+  117 KTX2 maps, 1.9 GB on disk). On the `long_de_dust2` demo, enhanced
+  look, 1280x720: 1039 fps, 1 % low 553, slowest frame 6.8 ms without the
+  pack; 662 fps, 1 % low 244, slowest 7.7 ms with it, under the 1024 MB
+  budget (8.0 ms under 512 MB). The i386 build runs it too.
 - Each surface's tangent frame is in a storage buffer, read through the
   draw's instance index, and the materials in another (descriptor set 2).
 

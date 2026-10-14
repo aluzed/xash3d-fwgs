@@ -77,6 +77,8 @@ static struct
 	byte *dlit;            // the page holds dynamic light for this surface
 	int num_surfaces;
 	vk_buffer_t surfaces;  // vk_surface_gpu_t per surface, the enhanced look's
+	vec4_t *bounds;        // per surface: centre, radius, for the streaming of material maps
+	float *texel_size;     // per surface: world units of a texel of its texture
 } vk_wgeo;
 
 // mirrors world_material.glsl: what a surface's draws read from
@@ -847,6 +849,10 @@ static void VK_FreeWorldGeometry( void )
 		Mem_Free( vk_wgeo.num_indices );
 	if( vk_wgeo.dlit )
 		Mem_Free( vk_wgeo.dlit );
+	if( vk_wgeo.bounds )
+		Mem_Free( vk_wgeo.bounds );
+	if( vk_wgeo.texel_size )
+		Mem_Free( vk_wgeo.texel_size );
 
 	memset( &vk_wgeo, 0, sizeof( vk_wgeo ));
 }
@@ -883,6 +889,31 @@ static void VK_BuildSurfaceData( void )
 	VkDeviceSize offset;
 	VkCommandBuffer cmd;
 	vk_surface_gpu_t *data;
+
+	vk_wgeo.bounds = Mem_Calloc( r_temppool, sizeof( vec4_t ) * Q_max( mod->numsurfaces, 1 ));
+	vk_wgeo.texel_size = Mem_Calloc( r_temppool, sizeof( float ) * Q_max( mod->numsurfaces, 1 ));
+
+	for( int i = 0; i < mod->numsurfaces; i++ )
+	{
+		const msurface_t *surf = &mod->surfaces[i];
+		vec3_t mins, maxs, centre;
+		qboolean any = false;
+
+		ClearBounds( mins, maxs );
+		for( const glpoly2_t *p = surf->polys; p; p = p->next )
+		{
+			for( int j = 0; j < p->numverts; j++, any = true )
+				AddPointToBounds( p->verts[j], mins, maxs );
+		}
+
+		if( !any || !surf->texinfo )
+			continue;
+
+		VectorAverage( mins, maxs, centre );
+		VectorCopy( centre, vk_wgeo.bounds[i] );
+		vk_wgeo.bounds[i][3] = RadiusFromBounds( mins, maxs );
+		vk_wgeo.texel_size[i] = 1.0f / Q_max( VectorLength( surf->texinfo->vecs[0] ), 1e-4f );
+	}
 
 	if( !VK_CreateBuffer( &vk_wgeo.surfaces, "world surfaces", size,
 		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT ))
@@ -2035,6 +2066,23 @@ static void VK_ResumeBrushDraws( VkCommandBuffer cmd, const vk_brush_state_t *st
 
 /*
 =================
+VK_NoteMaterialSurface
+
+how many screen pixels a texel of the texture covers on the surface, at
+its nearest: what the streamed maps of its material grow to
+=================
+*/
+static void VK_NoteMaterialSurface( int surfnum, const texture_t *tx )
+{
+	const float *bounds = vk_wgeo.bounds[surfnum];
+	const float dist = Q_max( VectorDistance( bounds, tr.modelorg ) - bounds[3], 8.0f );
+	const float pixels_per_unit = RI.rvp.viewport[2] / ( 2.0f * dist * tanf( RI.rvp.fov_x * M_PI_F / 360.0f ));
+
+	VK_MaterialNoteUse( tx->gl_texturenum, pixels_per_unit * vk_wgeo.texel_size[surfnum], tx->width );
+}
+
+/*
+=================
 VK_DrawMaterialPass
 
 after the lightmaps, in the enhanced look: what the materials add on top,
@@ -2117,7 +2165,12 @@ static void VK_DrawBrushSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 
 		if( st->mode == VK_WORLD_MODE_TEXTURE )
 		{
-			const int gl_texnum = R_TextureAnimation( s )->gl_texturenum;
+			const texture_t *tx = R_TextureAnimation( s );
+			const int gl_texnum = tx->gl_texturenum;
+
+			if( VK_MaterialIndex( gl_texnum ))
+				VK_NoteMaterialSurface( surfnum, tx );
+
 			const int texnum = VK_TextureForDraw( VK_MaterialAlbedo( gl_texnum ));
 			float sOffset = 0.0f, tOffset = 0.0f;
 
