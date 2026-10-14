@@ -213,6 +213,10 @@ class Engine:
 
     def run(self, game, ref, engine_args, log_name):
         """Run the engine, keep its output in data/logs, restore configs."""
+        # a missing renderer makes the engine wait on a modal error dialog
+        lib = os.path.join(self.dev_root, f"libref_{ref}.so")
+        if not os.path.isfile(lib):
+            sys.exit(f"renderer not installed: {lib}")
         gamedir = self.gamedir(game)
         saved = {}
         for name in os.listdir(gamedir):
