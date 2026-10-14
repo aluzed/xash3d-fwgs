@@ -67,9 +67,14 @@ the regression harness shows no new diff outside the story's scope.
 | 027 | [Denoising, temporal upscaling and quality presets](027-denoise-and-presets.md) | 7 - Ray tracing |
 | 028 | [Renderer multithreading](028-renderer-multithreading.md) | 1-5 - Cross-cutting |
 | 029 | [Engine job system and asynchronous loading](029-engine-job-system.md) | 6 - Cross-cutting |
+| 030 | [Customizable crosshair: rendering (Counter-Strike)](030-crosshair-rendering.md) | 8 - Game UI |
+| 031 | [Customizable crosshair: options page with live preview](031-crosshair-options-menu.md) | 8 - Game UI |
+| 032 | [Customizable crosshair: presets and share codes](032-crosshair-presets-and-sharing.md) | 8 - Game UI |
 
 Phases 0 to 5 deliver a renderer that is a drop-in replacement for `ref_gl`.
 Phases 6 and 7 can be developed in parallel once phase 5 is signed off.
 Story 028 is designed early and lands before parity sign-off (020).
 Story 023 is offline tooling and can start as soon as 022's material layout
 is frozen.
+Phase 8 (stories 030-032) is client DLL and menu work, independent of the
+renderer phases: it only needs 2D drawing (010).
