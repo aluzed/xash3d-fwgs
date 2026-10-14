@@ -49,3 +49,6 @@
 [submodule "3rdparty/mpg123/mpg123"]
 	path = 3rdparty/mpg123/mpg123
 	url = https://github.com/libsdl-org/mpg123
+[submodule "3rdparty/Vulkan-Headers"]
+	path = 3rdparty/Vulkan-Headers
+	url = https://github.com/KhronosGroup/Vulkan-Headers.git

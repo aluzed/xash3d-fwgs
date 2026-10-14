@@ -75,6 +75,24 @@ scripts/dev/run-amd64.sh cstrike +map de_dust2  # CS 1.6 listen server
 Extra arguments are passed to the engine. The engine catches SIGTERM and
 SIGINT to show the quit dialog; quit from the menu or the console.
 
+## Vulkan renderer
+
+`ref_vk` is built with `--enable-vk` (the build script passes it) and only
+loads when asked for, it is never picked automatically:
+
+```
+scripts/dev/run-amd64.sh valve -ref vk
+```
+
+Useful options: `-vkvalidation` enables `VK_LAYER_KHRONOS_validation` when
+it is installed (package `vulkan-validationlayers`, amd64 only), and
+`r_vk_log_stubs 1` logs every renderer call that isn't implemented yet. The
+Vulkan headers come from the `3rdparty/Vulkan-Headers` submodule; the loader
+is opened by the engine through SDL, `ref_vk` never links it.
+
+If an explicitly requested renderer fails, the engine shows a warning dialog
+and then falls back to the next renderer.
+
 ## Network compatibility checks
 
 | Server                  | Start                             | Join from the client console  |

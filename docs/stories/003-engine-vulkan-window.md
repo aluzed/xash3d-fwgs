@@ -40,7 +40,8 @@ Out: any Vulkan object creation besides what SDL needs.
 - `ref_soft` is not part of the default build (`RefDll('soft', ...,
   all_renderers = False)`), not re-tested.
 - The Vulkan window and surface are exercised by the `ref_vk` skeleton
-  (story 004).
+  (story 004): instance 1.3 created with the SDL extensions, surface
+  created, RTX 2080 Ti and llvmpipe enumerated.
 
 ## Dependencies
 001.
