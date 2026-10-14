@@ -30,5 +30,6 @@ GNU General Public License for more details.
 // brush surface shading
 #define VK_WORLD_MODE_TEXTURE   0 // texture pass
 #define VK_WORLD_MODE_LIGHTMAP  1 // lightmap pass, lightmap * glColor
+#define VK_WORLD_MODE_COLOR     2 // untextured, glColor only
 
 #endif // VK_SHADER_BINDINGS_H

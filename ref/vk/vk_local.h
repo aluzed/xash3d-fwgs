@@ -126,6 +126,7 @@ GNU General Public License for more details.
 	X( vkCmdBindIndexBuffer ) \
 	X( vkCmdCopyBuffer ) \
 	X( vkCmdClearAttachments ) \
+	X( vkCmdSetDepthBias ) \
 	X( vkCreateSampler ) \
 	X( vkDestroySampler ) \
 	X( vkCreateDescriptorSetLayout ) \
@@ -256,7 +257,10 @@ typedef enum
 	VK_BLEND_ADD,      // GL_SRC_ALPHA, GL_ONE
 	VK_BLEND_MODULATE, // GL_ZERO, GL_SRC_COLOR
 	VK_BLEND_COUNT,
-	VK_BLEND_OVERBRIGHT = VK_BLEND_COUNT, // GL_DST_COLOR, GL_SRC_COLOR, not an imm mode
+	// world only from here
+	VK_BLEND_OVERBRIGHT = VK_BLEND_COUNT, // GL_DST_COLOR, GL_SRC_COLOR
+	VK_BLEND_ONE_ONE,                     // GL_ONE, GL_ONE
+	VK_BLEND_DSTCOLOR_INVSRCALPHA,        // GL_DST_COLOR, GL_ONE_MINUS_SRC_ALPHA
 	VK_BLEND_ALL
 } vk_blend_t;
 
@@ -292,6 +296,9 @@ typedef struct vk_world_push_s
 	int lightmap;
 	int mode;
 	float scale;
+	vec4_t color;
+	float alpha_ref;
+	int alpha_test;
 } vk_world_push_t;
 
 #define VK_PUSH_CONSTANTS_SIZE 128
@@ -304,8 +311,7 @@ typedef struct vk_pipelines_s
 	VkPipelineLayout layout;
 	VkPipelineCache cache;
 	VkPipeline imm[VK_TOPOLOGY_COUNT][VK_BLEND_COUNT];
-	VkPipeline world_opaque;
-	VkPipeline world_lightmap[3]; // lightmap pass: modulate, overbright, r_lightmap (no blend)
+	VkPipeline world[VK_BLEND_ALL][2][2]; // blend, depth write, depth GL_EQUAL
 } vk_pipelines_t;
 
 extern vk_pipelines_t vk_pipe;
@@ -313,6 +319,7 @@ extern vk_pipelines_t vk_pipe;
 qboolean VK_InitPipelines( void );
 void VK_ShutdownPipelines( void );
 void VK_WriteTextureDescriptor( int texnum, VkImageView view, VkSampler sampler );
+VkPipeline VK_WorldPipeline( vk_blend_t blend, qboolean depth_write, qboolean depth_equal );
 
 //
 // vk_swapchain.c
@@ -353,6 +360,26 @@ void GL_OrthoBounds( const float *mins, const float *maxs );
 void R_SetupSky( int *skyboxTextures );
 void R_SetSkyCloudsTextures( int solidskyTexture, int alphaskyTexture );
 intptr_t VK_SkyParm( int parm, int arg );
+void R_PushScene( void );
+void R_PopScene( void );
+void R_ClearScene( void );
+qboolean R_AddEntity( struct cl_entity_s *clent, int type );
+int CL_FxBlend( cl_entity_t *e );
+cl_entity_t *VK_CurrentEntity( void );
+void VK_SetCurrentModel( model_t *model );
+const ref_viewpass_t *VK_ViewPass( void );
+void VK_ViewVectors( vec3_t forward, vec3_t right, vec3_t up );
+int VK_RealFrameCount( void );
+
+//
+// vk_studio.c
+//
+struct engine_studio_api_s;
+struct r_studio_interface_s;
+qboolean R_StudioFillAPI( struct engine_studio_api_s *api, struct r_studio_interface_s *pDefaultDraw );
+void R_StudioSetDrawInterface( struct r_studio_interface_s *pDraw );
+void R_StudioResetPlayerModels( void );
+void R_DrawStudioModel( cl_entity_t *e );
 
 //
 // vk_imm.c

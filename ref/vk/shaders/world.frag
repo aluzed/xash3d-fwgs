@@ -18,7 +18,18 @@ layout( location = 0 ) out vec4 out_color;
 void main()
 {
 	if( pc.mode == VK_WORLD_MODE_LIGHTMAP )
+	{
 		out_color = vec4( texture( textures[pc.lightmap], in_lightcoord ).rgb * pc.scale, 1.0 );
-	else
-		out_color = texture( textures[pc.texture], in_texcoord );
+		return;
+	}
+
+	// GL_MODULATE with the render mode colour, or untextured (kRenderTransColor)
+	vec4 color = pc.color;
+	if( pc.mode == VK_WORLD_MODE_TEXTURE )
+		color *= texture( textures[pc.texture], in_texcoord );
+
+	if( pc.alpha_test != 0 && !( color.a > pc.alpha_ref ))
+		discard;
+
+	out_color = color;
 }

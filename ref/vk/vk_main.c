@@ -170,12 +170,6 @@ static void R_ClearScreen( void )
 	VK_ClearScreen();
 }
 
-static qboolean R_AddEntity( struct cl_entity_s *clent, int type )
-{
-	VK_STUB();
-	return true;
-}
-
 static int WorldToScreen( const vec3_t world, vec3_t screen )
 {
 	VK_STUB();
@@ -222,19 +216,6 @@ static float R_StudioEstimateFrame( cl_entity_t *e, mstudioseqdesc_t *pseqdesc, 
 }
 
 static void R_StudioLerpMovement( cl_entity_t *e, double time, vec3_t origin, vec3_t angles )
-{
-	VK_STUB();
-}
-
-// no studio interface yet: the engine then skips the client DLL negotiation,
-// so client DLLs replacing the studio renderer (CS does) never call into us
-static qboolean R_StudioFillAPI( struct engine_studio_api_s *api, struct r_studio_interface_s *pDefaultDraw )
-{
-	VK_STUB();
-	return false;
-}
-
-static void R_StudioSetDrawInterface( struct r_studio_interface_s *pDraw )
 {
 	VK_STUB();
 }
@@ -363,11 +344,6 @@ static void CL_DrawBeams( int fTrans, BEAM *beams )
 static qboolean R_SpeedsMessage( char *out, size_t size )
 {
 	return false;
-}
-
-static void R_ClearScene( void )
-{
-	VK_STUB();
 }
 
 /*
@@ -545,8 +521,8 @@ const ref_interface_t gReffuncs =
 	.R_BeginFrame         = R_BeginFrame,
 	.R_RenderScene        = R_RenderScene,
 	.R_EndFrame           = R_EndFrame,
-	.R_PushScene          = R_SimpleStub,
-	.R_PopScene           = R_SimpleStub,
+	.R_PushScene          = R_PushScene,
+	.R_PopScene           = R_PopScene,
 	.GL_BackendStartFrame = R_SimpleStub,
 	.GL_BackendEndFrame   = R_SimpleStub,
 

@@ -15,6 +15,7 @@ GNU General Public License for more details.
 
 #include "vk_local.h"
 #include "atlas.h"
+#include "entity_types.h"
 
 /*
  * Ported from ref_gl (gl_rsurf.c, gl_rmain.c, gl_cull.c, gl_frustum.c) so
@@ -94,6 +95,7 @@ static struct
 	int dlightframecount;
 	qboolean fResetVis;
 	qboolean fCustomRendering;
+	qboolean modelviewIdentity;
 	vec3_t modelorg;
 
 	int skytexturenum;
@@ -574,8 +576,10 @@ static void R_AddDynamicLights( const msurface_t *surf, float sample_size, int s
 
 		dlight_t *dl = &gp_dlights[lnum];
 
-		// world surfaces only for now: no bmodel transform
-		VectorCopy( dl->origin, origin_l );
+		// transform light origin to local bmodel space
+		if( !tr.modelviewIdentity )
+			Matrix4x4_VectorITransform( RI.objectMatrix, dl->origin, origin_l );
+		else VectorCopy( dl->origin, origin_l );
 
 		float rad = dl->radius;
 		float dist = PlaneDiff( origin_l, surf->plane );
@@ -1265,6 +1269,38 @@ loc0:
 	goto loc0;
 }
 
+/*
+=================
+View state shared with the studio API
+=================
+*/
+cl_entity_t *VK_CurrentEntity( void )
+{
+	return RI.currententity;
+}
+
+void VK_SetCurrentModel( model_t *model )
+{
+	RI.currentmodel = model;
+}
+
+const ref_viewpass_t *VK_ViewPass( void )
+{
+	return &RI.rvp;
+}
+
+void VK_ViewVectors( vec3_t forward, vec3_t right, vec3_t up )
+{
+	VectorCopy( RI.vforward, forward );
+	VectorCopy( RI.vright, right );
+	VectorCopy( RI.vup, up );
+}
+
+int VK_RealFrameCount( void )
+{
+	return tr.realframecount;
+}
+
 byte *Mod_GetCurrentVis( void )
 {
 	return RI.visbytes;
@@ -1590,11 +1626,12 @@ static void R_DrawSkyBox( VkCommandBuffer cmd )
 	memcpy( dst, verts, num_verts * sizeof( verts[0] ));
 
 	VK_BeginLabel( cmd, "skybox" );
-	vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipe.world_opaque );
+	vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, VK_WorldPipeline( VK_BLEND_NONE, true, false ));
 	vkCmdBindVertexBuffers( cmd, 0, 1, &buffer, &offset );
 
 	VK_ComputeMVP( push.mvp, RI.worldviewMatrix );
 	push.mode = VK_WORLD_MODE_TEXTURE; // GL_REPLACE
+	Vector4Set( push.color, 1.0f, 1.0f, 1.0f, 1.0f );
 
 	for( int i = 0; i < SKYBOX_MAX_SIDES; i++ )
 	{
@@ -1661,6 +1698,20 @@ Drawing
 */
 static msurface_t *lightmap_surfaces[MAX_LIGHTMAPS]; // gl_lms.lightmap_surfaces
 
+// the GL state of a brush surface batch
+typedef struct vk_brush_state_s
+{
+	vk_blend_t blend;
+	qboolean depth_write;
+	int mode;           // VK_WORLD_MODE_TEXTURE or VK_WORLD_MODE_COLOR
+	vec4_t color;
+	qboolean alpha_test;
+	float alpha_ref;
+	qboolean lightmaps; // R_HasLightmap
+	vk_blend_t lightmap_blend;
+	qboolean lightmap_equal;
+} vk_brush_state_t;
+
 static void VK_PushWorld( VkCommandBuffer cmd, vk_world_push_t *push )
 {
 	vkCmdPushConstants( cmd, vk_pipe.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -1673,100 +1724,110 @@ static void VK_DrawSurface( VkCommandBuffer cmd, int surfnum )
 		vkCmdDrawIndexed( cmd, vk_wgeo.num_indices[surfnum], 1, vk_wgeo.first_index[surfnum], 0, 0 );
 }
 
-// R_HasLightmap of ref_gl, world entity
+// R_HasLightmap of ref_gl
 static qboolean R_HasLightmap( void )
 {
 	if( r_fullbright->value || !WORLDMODEL->lightdata )
 		return false;
 
-	if( RI.currententity && FBitSet( RI.currententity->curstate.effects, EF_FULLBRIGHT ))
-		return false;
+	if( RI.currententity )
+	{
+		if( FBitSet( RI.currententity->curstate.effects, EF_FULLBRIGHT ))
+			return false;
+
+		switch( RI.currententity->curstate.rendermode )
+		{
+		case kRenderTransTexture:
+			return FBitSet( RI.currentmodel->flags, MODEL_LIQUID ) ? true : false;
+		case kRenderTransColor:
+		case kRenderTransAdd:
+		case kRenderGlow:
+			return false;
+		}
+	}
 
 	return true;
 }
 
-/*
-=================
-VK_DrawWorldSurfaces
-
-R_DrawTextureChains then R_BlendLightmaps of ref_gl
-=================
-*/
-static void VK_DrawWorldSurfaces( VkCommandBuffer cmd )
+static void VK_BindBrushGeometry( VkCommandBuffer cmd )
 {
-	vk_world_push_t push = { 0 };
 	VkDeviceSize offset = 0;
-	const qboolean lit = R_HasLightmap();
 
-	if( !vk_wgeo.vertices.buffer )
-		return;
-
-	memset( lightmap_surfaces, 0, sizeof( lightmap_surfaces ));
-
-	VK_BeginLabel( cmd, "world textures" );
-
-	vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipe.world_opaque );
 	vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipe.layout, 0, 1, &vk_pipe.texture_set, 0, NULL );
 	vkCmdBindVertexBuffers( cmd, 0, 1, &vk_wgeo.vertices.buffer, &offset );
 	vkCmdBindIndexBuffer( cmd, vk_wgeo.indices.buffer, 0, VK_INDEX_TYPE_UINT32 );
+}
 
-	VK_ComputeMVP( push.mvp, RI.worldviewMatrix );
-	push.mode = VK_WORLD_MODE_TEXTURE;
+/*
+=================
+VK_DrawBrushSurfaces
+
+R_RenderBrushPoly for a list of surfaces then R_BlendLightmaps, ref_gl's
+two passes, with the GL state of the current entity
+=================
+*/
+static void VK_DrawBrushSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int count, const vk_brush_state_t *st, const matrix4x4 modelview )
+{
+	vk_world_push_t push = { 0 };
+	qboolean any_lightmap = false;
+
+	memset( lightmap_surfaces, 0, sizeof( lightmap_surfaces ));
+
+	VK_ComputeMVP( push.mvp, modelview );
+	push.mode = st->mode;
+	Vector4Copy( st->color, push.color );
+	push.alpha_test = st->alpha_test;
+	push.alpha_ref = st->alpha_ref;
 	push.texture = -1;
 
-	for( int i = 0; i < WORLDMODEL->numtextures; i++ )
-	{
-		texture_t *t = WORLDMODEL->textures[i];
-		msurface_t *s;
+	vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, VK_WorldPipeline( st->blend, st->depth_write, false ));
 
-		if( !t || !( s = t->texturechain ) || i == tr.skytexturenum )
+	if( st->mode == VK_WORLD_MODE_COLOR )
+		VK_PushWorld( cmd, &push );
+
+	for( int i = 0; i < count; i++ )
+	{
+		msurface_t *s = surfs[i];
+		const int surfnum = s - WORLDMODEL->surfaces;
+
+		// water comes with its own pass
+		if( FBitSet( s->flags, SURF_DRAWTURB|SURF_DRAWSKY ))
 			continue;
 
-		for( ; s != NULL; s = s->texturechain )
+		if( st->mode == VK_WORLD_MODE_TEXTURE )
 		{
-			const int surfnum = s - WORLDMODEL->surfaces;
-			int texnum;
-
-			// water comes with story 014
-			if( FBitSet( s->flags, SURF_DRAWTURB|SURF_DRAWSKY ))
-				continue;
-
-			texnum = VK_TextureForDraw( R_TextureAnimation( s )->gl_texturenum );
+			int texnum = VK_TextureForDraw( R_TextureAnimation( s )->gl_texturenum );
 
 			if( texnum != push.texture )
 			{
 				push.texture = texnum;
 				VK_PushWorld( cmd, &push );
 			}
-
-			VK_DrawSurface( cmd, surfnum );
-
-			// R_RenderLightmapForSurface
-			if( lit && s->polys && !FBitSet( s->flags, SURF_DRAWTILED ))
-			{
-				R_UpdateSurfaceLightmap( s, surfnum );
-				s->info->lightmapchain = lightmap_surfaces[s->lightmaptexturenum];
-				lightmap_surfaces[s->lightmaptexturenum] = s;
-			}
 		}
 
-		t->texturechain = NULL;
+		VK_DrawSurface( cmd, surfnum );
+
+		// R_RenderLightmapForSurface
+		if( st->lightmaps && s->polys && !FBitSet( s->flags, SURF_DRAWTILED ))
+		{
+			R_UpdateSurfaceLightmap( s, surfnum );
+			s->info->lightmapchain = lightmap_surfaces[s->lightmaptexturenum];
+			lightmap_surfaces[s->lightmaptexturenum] = s;
+			any_lightmap = true;
+		}
 	}
 
-	VK_EndLabel( cmd );
-
-	if( !lit )
+	if( !any_lightmap )
 		return;
 
-	VK_BeginLabel( cmd, "world lightmaps" );
-
 	if( r_lightmap->value )
-		vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipe.world_lightmap[2] );
+		vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, VK_WorldPipeline( VK_BLEND_NONE, false, st->lightmap_equal ));
 	else
-		vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipe.world_lightmap[gl_overbright.value ? 1 : 0] );
+		vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, VK_WorldPipeline( st->lightmap_blend, false, st->lightmap_equal ));
 
 	push.mode = VK_WORLD_MODE_LIGHTMAP;
-	push.scale = gl_overbright.value ? 128.0f / 192.0f : 1.0f;
+	push.scale = gl_overbright.value && st->lightmap_equal ? 128.0f / 192.0f : 1.0f;
+	push.alpha_test = false;
 
 	for( int i = 0; i < MAX_LIGHTMAPS; i++ )
 	{
@@ -1779,7 +1840,63 @@ static void VK_DrawWorldSurfaces( VkCommandBuffer cmd )
 		for( msurface_t *surf = lightmap_surfaces[i]; surf != NULL; surf = surf->info->lightmapchain )
 			VK_DrawSurface( cmd, surf - WORLDMODEL->surfaces );
 	}
+}
 
+static void VK_SetSolidLightmapBlend( vk_brush_state_t *st )
+{
+	st->lightmap_blend = gl_overbright.value ? VK_BLEND_OVERBRIGHT : VK_BLEND_MODULATE;
+	st->lightmap_equal = true;
+}
+
+/*
+=================
+World surfaces: R_DrawTextureChains then R_BlendLightmaps
+=================
+*/
+static msurface_t **vk_draw_surfs;
+static int vk_max_draw_surfs;
+
+static void VK_DrawWorldSurfaces( VkCommandBuffer cmd )
+{
+	vk_brush_state_t st = { 0 };
+	int count = 0;
+
+	if( !vk_wgeo.vertices.buffer )
+		return;
+
+	if( vk_max_draw_surfs < WORLDMODEL->numsurfaces )
+	{
+		if( vk_draw_surfs )
+			Mem_Free( vk_draw_surfs );
+		vk_max_draw_surfs = WORLDMODEL->numsurfaces;
+		vk_draw_surfs = Mem_Malloc( r_temppool, sizeof( *vk_draw_surfs ) * vk_max_draw_surfs );
+	}
+
+	// texture chains, in texture order
+	for( int i = 0; i < WORLDMODEL->numtextures; i++ )
+	{
+		texture_t *t = WORLDMODEL->textures[i];
+
+		if( !t || !t->texturechain || i == tr.skytexturenum )
+			continue;
+
+		for( msurface_t *s = t->texturechain; s != NULL && count < vk_max_draw_surfs; s = s->texturechain )
+			vk_draw_surfs[count++] = s;
+
+		t->texturechain = NULL;
+	}
+
+	st.blend = VK_BLEND_NONE;
+	st.depth_write = true;
+	st.mode = VK_WORLD_MODE_TEXTURE;
+	Vector4Set( st.color, 1.0f, 1.0f, 1.0f, 1.0f );
+	st.lightmaps = R_HasLightmap();
+	VK_SetSolidLightmapBlend( &st );
+
+	VK_BeginLabel( cmd, "world" );
+	VK_BindBrushGeometry( cmd );
+	vkCmdSetDepthBias( cmd, 0.0f, 0.0f, 0.0f );
+	VK_DrawBrushSurfaces( cmd, vk_draw_surfs, count, &st, RI.worldviewMatrix );
 	VK_EndLabel( cmd );
 }
 
@@ -1794,6 +1911,8 @@ static void R_DrawWorld( VkCommandBuffer cmd )
 		return;
 
 	VectorCopy( RI.cullorigin, tr.modelorg );
+	Matrix4x4_LoadIdentity( RI.objectMatrix );
+	tr.modelviewIdentity = true;
 	tr.skychain = NULL;
 	R_ClearSkyBox();
 
@@ -1810,6 +1929,552 @@ static void R_DrawWorld( VkCommandBuffer cmd )
 
 	tr.skychain = NULL;
 	gEngfuncs.R_DrawWorldHull();
+}
+
+/*
+=================
+Entity lists (gl_rmain.c)
+=================
+*/
+#define MAX_DRAW_STACK 2 // normal view and menu view
+
+typedef struct vk_draw_list_s
+{
+	cl_entity_t *solid_entities[MAX_VISIBLE_PACKET];
+	cl_entity_t *trans_entities[MAX_VISIBLE_PACKET];
+	cl_entity_t *beam_entities[MAX_VISIBLE_PACKET];
+	uint num_solid_entities;
+	uint num_trans_entities;
+	uint num_beam_entities;
+} vk_draw_list_t;
+
+static vk_draw_list_t vk_draw_stack[MAX_DRAW_STACK];
+static int vk_draw_stack_pos;
+static vk_draw_list_t *vk_draw_list = &vk_draw_stack[0];
+static float vk_blend; // tr.blend
+
+#define R_ModelOpaque( rm ) ( rm == kRenderNormal )
+
+int CL_FxBlend( cl_entity_t *e )
+{
+	int blend = 0;
+	float offset = ((int)e->index ) * 363.0f; // Use ent index to de-sync these fx
+
+	switch( e->curstate.renderfx )
+	{
+	case kRenderFxPulseSlowWide:
+		blend = e->curstate.renderamt + 0x40 * sin( gp_cl->time * 2 + offset );
+		break;
+	case kRenderFxPulseFastWide:
+		blend = e->curstate.renderamt + 0x40 * sin( gp_cl->time * 8 + offset );
+		break;
+	case kRenderFxPulseSlow:
+		blend = e->curstate.renderamt + 0x10 * sin( gp_cl->time * 2 + offset );
+		break;
+	case kRenderFxPulseFast:
+		blend = e->curstate.renderamt + 0x10 * sin( gp_cl->time * 8 + offset );
+		break;
+	case kRenderFxFadeSlow:
+		if( !FBitSet( RI.rvp.flags, RF_DRAW_CUBEMAP ))
+		{
+			if( e->curstate.renderamt > 0 )
+				e->curstate.renderamt -= 1;
+			else e->curstate.renderamt = 0;
+		}
+		blend = e->curstate.renderamt;
+		break;
+	case kRenderFxFadeFast:
+		if( !FBitSet( RI.rvp.flags, RF_DRAW_CUBEMAP ))
+		{
+			if( e->curstate.renderamt > 3 )
+				e->curstate.renderamt -= 4;
+			else e->curstate.renderamt = 0;
+		}
+		blend = e->curstate.renderamt;
+		break;
+	case kRenderFxSolidSlow:
+		if( !FBitSet( RI.rvp.flags, RF_DRAW_CUBEMAP ))
+		{
+			if( e->curstate.renderamt < 255 )
+				e->curstate.renderamt += 1;
+			else e->curstate.renderamt = 255;
+		}
+		blend = e->curstate.renderamt;
+		break;
+	case kRenderFxSolidFast:
+		if( !FBitSet( RI.rvp.flags, RF_DRAW_CUBEMAP ))
+		{
+			if( e->curstate.renderamt < 252 )
+				e->curstate.renderamt += 4;
+			else e->curstate.renderamt = 255;
+		}
+		blend = e->curstate.renderamt;
+		break;
+	case kRenderFxStrobeSlow:
+		blend = 20 * sin( gp_cl->time * 4 + offset );
+		if( blend < 0 ) blend = 0;
+		else blend = e->curstate.renderamt;
+		break;
+	case kRenderFxStrobeFast:
+		blend = 20 * sin( gp_cl->time * 16 + offset );
+		if( blend < 0 ) blend = 0;
+		else blend = e->curstate.renderamt;
+		break;
+	case kRenderFxStrobeFaster:
+		blend = 20 * sin( gp_cl->time * 36 + offset );
+		if( blend < 0 ) blend = 0;
+		else blend = e->curstate.renderamt;
+		break;
+	case kRenderFxFlickerSlow:
+		blend = 20 * ( sin( gp_cl->time * 2 ) + sin( gp_cl->time * 17 + offset ));
+		if( blend < 0 ) blend = 0;
+		else blend = e->curstate.renderamt;
+		break;
+	case kRenderFxFlickerFast:
+		blend = 20 * ( sin( gp_cl->time * 16 ) + sin( gp_cl->time * 23 + offset ));
+		if( blend < 0 ) blend = 0;
+		else blend = e->curstate.renderamt;
+		break;
+	case kRenderFxHologram:
+	case kRenderFxDistort:
+	{
+		vec3_t tmp = Vec3( e->origin );
+		VectorSubtract( tmp, RI.rvp.vieworigin, tmp );
+		float dist = DotProduct( tmp, RI.vforward );
+
+		// turn off distance fade
+		if( e->curstate.renderfx == kRenderFxDistort )
+			dist = 1;
+
+		if( dist <= 0 )
+			blend = 0;
+		else
+		{
+			e->curstate.renderamt = 180;
+			if( dist <= 100 ) blend = e->curstate.renderamt;
+			else blend = (int)(( 1.0f - ( dist - 100 ) * ( 1.0f / 400.0f )) * e->curstate.renderamt );
+			blend += gEngfuncs.COM_RandomLong( -32, 31 );
+		}
+		break;
+	}
+	default:
+		blend = e->curstate.renderamt;
+		break;
+	}
+
+	return bound( 0, blend, 255 );
+}
+
+// R_GetEntityRenderMode; player model overrides and studio texture flags
+// come with the studio renderer (story 017)
+static int R_GetEntityRenderMode( cl_entity_t *ent )
+{
+	model_t *model = ent->model;
+
+	if( R_ModelOpaque( ent->curstate.rendermode ))
+	{
+		// forcing to choose right sorting type
+		if(( model && model->type == mod_brush ) && FBitSet( model->flags, MODEL_TRANSPARENT ))
+			return kRenderTransAlpha;
+	}
+
+	return ent->curstate.rendermode;
+}
+
+static qboolean R_OpaqueEntity( cl_entity_t *ent )
+{
+	if( R_GetEntityRenderMode( ent ) == kRenderNormal )
+	{
+		switch( ent->curstate.renderfx )
+		{
+		case kRenderFxNone:
+		case kRenderFxDeadPlayer:
+		case kRenderFxLightMultiplier:
+		case kRenderFxExplode:
+			return true;
+		}
+	}
+	return false;
+}
+
+static int R_RankForRenderMode( int rendermode )
+{
+	switch( rendermode )
+	{
+	case kRenderTransTexture:
+		return 1; // draw second
+	case kRenderTransAdd:
+		return 2; // draw third
+	case kRenderGlow:
+		return 3; // must be last!
+	}
+	return 0;
+}
+
+static int R_TransEntityCompare( const void *a, const void *b )
+{
+	cl_entity_t *ent1 = *(cl_entity_t **)a;
+	cl_entity_t *ent2 = *(cl_entity_t **)b;
+	int rendermode1 = R_GetEntityRenderMode( ent1 );
+	int rendermode2 = R_GetEntityRenderMode( ent2 );
+	vec3_t vecLen, org;
+	float dist1, dist2;
+
+	if( ent1->model->type != mod_brush || rendermode1 != kRenderTransAlpha )
+	{
+		VectorAverage( ent1->model->mins, ent1->model->maxs, org );
+		VectorAdd( ent1->origin, org, org );
+		VectorSubtract( RI.rvp.vieworigin, org, vecLen );
+		dist1 = DotProduct( vecLen, vecLen );
+	}
+	else dist1 = 1000000000;
+
+	if( ent2->model->type != mod_brush || rendermode2 != kRenderTransAlpha )
+	{
+		VectorAverage( ent2->model->mins, ent2->model->maxs, org );
+		VectorAdd( ent2->origin, org, org );
+		VectorSubtract( RI.rvp.vieworigin, org, vecLen );
+		dist2 = DotProduct( vecLen, vecLen );
+	}
+	else dist2 = 1000000000;
+
+	if( dist1 > dist2 )
+		return -1;
+	if( dist1 < dist2 )
+		return 1;
+
+	if( R_RankForRenderMode( rendermode1 ) > R_RankForRenderMode( rendermode2 ))
+		return 1;
+	if( R_RankForRenderMode( rendermode1 ) < R_RankForRenderMode( rendermode2 ))
+		return -1;
+
+	return 0;
+}
+
+void R_PushScene( void )
+{
+	if( ++vk_draw_stack_pos >= MAX_DRAW_STACK )
+		gEngfuncs.Host_Error( "draw stack overflow\n" );
+
+	vk_draw_list = &vk_draw_stack[vk_draw_stack_pos];
+}
+
+void R_PopScene( void )
+{
+	if( --vk_draw_stack_pos < 0 )
+		gEngfuncs.Host_Error( "draw stack underflow\n" );
+
+	vk_draw_list = &vk_draw_stack[vk_draw_stack_pos];
+}
+
+void R_ClearScene( void )
+{
+	vk_draw_list->num_solid_entities = 0;
+	vk_draw_list->num_trans_entities = 0;
+	vk_draw_list->num_beam_entities = 0;
+
+	if( gEngfuncs.drawFuncs->R_ClearScene != NULL )
+		gEngfuncs.drawFuncs->R_ClearScene();
+}
+
+qboolean R_AddEntity( struct cl_entity_s *clent, int type )
+{
+	if( !r_drawentities->value )
+		return false;
+
+	if( FBitSet( clent->curstate.effects, EF_NODRAW ))
+		return false;
+
+	if( !R_ModelOpaque( clent->curstate.rendermode ) && CL_FxBlend( clent ) <= 0 )
+		return true; // invisible
+
+	if( type == ET_BEAM )
+	{
+		if( vk_draw_list->num_beam_entities >= MAX_VISIBLE_PACKET )
+		{
+			gEngfuncs.Con_Printf( S_ERROR "Too many beams %d!\n", vk_draw_list->num_beam_entities );
+			return false;
+		}
+
+		vk_draw_list->beam_entities[vk_draw_list->num_beam_entities++] = clent;
+		return true;
+	}
+
+	if( R_OpaqueEntity( clent ))
+	{
+		if( vk_draw_list->num_solid_entities >= MAX_VISIBLE_PACKET )
+			return false;
+
+		vk_draw_list->solid_entities[vk_draw_list->num_solid_entities++] = clent;
+	}
+	else
+	{
+		if( vk_draw_list->num_trans_entities >= MAX_VISIBLE_PACKET )
+			return false;
+
+		vk_draw_list->trans_entities[vk_draw_list->num_trans_entities++] = clent;
+	}
+
+	return true;
+}
+
+/*
+=================
+Brush entities (R_DrawBrushModel)
+=================
+*/
+static void R_SetBrushRenderMode( cl_entity_t *e, vk_brush_state_t *st )
+{
+	memset( st, 0, sizeof( *st ));
+	st->mode = VK_WORLD_MODE_TEXTURE;
+	st->depth_write = true;
+	Vector4Set( st->color, 1.0f, 1.0f, 1.0f, 1.0f );
+	st->lightmaps = R_HasLightmap();
+	VK_SetSolidLightmapBlend( st );
+
+	switch( e->curstate.rendermode )
+	{
+	case kRenderNormal:
+		break;
+	case kRenderTransColor:
+		st->blend = VK_BLEND_ALPHA;
+		st->mode = VK_WORLD_MODE_COLOR; // GL_TEXTURE_2D disabled
+		Vector4Set( st->color, e->curstate.rendercolor.r / 255.0f, e->curstate.rendercolor.g / 255.0f,
+			e->curstate.rendercolor.b / 255.0f, e->curstate.renderamt / 255.0f );
+		break;
+	case kRenderTransAdd:
+		st->blend = VK_BLEND_ONE_ONE;
+		st->depth_write = false;
+		Vector4Set( st->color, vk_blend, vk_blend, vk_blend, 1.0f );
+		break;
+	case kRenderTransAlpha:
+		st->alpha_test = true;
+		st->alpha_ref = 0.25f;
+		if( FBitSet( gp_host->features, ENGINE_QUAKE_COMPATIBLE ))
+		{
+			st->blend = VK_BLEND_ALPHA;
+			st->color[3] = vk_blend;
+		}
+		break;
+	default:
+		st->blend = VK_BLEND_ALPHA;
+		st->depth_write = false;
+		st->color[3] = vk_blend;
+		break;
+	}
+
+	// R_BlendLightmaps of a translucent liquid: no GL_EQUAL, no depth write
+	if( e->curstate.rendermode == kRenderTransTexture )
+	{
+		st->lightmap_blend = VK_BLEND_DSTCOLOR_INVSRCALPHA;
+		st->lightmap_equal = false;
+	}
+}
+
+static int R_SurfaceCompare( const void *a, const void *b )
+{
+	const msurface_t *surf1 = *(const msurface_t **)a;
+	const msurface_t *surf2 = *(const msurface_t **)b;
+	vec3_t org1, org2;
+
+	VectorAdd( RI.currententity->origin, surf1->info->origin, org1 );
+	VectorAdd( RI.currententity->origin, surf2->info->origin, org2 );
+
+	float len1 = DotProduct( org1, RI.vforward ) - RI.viewplanedist;
+	float len2 = DotProduct( org2, RI.vforward ) - RI.viewplanedist;
+
+	if( len1 > len2 )
+		return -1;
+	if( len1 < len2 )
+		return 1;
+
+	return 0;
+}
+
+static void R_DrawBrushModel( VkCommandBuffer cmd, cl_entity_t *e )
+{
+	vec3_t mins, maxs;
+	qboolean rotated;
+	matrix4x4 modelview;
+	vk_brush_state_t st;
+	int num_sorted = 0;
+	model_t *clmodel = e->model;
+
+	if( !FBitSet( RI.rvp.flags, RF_DRAW_WORLD ))
+		return;
+
+	// models from another bsp aren't in the world buffers
+	if( clmodel->surfaces != WORLDMODEL->surfaces )
+	{
+		VK_STUB();
+		return;
+	}
+
+	if( !VectorIsNull( e->angles ))
+	{
+		for( int i = 0; i < 3; i++ )
+		{
+			mins[i] = e->origin[i] - clmodel->radius;
+			maxs[i] = e->origin[i] + clmodel->radius;
+		}
+		rotated = true;
+	}
+	else
+	{
+		VectorAdd( e->origin, clmodel->mins, mins );
+		VectorAdd( e->origin, clmodel->maxs, maxs );
+		rotated = false;
+	}
+
+	if( VK_FrustumCullBox( &RI.frustum, mins, maxs, 0 ))
+	{
+		return;
+	}
+
+	int old_rendermode = e->curstate.rendermode;
+
+	// R_RotateForEntity / R_TranslateForEntity
+	if( rotated )
+		Matrix4x4_CreateFromEntity( RI.objectMatrix, e->angles, e->origin, 1.0f );
+	else
+		Matrix4x4_CreateFromEntity( RI.objectMatrix, vec3_origin, e->origin, 1.0f );
+	Matrix4x4_ConcatTransforms( modelview, RI.worldviewMatrix, RI.objectMatrix );
+	Vector4Set( modelview[3], 0.0f, 0.0f, 0.0f, 1.0f ); // ConcatTransforms only writes the 3x4 part
+	tr.modelviewIdentity = false;
+
+	if( rotated )
+		Matrix4x4_VectorITransform( RI.objectMatrix, RI.cullorigin, tr.modelorg );
+	else
+		VectorSubtract( RI.cullorigin, e->origin, tr.modelorg );
+
+	if( FBitSet( gp_host->features, ENGINE_QUAKE_COMPATIBLE ) && FBitSet( clmodel->flags, MODEL_TRANSPARENT ))
+		e->curstate.rendermode = kRenderTransAlpha;
+
+	e->visframe = tr.realframecount;
+
+	R_PushDlightsForBmodel( clmodel, tr.dlightframecount, RI.objectMatrix );
+	R_SetBrushRenderMode( e, &st );
+
+	// R_SortBrushModelSurfaces
+	for( int i = 0; i < clmodel->nummodelsurfaces; i++ )
+	{
+		msurface_t *psurf = &clmodel->surfaces[clmodel->firstmodelsurface + i];
+
+		if( FBitSet( psurf->flags, SURF_DRAWTURB ) && !FBitSet( gp_host->features, ENGINE_QUAKE_COMPATIBLE ))
+		{
+			if( psurf->plane->type != PLANE_Z && !FBitSet( e->curstate.effects, EF_WATERSIDES ))
+				continue;
+
+			if( mins[2] + 1.0f >= psurf->plane->dist )
+				continue;
+		}
+
+		int cull_type = R_CullSurface( psurf, &RI.frustum, RI.frustum.clipFlags );
+
+		if( cull_type >= CULL_FRUSTUM )
+			continue;
+
+		if( cull_type == CULL_BACKSIDE && !FBitSet( psurf->flags, SURF_DRAWTURB )
+			&& !( psurf->pdecals && e->curstate.rendermode == kRenderTransTexture ))
+			continue;
+
+		if( num_sorted < vk_max_draw_surfs )
+			vk_draw_surfs[num_sorted++] = psurf;
+	}
+
+	if( !FBitSet( clmodel->flags, MODEL_LIQUID ) && e->curstate.rendermode == kRenderTransTexture )
+		qsort( vk_draw_surfs, num_sorted, sizeof( *vk_draw_surfs ), R_SurfaceCompare );
+
+	
+	// gl_polyoffset_bmodels: glPolygonOffset( -0.5, -2 )
+	vkCmdSetDepthBias( cmd, -2.0f, 0.0f, -0.5f );
+	VK_DrawBrushSurfaces( cmd, vk_draw_surfs, num_sorted, &st, modelview );
+	vkCmdSetDepthBias( cmd, 0.0f, 0.0f, 0.0f );
+
+	e->curstate.rendermode = old_rendermode;
+	tr.modelviewIdentity = true;
+	Matrix4x4_LoadIdentity( RI.objectMatrix );
+}
+
+/*
+=================
+R_DrawEntitiesOnList
+=================
+*/
+static void R_DrawEntitiesOnList( VkCommandBuffer cmd )
+{
+	const double frametime = gp_cl->time - gp_cl->oldtime;
+
+	vk_blend = 1.0f;
+	VK_BindBrushGeometry( cmd );
+
+	for( uint i = 0; i < vk_draw_list->num_solid_entities && !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ); i++ )
+	{
+		RI.currententity = vk_draw_list->solid_entities[i];
+		RI.currentmodel = RI.currententity->model;
+
+		if( !RI.currentmodel )
+			continue;
+
+		switch( RI.currentmodel->type )
+		{
+		case mod_brush:
+			R_DrawBrushModel( cmd, RI.currententity );
+			break;
+		case mod_studio:
+			R_DrawStudioModel( RI.currententity );
+			VK_BindBrushGeometry( cmd );
+			break;
+		default:
+			break;
+		}
+	}
+
+	// sprites: story 018
+
+	if( !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ))
+		gEngfuncs.CL_DrawEFX( frametime, false );
+
+	if( FBitSet( RI.rvp.flags, RF_DRAW_WORLD ))
+		gEngfuncs.pfnDrawNormalTriangles();
+
+	VK_BindBrushGeometry( cmd );
+
+	for( uint i = 0; i < vk_draw_list->num_trans_entities && !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ); i++ )
+	{
+		RI.currententity = vk_draw_list->trans_entities[i];
+		RI.currentmodel = RI.currententity->model;
+
+		if( RI.currententity->curstate.rendermode != kRenderNormal )
+			vk_blend = CL_FxBlend( RI.currententity ) / 255.0f;
+		else vk_blend = 1.0f;
+
+		if( vk_blend <= 0.0f || !RI.currentmodel )
+			continue;
+
+		switch( RI.currentmodel->type )
+		{
+		case mod_brush:
+			R_DrawBrushModel( cmd, RI.currententity );
+			break;
+		case mod_studio:
+			R_DrawStudioModel( RI.currententity );
+			VK_BindBrushGeometry( cmd );
+			break;
+		default:
+			VK_STUB(); // sprites: story 018
+			break;
+		}
+	}
+
+	if( FBitSet( RI.rvp.flags, RF_DRAW_WORLD ))
+		gEngfuncs.pfnDrawTransparentTriangles();
+
+	if( !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ))
+		gEngfuncs.CL_DrawEFX( frametime, true );
+
+	// view model: story 017
+	gEngfuncs.CL_ExtraUpdate();
 }
 
 static void R_RenderScene( void )
@@ -1829,7 +2494,10 @@ static void R_RenderScene( void )
 		tr.dlightframecount = R_PushDlights( WORLDMODEL, tr.framecount );
 
 	R_SetupFrustum();
+
+	// R_SetupFrame
 	RI.viewplanedist = DotProduct( RI.rvp.vieworigin, RI.vforward );
+	qsort( vk_draw_list->trans_entities, vk_draw_list->num_trans_entities, sizeof( cl_entity_t * ), R_TransEntityCompare );
 
 	if( FBitSet( RI.rvp.flags, RF_DRAW_WORLD ))
 		R_FindViewLeaf();
@@ -1864,9 +2532,10 @@ static void R_RenderScene( void )
 	{
 		R_MarkLeaves();
 		R_DrawWorld( cmd );
+		R_DrawEntitiesOnList( cmd );
 	}
 
-	// entities, water and sky come with their stories
+	// water surfaces: story 014
 
 	VK_ResetViewport();
 }
@@ -1906,6 +2575,8 @@ void R_NewMap( void )
 {
 	tr.worldmodel = gp_cl->models[1];
 	tr.world = (world_static_t *)ENGINE_GET_PARM( PARM_GET_WORLD_PTR );
+
+	R_StudioResetPlayerModels();
 
 	for( int i = 0; i < WORLDMODEL->numleafs; i++ )
 		WORLDMODEL->leafs[i+1].efrags = NULL;

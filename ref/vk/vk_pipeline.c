@@ -223,6 +223,16 @@ static void VK_SetBlend( VkPipelineColorBlendAttachmentState *state, vk_blend_t 
 		state->srcColorBlendFactor = state->srcAlphaBlendFactor = VK_BLEND_FACTOR_DST_COLOR;
 		state->dstColorBlendFactor = state->dstAlphaBlendFactor = VK_BLEND_FACTOR_SRC_COLOR;
 		break;
+	case VK_BLEND_ONE_ONE: // GL_ONE, GL_ONE
+		state->blendEnable = VK_TRUE;
+		state->srcColorBlendFactor = state->srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+		state->dstColorBlendFactor = state->dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+		break;
+	case VK_BLEND_DSTCOLOR_INVSRCALPHA: // GL_DST_COLOR, GL_ONE_MINUS_SRC_ALPHA
+		state->blendEnable = VK_TRUE;
+		state->srcColorBlendFactor = state->srcAlphaBlendFactor = VK_BLEND_FACTOR_DST_COLOR;
+		state->dstColorBlendFactor = state->dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		break;
 	case VK_BLEND_MODULATE: // GL_ZERO, GL_SRC_COLOR
 		state->blendEnable = VK_TRUE;
 		state->srcColorBlendFactor = state->srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
@@ -246,6 +256,7 @@ typedef struct vk_pipeline_desc_s
 	qboolean depth_test;
 	qboolean depth_write;
 	qboolean depth_equal; // GL_EQUAL instead of GL_LEQUAL
+	qboolean depth_bias;  // glPolygonOffset, set with vkCmdSetDepthBias
 	VkCullModeFlags cull;
 } vk_pipeline_desc_t;
 
@@ -284,6 +295,7 @@ static VkPipeline VK_CreateGraphicsPipeline( const vk_pipeline_desc_t *desc )
 		.polygonMode = VK_POLYGON_MODE_FILL,
 		.cullMode = desc->cull,
 		.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+		.depthBiasEnable = desc->depth_bias,
 		.lineWidth = 1.0f,
 	};
 
@@ -307,10 +319,10 @@ static VkPipeline VK_CreateGraphicsPipeline( const vk_pipeline_desc_t *desc )
 		.pAttachments = &attachment,
 	};
 
-	VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+	VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_DEPTH_BIAS };
 	VkPipelineDynamicStateCreateInfo dynamic = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-		.dynamicStateCount = ARRAYSIZE( dynamic_states ),
+		.dynamicStateCount = desc->depth_bias ? 3 : 2,
 		.pDynamicStates = dynamic_states,
 	};
 
@@ -405,36 +417,35 @@ static qboolean VK_CreateWorldPipelines( void )
 	};
 	VkShaderModule vert = VK_CreateShader( world_vert_spv, sizeof( world_vert_spv ), "world.vert" );
 	VkShaderModule frag = VK_CreateShader( world_frag_spv, sizeof( world_frag_spv ), "world.frag" );
+	qboolean ok = vert && frag;
 
-	// solid world surfaces: GL_Cull( GL_FRONT ), depth test and write
-	vk_pipeline_desc_t desc = {
-		.name = "world opaque",
-		.vert = vert, .frag = frag,
-		.binding = &binding, .attribs = attribs, .num_attribs = 3,
-		.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-		.blend = VK_BLEND_NONE,
-		.depth_test = true,
-		.depth_write = true,
-		.cull = VK_CULL_MODE_FRONT_BIT,
-	};
-
-	if( vert && frag )
+	// every combination brush surfaces use, GL_Cull( GL_FRONT ) for all
+	for( int blend = 0; ok && blend < VK_BLEND_ALL; blend++ )
 	{
-		vk_pipe.world_opaque = VK_CreateGraphicsPipeline( &desc );
+		for( int write = 0; ok && write < 2; write++ )
+		{
+			for( int equal = 0; ok && equal < 2; equal++ )
+			{
+				char name[64];
 
-		// R_BlendLightmaps: on top of the textures, depth GL_EQUAL, no depth
-		// write; coplanar overlapping surfaces get lit twice, as in GoldSrc
-		desc.depth_write = false;
-		desc.depth_equal = true;
-		desc.name = "world lightmap modulate";
-		desc.blend = VK_BLEND_MODULATE;
-		vk_pipe.world_lightmap[0] = VK_CreateGraphicsPipeline( &desc );
-		desc.name = "world lightmap overbright";
-		desc.blend = VK_BLEND_OVERBRIGHT;
-		vk_pipe.world_lightmap[1] = VK_CreateGraphicsPipeline( &desc );
-		desc.name = "world lightmap only";
-		desc.blend = VK_BLEND_NONE;
-		vk_pipe.world_lightmap[2] = VK_CreateGraphicsPipeline( &desc );
+				vk_pipeline_desc_t desc = {
+					.name = name,
+					.vert = vert, .frag = frag,
+					.binding = &binding, .attribs = attribs, .num_attribs = 3,
+					.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+					.blend = blend,
+					.depth_test = true,
+					.depth_write = write,
+					.depth_equal = equal,
+					.depth_bias = true,
+					.cull = VK_CULL_MODE_FRONT_BIT,
+				};
+
+				Q_snprintf( name, sizeof( name ), "world blend %d write %d equal %d", blend, write, equal );
+				vk_pipe.world[blend][write][equal] = VK_CreateGraphicsPipeline( &desc );
+				ok = vk_pipe.world[blend][write][equal] != VK_NULL_HANDLE;
+			}
+		}
 	}
 
 	if( vert )
@@ -442,7 +453,12 @@ static qboolean VK_CreateWorldPipelines( void )
 	if( frag )
 		vkDestroyShaderModule( vk.device, frag, NULL );
 
-	return vk_pipe.world_opaque && vk_pipe.world_lightmap[0] && vk_pipe.world_lightmap[1] && vk_pipe.world_lightmap[2];
+	return ok;
+}
+
+VkPipeline VK_WorldPipeline( vk_blend_t blend, qboolean depth_write, qboolean depth_equal )
+{
+	return vk_pipe.world[blend][depth_write ? 1 : 0][depth_equal ? 1 : 0];
 }
 
 qboolean VK_InitPipelines( void )
@@ -499,12 +515,13 @@ void VK_ShutdownPipelines( void )
 		}
 	}
 
-	if( vk_pipe.world_opaque )
-		vkDestroyPipeline( vk.device, vk_pipe.world_opaque, NULL );
-	for( int i = 0; i < 3; i++ )
+	for( int i = 0; i < VK_BLEND_ALL; i++ )
 	{
-		if( vk_pipe.world_lightmap[i] )
-			vkDestroyPipeline( vk.device, vk_pipe.world_lightmap[i], NULL );
+		for( int j = 0; j < 4; j++ )
+		{
+			if( vk_pipe.world[i][j >> 1][j & 1] )
+				vkDestroyPipeline( vk.device, vk_pipe.world[i][j >> 1][j & 1], NULL );
+		}
 	}
 	if( vk_pipe.cache )
 		vkDestroyPipelineCache( vk.device, vk_pipe.cache, NULL );
