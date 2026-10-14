@@ -81,6 +81,13 @@ SCENES = [
      "server": CS_SERVER, "setup": CS_SETUP, "moves": WALK + TURN},
 ]
 
+# Renderer settings both renderers share, set to their defaults before every
+# capture: they are saved per renderer (opengl.cfg, vulkan.cfg), so the
+# player's choices would otherwise make the renderers disagree.
+RENDER_DEFAULTS = ["gl_overbright 1", "gl_anisotropy 8", "gl_texture_lodbias 0",
+                   "gl_texture_nearest 0", "gl_lightmap_nearest 0", "gl_keeptjunctions 1",
+                   "r_detailtextures 1", "gl_litwater_force 0"]
+
 # Static scenes: menus, console and HUD rendered without a demo. They run
 # with -fixedfps (every clock steps by 1/60 s per frame) and -fixedseed;
 # "shot <name>" lines take a screenshot. r_norefresh 1 skips the 3D view so
@@ -403,7 +410,7 @@ def cmd_capture(args):
         shot_dir = os.path.join(engine.gamedir(scene["game"]),
                                 "regress_shots")
         shutil.rmtree(shot_dir, ignore_errors=True)
-        engine.write_cfg(scene["game"], "regress_capture.cfg", [
+        engine.write_cfg(scene["game"], "regress_capture.cfg", RENDER_DEFAULTS + [
             "developer 0",
             f"demo_capture_frames \"{' '.join(map(str, frames))}\"",
             "demo_capture_dir regress_shots",
@@ -432,7 +439,7 @@ def capture_shots(engine, args, out_dir, label):
     for scene in SHOT_SCENES:
         shot_dir = os.path.join(engine.gamedir(scene["game"]), "regress_shots")
         shutil.rmtree(shot_dir, ignore_errors=True)
-        lines = ["developer 0"]
+        lines = RENDER_DEFAULTS + ["developer 0"]
         expected = 0
         for line in scene["lines"]:
             if line.startswith("shot "):
