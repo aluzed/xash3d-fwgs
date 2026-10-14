@@ -27,4 +27,8 @@ GNU General Public License for more details.
 // push constants of the immediate mode passes (2D, TriAPI)
 #define VK_IMM_TEXTURE_NONE  0    // texture index 0: untextured, like GL_TEXTURE_2D disabled
 
+// brush surface shading
+#define VK_WORLD_MODE_TEXTURE   0 // texture pass
+#define VK_WORLD_MODE_LIGHTMAP  1 // lightmap pass, lightmap * glColor
+
 #endif // VK_SHADER_BINDINGS_H

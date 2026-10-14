@@ -1206,6 +1206,46 @@ void GL_UpdateTexture( int texnum, int cols, int rows, int width, int height, co
 		Mem_Free( rgba );
 }
 
+/*
+=================
+VK_UpdateTextureRegion
+
+replaces a rectangle of the first level with tightly packed RGBA pixels
+(lightmap updates, the glTexSubImage2D of ref_gl)
+=================
+*/
+void VK_UpdateTextureRegion( int texnum, int x, int y, int width, int height, const byte *rgba )
+{
+	vk_texture_t *tex;
+	VkBuffer staging;
+	VkDeviceSize offset;
+	VkCommandBuffer cmd;
+	byte *dst;
+
+	if( texnum <= 0 || texnum >= VK_MAX_TEXTURES || !vk_textures[texnum].image || width <= 0 || height <= 0 )
+		return;
+
+	tex = &vk_textures[texnum];
+	VK_TextureToTransfer( tex, false );
+
+	dst = VK_UploadStaging( (VkDeviceSize)width * height * 4, &staging, &offset, &cmd );
+	if( dst )
+	{
+		memcpy( dst, rgba, (size_t)width * height * 4 );
+
+		VkBufferImageCopy copy = {
+			.bufferOffset = offset,
+			.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+			.imageOffset = { x, y, 0 },
+			.imageExtent = { width, height, 1 },
+		};
+
+		vkCmdCopyBufferToImage( cmd, staging, tex->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy );
+	}
+
+	VK_TextureToShader( tex );
+}
+
 void R_OverrideTextureSourceSize( unsigned int texnum, unsigned int srcWidth, unsigned int srcHeight )
 {
 	if( texnum >= VK_MAX_TEXTURES )

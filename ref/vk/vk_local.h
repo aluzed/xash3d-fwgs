@@ -26,6 +26,10 @@ GNU General Public License for more details.
 #include "crtlib.h"
 #include "crclib.h"
 #include "enginefeatures.h"
+#include "ref_params.h"
+#include "protocol.h"
+#include "common/mod_local.h"
+#include "pmove.h"
 #include "shaders/bindings.h"
 
 // baseline: dynamic rendering, synchronization2, descriptor indexing and
@@ -118,6 +122,10 @@ GNU General Public License for more details.
 	X( vkCmdBindVertexBuffers ) \
 	X( vkCmdPushConstants ) \
 	X( vkCmdDraw ) \
+	X( vkCmdDrawIndexed ) \
+	X( vkCmdBindIndexBuffer ) \
+	X( vkCmdCopyBuffer ) \
+	X( vkCmdClearAttachments ) \
 	X( vkCreateSampler ) \
 	X( vkDestroySampler ) \
 	X( vkCreateDescriptorSetLayout ) \
@@ -247,7 +255,9 @@ typedef enum
 	VK_BLEND_ALPHA,    // GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA
 	VK_BLEND_ADD,      // GL_SRC_ALPHA, GL_ONE
 	VK_BLEND_MODULATE, // GL_ZERO, GL_SRC_COLOR
-	VK_BLEND_COUNT
+	VK_BLEND_COUNT,
+	VK_BLEND_OVERBRIGHT = VK_BLEND_COUNT, // GL_DST_COLOR, GL_SRC_COLOR, not an imm mode
+	VK_BLEND_ALL
 } vk_blend_t;
 
 typedef enum
@@ -274,6 +284,18 @@ typedef struct vk_imm_push_s
 	float alpha_ref;
 } vk_imm_push_t;
 
+// mirrors world_common.glsl
+typedef struct vk_world_push_s
+{
+	float mvp[16];
+	int texture;
+	int lightmap;
+	int mode;
+	float scale;
+} vk_world_push_t;
+
+#define VK_PUSH_CONSTANTS_SIZE 128
+
 typedef struct vk_pipelines_s
 {
 	VkDescriptorSetLayout texture_layout;
@@ -282,6 +304,8 @@ typedef struct vk_pipelines_s
 	VkPipelineLayout layout;
 	VkPipelineCache cache;
 	VkPipeline imm[VK_TOPOLOGY_COUNT][VK_BLEND_COUNT];
+	VkPipeline world_opaque;
+	VkPipeline world_lightmap[3]; // lightmap pass: modulate, overbright, r_lightmap (no blend)
 } vk_pipelines_t;
 
 extern vk_pipelines_t vk_pipe;
@@ -299,6 +323,9 @@ void VK_BeginFrame( qboolean clear_scene );
 void VK_EndFrame( void );
 void VK_ClearScreen( void );
 void VK_SetClearColor( float r, float g, float b );
+void VK_SetViewport( int x, int y, int width, int height );
+void VK_ResetViewport( void );
+void VK_ClearMainDepth( void );
 qboolean VK_ScreenShot( const char *filename, int shot_type );
 qboolean VK_FrameRecording( void );
 uint64_t VK_CurrentFrame( void );
@@ -308,6 +335,21 @@ void VK_MainExtent( int *width, int *height );
 VkFormat VK_MainColorFormat( void );
 VkFormat VK_MainDepthFormat( void );
 qboolean VK_FormatHasStencil( VkFormat format );
+
+//
+// vk_world.c
+//
+extern convar_t gl_overbright;
+void VK_InitWorld( void );
+void VK_ShutdownWorld( void );
+void VK_WorldBeginFrame( void );
+void R_NewMap( void );
+void GL_RenderFrame( const struct ref_viewpass_s *rvp );
+void R_ProcessEntData( qboolean allocate, cl_entity_t *entities, unsigned int max_entities );
+void R_GammaChanged( qboolean do_reset_gamma );
+void GL_SubdivideSurface( model_t *loadmodel, msurface_t *fa );
+byte *Mod_GetCurrentVis( void );
+void GL_OrthoBounds( const float *mins, const float *maxs );
 
 //
 // vk_imm.c
@@ -352,6 +394,7 @@ const byte *R_GetTextureOriginalBuffer( unsigned int texnum );
 void R_GetDetailScaleForTexture( int texture, float *xScale, float *yScale );
 void R_SetDetailScaleForTexture( int texture, float xScale, float yScale );
 void VK_CheckTextureParams( void );
+void VK_UpdateTextureRegion( int texnum, int x, int y, int width, int height, const byte *rgba );
 int VK_TextureForDraw( int texnum );
 intptr_t VK_TextureParm( int parm, int texnum );
 

@@ -164,6 +164,65 @@ VkCommandBuffer VK_BeginMainPass( void )
 	return cmd;
 }
 
+/*
+=================
+VK_SetViewport
+
+x, y, width, height as glViewport takes them: from the bottom left corner
+=================
+*/
+void VK_SetViewport( int x, int y, int width, int height )
+{
+	VkCommandBuffer cmd = vk_frame.frames[vk_frame.frame_index].cmd;
+	const int target_height = vk_frame.color.height;
+
+	if( !vk_frame.in_pass || width <= 0 || height <= 0 )
+		return;
+
+	VkViewport viewport = {
+		.x = (float)x,
+		.y = (float)( target_height - y ),
+		.width = (float)width,
+		.height = -(float)height,
+		.minDepth = 0.0f,
+		.maxDepth = 1.0f,
+	};
+
+	VkRect2D scissor = {
+		{ Q_max( x, 0 ), Q_max( target_height - y - height, 0 ) },
+		{ width, height },
+	};
+
+	vkCmdSetViewport( cmd, 0, 1, &viewport );
+	vkCmdSetScissor( cmd, 0, 1, &scissor );
+}
+
+void VK_ResetViewport( void )
+{
+	VK_SetViewport( 0, 0, vk_frame.color.width, vk_frame.color.height );
+}
+
+// glClear( GL_DEPTH_BUFFER_BIT ) inside the pass, the whole target like GL
+void VK_ClearMainDepth( void )
+{
+	VkCommandBuffer cmd = VK_BeginMainPass();
+
+	if( !cmd )
+		return;
+
+	VkClearAttachment clear = {
+		.aspectMask = vk_frame.depth.aspect,
+		.clearValue.depthStencil = { 1.0f, 0 },
+	};
+
+	VkClearRect rect = {
+		.rect = { { 0, 0 }, { vk_frame.color.width, vk_frame.color.height } },
+		.layerCount = 1,
+	};
+
+	vkCmdClearAttachments( cmd, 1, &clear, 1, &rect );
+}
+
 void VK_EndMainPass( void )
 {
 	VK_ImmFlush();
@@ -553,10 +612,15 @@ VK_BeginFrame
 */
 void VK_BeginFrame( qboolean clear_scene )
 {
-	vk_frame_t *frame = &vk_frame.frames[vk_frame.frame_index];
+	vk_frame_t *frame;
 	VkResult result;
 
-	vk_frame.recording = false;
+	// the engine may begin a frame without ending the previous one (level
+	// change): submit it, or its fence would stay unsignaled forever
+	if( vk_frame.recording )
+		VK_EndFrame();
+
+	frame = &vk_frame.frames[vk_frame.frame_index];
 
 	if( !VK_PrepareSwapchain( ))
 		return; // minimised, the engine keeps ticking without drawing

@@ -27,6 +27,9 @@ Lifetime
 */
 static qboolean R_Init( void )
 {
+	// first, like ref_gl: random tiling textures pick their variant from it
+	GL_InitRandomTable();
+
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_log_stubs );
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_validation );
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_device );
@@ -43,6 +46,7 @@ static qboolean R_Init( void )
 
 	VK_InitTextures();
 	VK_InitImm();
+	VK_InitWorld();
 
 	if( !VK_InitCore( ) || !VK_InitMemory( ) || !VK_InitFrames( ) || !VK_InitPipelines( ))
 	{
@@ -61,6 +65,7 @@ static qboolean R_Init( void )
 
 static void R_Shutdown( void )
 {
+	VK_ShutdownWorld();
 	VK_ShutdownTextures();
 	VK_ShutdownPipelines();
 	VK_ShutdownFrames();
@@ -142,6 +147,7 @@ static void GL_SetupAttributes( int safegl )
 
 static void R_BeginFrame( qboolean clearScene )
 {
+	VK_WorldBeginFrame();
 	VK_BeginFrame( clearScene );
 }
 
@@ -160,20 +166,10 @@ static void R_ClearScreen( void )
 	VK_ClearScreen();
 }
 
-static void R_GammaChanged( qboolean do_reset_gamma )
-{
-	VK_STUB();
-}
-
 static qboolean R_AddEntity( struct cl_entity_s *clent, int type )
 {
 	VK_STUB();
 	return true;
-}
-
-static void R_ProcessEntData( qboolean allocate, cl_entity_t *entities, unsigned int max_entities )
-{
-	;
 }
 
 static void R_SetupSky( int *skytextures )
@@ -245,11 +241,6 @@ static void R_StudioSetDrawInterface( struct r_studio_interface_s *pDraw )
 }
 
 static void R_SetSkyCloudsTextures( int solidskyTexture, int alphaskyTexture )
-{
-	VK_STUB();
-}
-
-static void GL_SubdivideSurface( model_t *mod, msurface_t *fa )
 {
 	VK_STUB();
 }
@@ -375,30 +366,9 @@ static void CL_DrawBeams( int fTrans, BEAM *beams )
 	VK_STUB();
 }
 
-static void GL_RenderFrame( const struct ref_viewpass_s *rvp )
-{
-	VK_STUB();
-}
-
-static void GL_OrthoBounds( const float *mins, const float *maxs )
-{
-	VK_STUB();
-}
-
 static qboolean R_SpeedsMessage( char *out, size_t size )
 {
 	return false;
-}
-
-static byte *Mod_GetCurrentVis( void )
-{
-	VK_STUB();
-	return NULL;
-}
-
-static void R_NewMap( void )
-{
-	VK_STUB();
 }
 
 static void R_ClearScene( void )
