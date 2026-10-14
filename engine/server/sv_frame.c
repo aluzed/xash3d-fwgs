@@ -838,6 +838,17 @@ void SV_SendClientMessages( void )
 
 	SV_UpdateToReliableMessages ();
 
+	// sv_maxlook goes to the clients the way the game's physinfo keys do; left
+	// empty, a key the game or a plugin set stays
+	if( sv_maxlook.string[0] )
+	{
+		for( i = 0, cl = svs.clients; i < svs.maxclients; i++, cl++ )
+		{
+			if( cl->state >= cs_connected && Q_strcmp( Info_ValueForKey( cl->physinfo, "maxlook" ), sv_maxlook.string ))
+				Info_SetValueForKey( cl->physinfo, "maxlook", sv_maxlook.string, MAX_INFO_STRING );
+		}
+	}
+
 	// send a message to each connected client
 	for( i = 0, sv.current_client = svs.clients; i < svs.maxclients; i++, sv.current_client++ )
 	{

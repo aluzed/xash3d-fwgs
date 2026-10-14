@@ -25,9 +25,11 @@ trace rays through (rt_common.glsl):
              in its own BLAS (mask RT_MASK_WATER)
   brush      a BLAS per brush model ("*1", "*2"...) built with the world's,
              instanced each frame for the brush entities drawn, with their
-             transform (mask RT_MASK_TRANS when not kRenderNormal)
+             transform (mask RT_MASK_BRUSH, RT_MASK_TRANS when not
+             kRenderNormal)
   studio     the triangles studio models are drawn with, in world space,
-             captured while they're drawn (vk_imm.c): a BLAS per entity,
+             with their lit colour, captured while they're drawn
+             (vk_imm.c): a BLAS per entity,
              updated (refit) every frame while its triangle count stays,
              rebuilt when it changes; the view model has RT_MASK_VIEWMODEL.
              A model out of the view isn't drawn, so isn't in the scene:
@@ -37,8 +39,11 @@ trace rays through (rt_common.glsl):
              over the result
 
 The geometry table, the per triangle surface numbers and the vertices are
-read by buffer device addresses (rt_scene_r). r_vk_rt_debug draws the
-scene traced from the camera, to check it against the raster view.
+read by buffer device addresses (rt_scene_r), with what the effects of
+vk_rtfx.c need to shade a hit: a table of the instances (entity, origin,
+studio lighting), the dynamic lights, the skybox, the light gamma table.
+r_vk_rt_debug draws the scene traced from the camera, to check it against
+the raster view.
 
 The world vertex buffer is the one of vk_world.c; its indices are copied
 in BLAS order into an index buffer of their own.
@@ -51,19 +56,30 @@ static const uint32_t rt_debug_spv[] =
 ;
 
 CVAR_DEFINE_AUTO( r_vk_rt, "0", FCVAR_GLCONFIG, "build acceleration structures of the scene every frame (ray tracing GPUs)" );
-CVAR_DEFINE_AUTO( r_vk_rt_debug, "0", FCVAR_CHEAT, "show the scene traced from the camera: 1 albedo, 2 normals, 3 instances, 4 depth against the raster view, 5 albedo with the view model" );
+CVAR_DEFINE_AUTO( r_vk_rt_debug, "0", FCVAR_CHEAT, "show the scene traced from the camera: 1 albedo, 2 normals, 3 instances, 4 depth against the raster view, 5 albedo with the view model, 6 studio models, red when left out online" );
 
 #define RT_MASK_WORLD     0x01
 #define RT_MASK_MODELS    0x02
 #define RT_MASK_VIEWMODEL 0x04
 #define RT_MASK_WATER     0x08
 #define RT_MASK_TRANS     0x10
+#define RT_MASK_BRUSH     0x20
 
 #define RT_KIND_BRUSH     0
 #define RT_KIND_STUDIO    1
 
 #define RT_SURF_ALPHA     1
 #define RT_SURF_WATER     2
+#define RT_SURF_REFLECT   4
+
+#define RT_INST_WORLD     1
+#define RT_INST_BRUSH     2
+#define RT_INST_STUDIO    4
+#define RT_INST_VIEWMODEL 8
+#define RT_INST_GLASS     16
+#define RT_INST_SKYLIT    32
+
+#define RT_STUDIO_STRIDE  6  // floats a studio vertex: xyz, st, colour (RGBA8)
 
 #define VK_RT_MAX_INSTANCES 1024
 #define VK_RT_MAX_SEGMENTS  256  // studio entities drawn in a frame
@@ -82,7 +98,26 @@ typedef struct
 {
 	int texture;
 	int flags;
+	int lightmap; // brush: texture of its lightmap page
+	int pad;
 } vk_rt_surface_t;
+
+typedef struct
+{
+	float origin[4];  // entity origin
+	uint32_t flags;   // RT_INST_*, the GPU adds RT_INST_HIDDEN
+	int entity;       // index, -1 for the view model
+	float ambient;    // studio: the ambient and directional light it was lit with
+	float shade;
+} vk_rt_instance_t;
+
+typedef struct
+{
+	float origin_radius[4];
+	float color_minlight[4]; // colour 0-255, minlight
+	int key;
+	int pad[3];
+} vk_rt_light_t;
 
 typedef struct
 {
@@ -93,6 +128,17 @@ typedef struct
 	VkDeviceAddress geometries;
 	VkDeviceAddress studio_vertices;
 	VkDeviceAddress studio_tris;
+	VkDeviceAddress instances;
+	VkDeviceAddress lights;
+	VkDeviceAddress gamma;   // uint lightgammatable[1024], then its inverse, float[256]
+	int sky[4];              // skybox textures of the axes 0-3
+	int sky2[2];             // axes 4 and 5
+	int num_lights;
+	int lightscale;          // R_BuildLightMap's
+	int num_instances;
+	int pad[3];
+	float sun_dir[4];        // towards the sun
+	float sun_color[4];      // movevars skycolor, lightmap units
 } vk_rt_scene_t;
 
 typedef struct
@@ -117,6 +163,9 @@ typedef struct
 	const model_t *model;
 	int first_tri, num_tris;
 	qboolean viewmodel;
+	qboolean skylit;       // R_EntityDynamicLight lit it with the sky
+	float ambient, shade;
+	vec3_t origin;
 } vk_rt_segment_t;
 
 // a studio entity's BLAS, in one frame slot: updated in place next time
@@ -172,7 +221,7 @@ static struct
 	qboolean map_pending;
 
 	// studio triangles captured this frame, entity by entity
-	float *studio_verts;       // 5 floats a vertex, 3 vertices a triangle
+	float *studio_verts;       // RT_STUDIO_STRIDE floats a vertex, 3 vertices a triangle
 	vk_rt_surface_t *studio_tris;
 	int num_studio, max_studio;
 	vk_rt_segment_t segments[VK_RT_MAX_SEGMENTS];
@@ -184,6 +233,7 @@ static struct
 
 	vk_rt_frame_t frames[VK_FRAMES_IN_FLIGHT];
 	VkDeviceAddress scene;     // this frame's rt_scene_r, 0 when not built
+	int num_instances;
 	uint64_t built_frame;
 
 	// debug view
@@ -213,6 +263,12 @@ VkDeviceAddress VK_BufferAddress( VkBuffer buffer )
 qboolean VK_RTAvailable( void )
 {
 	return vk_rt.available;
+}
+
+// the acceleration structures are wanted: r_vk_rt, or the effects of r_vk_quality rt
+static qboolean VK_RTWanted( void )
+{
+	return vk_rt.available && ( r_vk_rt.value || VK_RTEffectsWanted( ));
 }
 
 /*
@@ -555,13 +611,16 @@ static void VK_RTFreeMapData( void )
 	vk_rt.map_pending = false;
 }
 
+static void VK_RTBuildMap( void );
+
 /*
 =================
 VK_RTNewMap
 
 the geometry of the new map: indices are the world geometry's (vk_world.c),
-first_index / num_indices per surface, vertices its buffer. Kept until
-r_vk_rt asks for the acceleration structures.
+first_index / num_indices per surface, vertices its buffer. The
+acceleration structures are built now when ray tracing is on, else the
+geometry is kept until it is turned on.
 =================
 */
 void VK_RTNewMap( const uint32_t *indices, uint32_t total_indices, const uint32_t *first_index, const uint32_t *num_indices,
@@ -584,6 +643,14 @@ void VK_RTNewMap( const uint32_t *indices, uint32_t total_indices, const uint32_
 	vk_rt.map_vertices = vertices;
 	vk_rt.map_num_verts = num_verts;
 	vk_rt.map_pending = true;
+
+	// wanted now: built with the rest of the map, and done with it: the
+	// first frame of play would otherwise wait for the GPU
+	if( VK_RTWanted( ))
+	{
+		VK_RTBuildMap();
+		vkDeviceWaitIdle( vk.device );
+	}
 }
 
 /*
@@ -647,7 +714,9 @@ static void VK_RTBuildMap( void )
 
 		surfaces[i].texture = surf->texinfo->texture->gl_texturenum;
 		surfaces[i].flags = ( VK_RTSurfaceGroup( surf ) == VK_RT_GROUP_ALPHA ? RT_SURF_ALPHA : 0 )
-			| ( FBitSet( surf->flags, SURF_DRAWTURB ) ? RT_SURF_WATER : 0 );
+			| ( FBitSet( surf->flags, SURF_DRAWTURB ) ? RT_SURF_WATER : 0 )
+			| ( VK_MaterialReflective( surfaces[i].texture ) ? RT_SURF_REFLECT : 0 );
+		surfaces[i].lightmap = tr.lightmapTextures[surf->lightmaptexturenum];
 	}
 
 	if( VK_RTUpload( &vk_rt.indices, "rt indices", lists.indices, lists.num_indices * sizeof( uint32_t ))
@@ -710,9 +779,10 @@ Studio triangles, captured while drawn
 =================
 */
 // an entity's model is drawn: its triangles go to its segment
-void VK_RTBeginStudio( const cl_entity_t *e, const model_t *model, qboolean viewmodel )
+void VK_RTBeginStudio( const cl_entity_t *e, const model_t *model, qboolean viewmodel, float ambient, float shade )
 {
 	const int key = viewmodel ? -1 : e->index;
+	const movevars_t *mv = gp_movevars;
 	vk_rt_segment_t *last = vk_rt.num_segments ? &vk_rt.segments[vk_rt.num_segments - 1] : NULL;
 
 	vk_rt.capturing = false;
@@ -731,6 +801,14 @@ void VK_RTBeginStudio( const cl_entity_t *e, const model_t *model, qboolean view
 		last->first_tri = vk_rt.num_studio;
 		last->num_tris = 0;
 		last->viewmodel = viewmodel;
+		last->ambient = ambient;
+		last->shade = shade;
+		VectorCopy( e->origin, last->origin );
+
+		// what R_EntityDynamicLight keeps of the sky light it chose
+		last->skylit = ( mv->skycolor[0] + mv->skycolor[1] + mv->skycolor[2] ) != 0.0f
+			&& e->cvFloorColor.r == (uint)mv->skycolor[0] && e->cvFloorColor.g == (uint)mv->skycolor[1]
+			&& e->cvFloorColor.b == (uint)mv->skycolor[2];
 	}
 
 	vk_rt.capturing = true;
@@ -752,24 +830,30 @@ void VK_RTCaptureTriangles( const vk_imm_vertex_t *verts, int count, int texture
 	if( vk_rt.num_studio + tris > vk_rt.max_studio )
 	{
 		vk_rt.max_studio = Q_max( vk_rt.max_studio * 2, vk_rt.num_studio + tris + 4096 );
-		vk_rt.studio_verts = Mem_Realloc( r_temppool, vk_rt.studio_verts, vk_rt.max_studio * 15 * sizeof( float ));
+		vk_rt.studio_verts = Mem_Realloc( r_temppool, vk_rt.studio_verts, vk_rt.max_studio * 3 * RT_STUDIO_STRIDE * sizeof( float ));
 		vk_rt.studio_tris = Mem_Realloc( r_temppool, vk_rt.studio_tris, vk_rt.max_studio * sizeof( vk_rt_surface_t ));
 	}
 
 	for( int t = 0; t < tris; t++ )
 	{
-		float *out = vk_rt.studio_verts + ( vk_rt.num_studio + t ) * 15;
+		float *out = vk_rt.studio_verts + ( vk_rt.num_studio + t ) * 3 * RT_STUDIO_STRIDE;
 
 		for( int k = 0; k < 3; k++ )
 		{
 			const vk_imm_vertex_t *v = &verts[t * 3 + k];
+			float *o = out + k * RT_STUDIO_STRIDE;
+			uint32_t rgba = 0;
 
-			VectorCopy( v->position, out + k * 5 );
-			out[k * 5 + 3] = v->texcoord[0];
-			out[k * 5 + 4] = v->texcoord[1];
+			for( int c = 0; c < 4; c++ )
+				rgba |= (uint32_t)( bound( 0.0f, v->color[c], 1.0f ) * 255.0f + 0.5f ) << ( c * 8 );
+
+			VectorCopy( v->position, o );
+			o[3] = v->texcoord[0];
+			o[4] = v->texcoord[1];
+			memcpy( &o[5], &rgba, sizeof( rgba ));
 		}
 
-		vk_rt.studio_tris[vk_rt.num_studio + t] = (vk_rt_surface_t){ texture, alpha_test ? RT_SURF_ALPHA : 0 };
+		vk_rt.studio_tris[vk_rt.num_studio + t] = (vk_rt_surface_t){ texture, alpha_test ? RT_SURF_ALPHA : 0, 0, 0 };
 	}
 
 	vk_rt.num_studio += tris;
@@ -785,12 +869,13 @@ a main view starts: nothing captured yet
 */
 void VK_RTBeginScene( void )
 {
-	if( vk_rt.available && r_vk_rt.value && vk_rt.map_pending )
+	if( VK_RTWanted( ) && vk_rt.map_pending )
 		VK_RTBuildMap();
 
-	vk_rt.active = vk_rt.available && r_vk_rt.value && vk_rt.world.as.handle;
+	vk_rt.active = VK_RTWanted() && vk_rt.world.as.handle;
 	vk_rt.num_studio = vk_rt.num_segments = 0;
 	vk_rt.scene = 0;
+	vk_rt.num_instances = 0;
 }
 
 static void VK_RTStudioGeometry( VkAccelerationStructureGeometryKHR *g, VkDeviceAddress verts, uint32_t num_tris )
@@ -802,7 +887,7 @@ static void VK_RTStudioGeometry( VkAccelerationStructureGeometryKHR *g, VkDevice
 			.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR,
 			.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT,
 			.vertexData.deviceAddress = verts,
-			.vertexStride = 5 * sizeof( float ),
+			.vertexStride = RT_STUDIO_STRIDE * sizeof( float ),
 			.maxVertex = num_tris * 3 - 1,
 			.indexType = VK_INDEX_TYPE_NONE_KHR,
 		},
@@ -871,7 +956,8 @@ the one it was built with, built otherwise; all in one call, each with
 its part of the scratch buffer
 =================
 */
-static int VK_RTBuildStudio( VkCommandBuffer cmd, vk_rt_frame_t *frame, VkDeviceAddress verts, VkAccelerationStructureInstanceKHR *instances )
+static int VK_RTBuildStudio( VkCommandBuffer cmd, vk_rt_frame_t *frame, VkDeviceAddress verts, VkAccelerationStructureInstanceKHR *instances,
+	vk_rt_instance_t *info )
 {
 	static VkAccelerationStructureGeometryKHR geometries[VK_RT_MAX_SEGMENTS];
 	static VkAccelerationStructureBuildGeometryInfoKHR infos[VK_RT_MAX_SEGMENTS];
@@ -898,7 +984,7 @@ static int VK_RTBuildStudio( VkCommandBuffer cmd, vk_rt_frame_t *frame, VkDevice
 
 		update = d->as.handle && d->key == seg->key && d->model == seg->model && d->num_tris == (uint32_t)seg->num_tris;
 
-		VK_RTStudioGeometry( &geometries[count], verts + (VkDeviceSize)seg->first_tri * 15 * sizeof( float ), seg->num_tris );
+		VK_RTStudioGeometry( &geometries[count], verts + (VkDeviceSize)seg->first_tri * 3 * RT_STUDIO_STRIDE * sizeof( float ), seg->num_tris );
 		infos[count] = (VkAccelerationStructureBuildGeometryInfoKHR){
 			.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
 			.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
@@ -938,6 +1024,13 @@ static int VK_RTBuildStudio( VkCommandBuffer cmd, vk_rt_frame_t *frame, VkDevice
 		ranges[count] = (VkAccelerationStructureBuildRangeInfoKHR){ seg->num_tris, 0, 0, 0 };
 		range_ptrs[count] = &ranges[count];
 
+		info[num_instances] = (vk_rt_instance_t){
+			.origin = { seg->origin[0], seg->origin[1], seg->origin[2], 0.0f },
+			.flags = RT_INST_STUDIO | ( seg->viewmodel ? RT_INST_VIEWMODEL : 0 ) | ( seg->skylit ? RT_INST_SKYLIT : 0 ),
+			.entity = seg->key,
+			.ambient = seg->ambient,
+			.shade = seg->shade,
+		};
 		VK_RTInstance( &instances[num_instances++], identity, vk_rt.num_geometries + i,
 			seg->viewmodel ? RT_MASK_VIEWMODEL : RT_MASK_MODELS, d->as.address );
 		count++;
@@ -970,6 +1063,110 @@ static int VK_RTBuildStudio( VkCommandBuffer cmd, vk_rt_frame_t *frame, VkDevice
 	return num_instances;
 }
 
+// the dynamic lights R_AddDynamicLights adds to the lightmaps this frame
+static int VK_RTLights( vk_rt_light_t *out )
+{
+	int count = 0;
+
+	if( !r_dynamic->value )
+		return 0;
+
+	for( int i = 0; i < MAX_DLIGHTS; i++ )
+	{
+		const dlight_t *dl = &gp_dlights[i];
+
+		if( dl->die < gp_cl->time || dl->radius <= 0.0f || dl->dark )
+			continue;
+
+		out[count] = (vk_rt_light_t){
+			.origin_radius = { dl->origin[0], dl->origin[1], dl->origin[2], dl->radius },
+			.color_minlight = { dl->color.r, dl->color.g, dl->color.b, dl->minlight },
+			.key = dl->key,
+		};
+		count++;
+	}
+
+	return count;
+}
+
+// the table R_BuildLightMap encodes the lightmaps with (10 bit light to 10
+// bit texel), and its inverse from the 8 bit texels, to take some light out
+static void VK_RTGammaTables( uint32_t *table, float *inverse )
+{
+	float sum[256] = { 0 };
+	int n[256] = { 0 };
+	int last = -1;
+
+	for( int i = 0; i < 1024; i++ )
+	{
+		const uint v = LightToTexGamma( i );
+
+		table[i] = v;
+		sum[v >> 2] += i;
+		n[v >> 2]++;
+	}
+
+	// texels no light gives: between their neighbours
+	for( int v = 0; v < 256; v++ )
+	{
+		if( !n[v] )
+			continue;
+
+		inverse[v] = sum[v] / n[v];
+		for( int k = last + 1; k < v; k++ )
+			inverse[k] = last < 0 ? inverse[v] * k / v : inverse[last] + ( inverse[v] - inverse[last] ) * ( k - last ) / ( v - last );
+		last = v;
+	}
+
+	for( int k = last + 1; k < 256; k++ )
+		inverse[k] = last < 0 ? k * 4.0f : inverse[last];
+}
+
+// the sun of the movevars and the skybox the reflections show
+static void VK_RTSky( vk_rt_scene_t *scene )
+{
+	const movevars_t *mv = gp_movevars;
+	vec3_t dir;
+
+	for( int i = 0; i < 6; i++ )
+	{
+		const int texnum = tr.skyboxTextures[r_skyTexOrder[i]];
+		const int t = texnum ? VK_TextureForDraw( texnum ) : 0;
+
+		if( i < 4 )
+			scene->sky[i] = t;
+		else scene->sky2[i - 4] = t;
+	}
+
+	// skyvec goes from the sun, as R_EntityDynamicLight traces it
+	VectorNegate( mv->skyvec, dir );
+	if( VectorNormalizeLength( dir ) == 0.0f )
+		VectorSet( dir, 0.0f, 0.0f, 1.0f );
+
+	VectorCopy( dir, scene->sun_dir );
+	scene->sun_dir[3] = 0.0f;
+	VectorCopy( mv->skycolor, scene->sun_color );
+	scene->sun_color[3] = 0.0f;
+}
+
+/*
+=================
+VK_RTFrame
+
+this frame's scene for the effects of vk_rtfx.c, false when not built
+=================
+*/
+qboolean VK_RTFrame( VkAccelerationStructureKHR *tlas, VkDeviceAddress *scene, int *num_instances )
+{
+	if( !vk_rt.scene || vk_rt.built_frame != VK_CurrentFrame( ))
+		return false;
+
+	*tlas = vk_rt.frames[VK_FrameIndex()].tlas.handle;
+	*scene = vk_rt.scene;
+	*num_instances = vk_rt.num_instances;
+	return true;
+}
+
 /*
 =================
 VK_RTBuildScene
@@ -983,7 +1180,8 @@ void VK_RTBuildScene( void )
 	VkCommandBuffer cmd = VK_FrameCommands();
 	vk_rt_frame_t *frame = &vk_rt.frames[VK_FrameIndex()];
 	VkAccelerationStructureInstanceKHR *instances;
-	VkDeviceAddress studio_verts = 0, studio_tris = 0, instances_addr, geometries_addr, scene_addr;
+	vk_rt_instance_t *info;
+	VkDeviceAddress studio_verts = 0, studio_tris = 0, instances_addr, info_addr, geometries_addr, scene_addr;
 	matrix4x4 identity;
 	int num_instances = 0;
 
@@ -999,7 +1197,7 @@ void VK_RTBuildScene( void )
 	// the captured triangles, read by the builds and the shaders
 	if( vk_rt.num_studio )
 	{
-		float *v = VK_RTDynamic( vk_rt.num_studio * 15 * sizeof( float ), 16, &studio_verts );
+		float *v = VK_RTDynamic( vk_rt.num_studio * 3 * RT_STUDIO_STRIDE * sizeof( float ), 16, &studio_verts );
 		vk_rt_surface_t *t = VK_RTDynamic( vk_rt.num_studio * sizeof( vk_rt_surface_t ), 16, &studio_tris );
 
 		if( !v || !t )
@@ -1008,24 +1206,29 @@ void VK_RTBuildScene( void )
 			return;
 		}
 
-		memcpy( v, vk_rt.studio_verts, vk_rt.num_studio * 15 * sizeof( float ));
+		memcpy( v, vk_rt.studio_verts, vk_rt.num_studio * 3 * RT_STUDIO_STRIDE * sizeof( float ));
 		memcpy( t, vk_rt.studio_tris, vk_rt.num_studio * sizeof( vk_rt_surface_t ));
 	}
 
 	instances = VK_RTDynamic( VK_RT_MAX_INSTANCES * sizeof( *instances ), 16, &instances_addr );
-	if( !instances )
+	info = VK_RTDynamic( VK_RT_MAX_INSTANCES * sizeof( *info ), 16, &info_addr );
+	if( !instances || !info )
 	{
 		VK_EndLabel( cmd );
 		return;
 	}
 
 	if( vk_rt.num_studio )
-		num_instances = VK_RTBuildStudio( cmd, frame, studio_verts, instances );
+		num_instances = VK_RTBuildStudio( cmd, frame, studio_verts, instances, info );
 
 	// the map, and its brush models where their entities are
+	info[num_instances] = (vk_rt_instance_t){ .flags = RT_INST_WORLD, .entity = 0 };
 	VK_RTInstance( &instances[num_instances++], identity, vk_rt.world.geometry_base, RT_MASK_WORLD, vk_rt.world.as.address );
 	if( vk_rt.water.as.handle )
+	{
+		info[num_instances] = (vk_rt_instance_t){ .flags = RT_INST_WORLD, .entity = 0 };
 		VK_RTInstance( &instances[num_instances++], identity, vk_rt.water.geometry_base, RT_MASK_WATER, vk_rt.water.as.address );
+	}
 	for( int list = 0; list < 2; list++ )
 	{
 		cl_entity_t **ents = list ? tr.draw_list->trans_entities : tr.draw_list->solid_entities;
@@ -1045,8 +1248,13 @@ void VK_RTBuildScene( void )
 				continue;
 
 			Matrix4x4_CreateFromEntity( m, e->angles, e->origin, 1.0f );
+			info[num_instances] = (vk_rt_instance_t){
+				.origin = { e->origin[0], e->origin[1], e->origin[2], 0.0f },
+				.flags = RT_INST_BRUSH | ( e->curstate.rendermode == kRenderTransTexture ? RT_INST_GLASS : 0 ),
+				.entity = e->index,
+			};
 			VK_RTInstance( &instances[num_instances++], m, vk_rt.submodels[index].geometry_base,
-				e->curstate.rendermode == kRenderNormal ? RT_MASK_WORLD : RT_MASK_TRANS, vk_rt.submodels[index].as.address );
+				e->curstate.rendermode == kRenderNormal ? RT_MASK_BRUSH : RT_MASK_TRANS, vk_rt.submodels[index].as.address );
 		}
 	}
 
@@ -1076,10 +1284,13 @@ void VK_RTBuildScene( void )
 	// what the shaders read: the brush entries, then one per studio segment
 	vk_rt_geometry_t *geometries = VK_RTDynamic(( vk_rt.num_geometries + vk_rt.num_segments ) * sizeof( vk_rt_geometry_t ), 16, &geometries_addr );
 	vk_rt_scene_t *scene = VK_RTDynamic( sizeof( vk_rt_scene_t ), 16, &scene_addr );
+	VkDeviceAddress lights_addr, gamma_addr;
+	vk_rt_light_t *lights = VK_RTDynamic( MAX_DLIGHTS * sizeof( vk_rt_light_t ), 16, &lights_addr );
+	uint32_t *gamma = VK_RTDynamic( 1024 * sizeof( uint32_t ) + 256 * sizeof( float ), 16, &gamma_addr );
 
 	vk_rt.stat_instances = num_instances;
 
-	if( geometries && scene )
+	if( geometries && scene && lights && gamma )
 	{
 		memcpy( geometries, vk_rt.geometries, vk_rt.num_geometries * sizeof( vk_rt_geometry_t ));
 		for( int i = 0; i < vk_rt.num_segments; i++ )
@@ -1092,7 +1303,16 @@ void VK_RTBuildScene( void )
 		scene->geometries = geometries_addr;
 		scene->studio_vertices = studio_verts;
 		scene->studio_tris = studio_tris;
+		scene->instances = info_addr;
+		scene->lights = lights_addr;
+		scene->gamma = gamma_addr;
+		scene->num_instances = num_instances;
+		scene->num_lights = VK_RTLights( lights );
+		scene->lightscale = gl_overbright.value ? 256 : (int)( pow( 2.0f, 1.0f / v_lightgamma->value ) * 256 + 0.5f );
+		VK_RTGammaTables( gamma, (float *)( gamma + 1024 ));
+		VK_RTSky( scene );
 		vk_rt.scene = scene_addr;
+		vk_rt.num_instances = num_instances;
 		vk_rt.built_frame = VK_CurrentFrame();
 	}
 

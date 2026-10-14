@@ -28,6 +28,7 @@ CVAR_DEFINE_AUTO( gl_overbright, "1", FCVAR_GLCONFIG, "overbrights" );
 CVAR_DEFINE_AUTO( gl_keeptjunctions, "1", FCVAR_GLCONFIG, "removing tjuncs causes blinking pixels" );
 CVAR_DEFINE_AUTO( gl_litwater_force, "0", FCVAR_GLCONFIG, "force enable lightmapped water, even if support not declared in the map" );
 CVAR_DEFINE_AUTO( r_novis, "0", 0, "ignore vis information (perfomance test)" );
+CVAR_DEFINE_AUTO( r_vk_debug_view, "", FCVAR_CHEAT, "\"x y z pitch yaw\": the main view drawn from there, for tests (entities are the ones the server sends)" );
 CVAR_DEFINE_AUTO( r_nocull, "0", 0, "ignore frustrum culling (perfomance test)" );
 CVAR_DEFINE_AUTO( r_lockpvs, "0", FCVAR_CHEAT, "lockpvs area at current point (pvs test)" );
 CVAR_DEFINE_AUTO( r_lockfrustum, "0", FCVAR_CHEAT, "lock frustrum area at current point (cull test)" );
@@ -3249,6 +3250,18 @@ void GL_RenderFrame( const struct ref_viewpass_s *rvp )
 	RI.rvp = *rvp;
 	RI.farClip = 0;
 
+	// a fixed point of view for the regression captures
+	if( r_vk_debug_view.string[0] && FBitSet( RI.rvp.flags, RF_DRAW_WORLD ))
+	{
+		vec3_t origin, angles = { 0 };
+
+		if( sscanf( r_vk_debug_view.string, "%f %f %f %f %f", &origin[0], &origin[1], &origin[2], &angles[PITCH], &angles[YAW] ) == 5 )
+		{
+			VectorCopy( origin, RI.rvp.vieworigin );
+			VectorCopy( angles, RI.rvp.viewangles );
+		}
+	}
+
 	// completely override rendering
 	if( gEngfuncs.drawFuncs->GL_RenderFrame != NULL )
 	{
@@ -3511,6 +3524,7 @@ void VK_InitWorld( void )
 	gEngfuncs.Cvar_RegisterVariable( &gl_litwater_force );
 	gEngfuncs.Cvar_RegisterVariable( &gl_polyoffset_bmodels );
 	gEngfuncs.Cvar_RegisterVariable( &r_novis );
+	gEngfuncs.Cvar_RegisterVariable( &r_vk_debug_view );
 	gEngfuncs.Cvar_RegisterVariable( &r_nocull );
 	gEngfuncs.Cvar_RegisterVariable( &r_lockpvs );
 	gEngfuncs.Cvar_RegisterVariable( &r_lockfrustum );

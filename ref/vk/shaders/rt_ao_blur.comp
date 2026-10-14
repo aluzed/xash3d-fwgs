@@ -1,0 +1,54 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+// the accumulated ray traced occlusion (rt_effects.comp), 5x5 averaged over
+// the pixels at the same eye distance, wider where few frames were
+// accumulated yet, times the strength: what the tonemap multiplies the
+// scene with
+//
+// inputs: occlusion history (occlusion, frames, eye distance)
+
+layout( local_size_x = 8, local_size_y = 8 ) in;
+
+#include "rtfx_common.glsl"
+
+layout( set = 1, binding = 2, r32f ) uniform writeonly image2D outputs[2];
+
+void main()
+{
+	rtfx_params_r p = rtfx_params_r( pc.params );
+
+	if( any( greaterThanEqual( gl_GlobalInvocationID.xy, uvec2( p.rect.zw ))))
+		return;
+
+	ivec2 pixel = ivec2( gl_GlobalInvocationID.xy ) + p.rect.xy;
+	vec4 centre = texelFetch( inputs[0], pixel, 0 );
+
+	if( centre.y <= 0.0 )
+	{
+		imageStore( outputs[0], pixel, vec4( 1.0 ));
+		return;
+	}
+
+	int step = centre.y < 4.0 ? 2 : 1;
+	float sum = 0.0, weight = 0.0;
+
+	for( int y = -2; y <= 2; y++ )
+	{
+		for( int x = -2; x <= 2; x++ )
+		{
+			ivec2 q = clamp( pixel + ivec2( x, y ) * step, p.rect.xy, p.rect.xy + p.rect.zw - 1 );
+			vec4 s = texelFetch( inputs[0], q, 0 );
+
+			if( s.y <= 0.0 )
+				continue;
+
+			float w = exp( -abs( s.z - centre.z ) / ( 0.5 + 0.02 * centre.z )) * ( 3.0 - 0.4 * float( abs( x ) + abs( y )));
+			sum += s.x * w;
+			weight += w;
+		}
+	}
+
+	float ao = weight > 0.0 ? sum / weight : centre.x;
+	imageStore( outputs[0], pixel, vec4( clamp( 1.0 - p.ao.y * ( 1.0 - ao ), 0.0, 1.0 )));
+}

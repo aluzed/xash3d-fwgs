@@ -1,0 +1,46 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+// online, the rays must not show more than the player sees: a studio model
+// none of whose points the eye sees past the world (and brush entities) is
+// marked hidden, and casts no shadow, no occlusion and no reflection. One
+// invocation per instance of the TLAS.
+
+layout( local_size_x = 64 ) in;
+
+#include "rtfx_common.glsl"
+
+void main()
+{
+	rtfx_params_r p = rtfx_params_r( pc.params );
+	rt_scene_r scene = rt_scene_r( pc.scene );
+	uint id = gl_GlobalInvocationID.x;
+
+	if( id >= uint( scene.counts.x ))
+		return;
+
+	rt_instances_r instances = rt_instances_r( scene.instances );
+	rt_instance_s inst = instances.v[id];
+
+	if(( inst.flags & RT_INST_STUDIO ) == 0 || ( inst.flags & RT_INST_VIEWMODEL ) != 0 )
+		return;
+
+	// the origin is the middle of a player's hull: feet, middle, head, sides
+	vec3 eye = p.eye.xyz;
+	vec3 to = inst.origin.xyz - eye;
+	vec3 side = normalize( cross( to, vec3( 0.0, 0.0, 1.0 )) + vec3( 1e-4, 0.0, 0.0 )) * 14.0;
+	const vec3 offsets[5] = vec3[]( vec3( 0.0, 0.0, -30.0 ), vec3( 0.0 ), vec3( 0.0, 0.0, 26.0 ), vec3( 0.0 ), vec3( 0.0 ));
+	bool seen = false;
+
+	for( int i = 0; i < 5 && !seen; i++ )
+	{
+		vec3 target = inst.origin.xyz + offsets[i] + ( i == 3 ? side : i == 4 ? -side : vec3( 0.0 ));
+		vec3 d = target - eye;
+		float len = length( d );
+
+		seen = len < 1.0 || !RTOccluded( tlas, scene, eye, d / len, len, RT_MASK_WORLD | RT_MASK_BRUSH, RT_SKIP_NONE );
+	}
+
+	if( !seen )
+		instances.v[id].flags = inst.flags | RT_INST_HIDDEN;
+}

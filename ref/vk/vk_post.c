@@ -32,6 +32,10 @@ turn it into the main target's pixels, inside the view rectangle only:
   sharpen    ldr -> ldr (contrast adaptive)
   copy       ldr -> main target
 
+With r_vk_quality rt, the ray traced effects of vk_rtfx.c go first: they
+give the scene the passes read (shadows and reflections in it) and the
+occlusion the tonemap uses in place of SSAO's.
+
 The 2D (HUD, menus, console) is then drawn over the main target as usual.
 
 The images are transient images of the render graph (vk_graph.c), asked
@@ -88,7 +92,7 @@ static const uint32_t post_sharpen_spv[] =
 #include "shaders/post_sharpen.comp.inc"
 ;
 
-CVAR_DEFINE_AUTO( r_vk_quality, "classic", FCVAR_GLCONFIG, "rendering look: classic (as ref_gl), enhanced (HDR and post-processing), rt (ray tracing, enhanced until it exists)" );
+CVAR_DEFINE_AUTO( r_vk_quality, "classic", FCVAR_GLCONFIG, "rendering look: classic (as ref_gl), enhanced (HDR and post-processing), rt (enhanced with ray traced shadows, occlusion and reflections)" );
 CVAR_DEFINE_AUTO( r_vk_tonemap, "3", FCVAR_GLCONFIG, "HDR tonemapper: 0 clamp, 1 ACES, 2 AgX, 3 neutral (classic colours, soft highlights)" );
 CVAR_DEFINE_AUTO( r_vk_exposure, "0", FCVAR_GLCONFIG, "exposure compensation in EV (stops), added to the automatic exposure" );
 CVAR_DEFINE_AUTO( r_vk_autoexposure, "1", FCVAR_GLCONFIG, "adapt the exposure to the scene brightness like an eye" );
@@ -205,6 +209,7 @@ static struct
 
 	uint32_t width, height; // of the main target
 	vk_image_t *scene;      // transient images of the graph, asked for each frame
+	vk_image_t *source;     // what the passes read: the scene, or the ray traced one
 	vk_image_t *lindepth, *ao_raw, *ao; // half size
 	vk_image_t *bloom[VK_POST_MAX_BLOOM];
 	int num_bloom;
@@ -568,17 +573,49 @@ static void VK_PostReadSettings( vk_post_settings_t *s )
 	}
 }
 
+/*
+=================
+VK_PostServerLimit
+
+a server may keep its players to a look: physinfo key maxlook, set by the
+game or a plugin (SetPhysicsKeyValue), "classic" or "enhanced". What it
+sends is all the client knows: no protocol change.
+=================
+*/
+#define VK_LOOK_CLASSIC  0
+#define VK_LOOK_ENHANCED 1
+#define VK_LOOK_RT       2
+
+static int VK_PostServerLimit( void )
+{
+	const char *value = gEngfuncs.PhysInfo_ValueForKey ? gEngfuncs.PhysInfo_ValueForKey( "maxlook" ) : NULL;
+
+	if( !value || !value[0] )
+		return VK_LOOK_RT;
+	if( !Q_stricmp( value, "classic" ))
+		return VK_LOOK_CLASSIC;
+	if( !Q_stricmp( value, "enhanced" ))
+		return VK_LOOK_ENHANCED;
+	return VK_LOOK_RT;
+}
+
+// r_vk_quality rt, and the server allows it
+qboolean VK_PostLookRT( void )
+{
+	return !Q_stricmp( r_vk_quality.string, "rt" ) && VK_PostServerLimit() >= VK_LOOK_RT;
+}
+
 static qboolean VK_PostWanted( void )
 {
 	const char *quality = r_vk_quality.string;
 
-	if( !Q_stricmp( quality, "classic" ))
+	if( !Q_stricmp( quality, "classic" ) || VK_PostServerLimit() == VK_LOOK_CLASSIC )
 		return false;
 
 	if( !Q_stricmp( quality, "rt" ))
 	{
-		if( !post.rt_warned )
-			gEngfuncs.Con_Printf( "ref_vk: r_vk_quality rt: no ray tracing yet, rendering as enhanced\n" );
+		if( !VK_RTAvailable( ) && !post.rt_warned )
+			gEngfuncs.Con_Printf( "ref_vk: r_vk_quality rt: no ray tracing on this device, rendering as enhanced\n" );
 		post.rt_warned = true;
 		return true;
 	}
@@ -922,7 +959,7 @@ static void VK_PostBloom( VkCommandBuffer cmd, int x, int y, int w, int h )
 
 	for( int i = 0; i < post.num_bloom; i++ )
 	{
-		vk_image_t *src = i ? post.bloom[i - 1] : post.scene;
+		vk_image_t *src = i ? post.bloom[i - 1] : post.source;
 		vk_image_t *dst = post.bloom[i];
 
 		memset( &pass, 0, sizeof( pass ));
@@ -967,10 +1004,10 @@ static void VK_PostExposure( VkCommandBuffer cmd, int x, int y, int w, int h )
 	memset( &pass, 0, sizeof( pass ));
 	pass.name = "luminance";
 	pass.pipe = VK_POST_LUMINANCE;
-	pass.inputs[0] = (vk_post_input_t){ post.scene, VK_NULL_HANDLE, post.linear };
+	pass.inputs[0] = (vk_post_input_t){ post.source, VK_NULL_HANDLE, post.linear };
 	pass.buffer = true;
 	VK_PostSetRect( &pass, x, y, w, h );
-	VK_PostSetTexel( &pass, post.scene, post.scene );
+	VK_PostSetTexel( &pass, post.source, post.source );
 	pass.groups[0] = groups_x;
 	pass.groups[1] = groups_y;
 	pass.push.iparams[0] = groups_x;
@@ -1060,7 +1097,7 @@ x, y, w, h: the view as VK_SetViewport took it, from the bottom left
 void VK_PostEndScene( int x, int y, int w, int h )
 {
 	VkCommandBuffer cmd = VK_FrameCommands();
-	vk_image_t *ldr, *main_color = VK_MainColorImage();
+	vk_image_t *ldr, *main_color = VK_MainColorImage(), *rt_ao = NULL;
 	vk_post_pass_t pass;
 	int flags = 0, next = 0;
 
@@ -1080,11 +1117,17 @@ void VK_PostEndScene( int x, int y, int w, int h )
 	if( !cmd || w <= 0 || h <= 0 )
 		return;
 
+	VK_ProfileMark( cmd, VK_PROF_RT_EFFECTS );
+	post.source = post.scene;
+	VK_RTEffects( cmd, post.scene, x, y, w, h, &post.source, &rt_ao );
+
 	VK_BeginLabel( cmd, "post-process" );
 	VK_PostBeginGraph();
 
 	VK_ProfileMark( cmd, VK_PROF_POST_SSAO );
-	if( post.s.ssao > 0.0f )
+	if( rt_ao )
+		SetBits( flags, VK_POST_USE_AO ); // the rays' in place of SSAO's
+	else if( post.s.ssao > 0.0f )
 	{
 		VK_PostSSAO( cmd, x, y, w, h );
 		SetBits( flags, VK_POST_USE_AO );
@@ -1112,15 +1155,15 @@ void VK_PostEndScene( int x, int y, int w, int h )
 	memset( &pass, 0, sizeof( pass ));
 	pass.name = "tonemap";
 	pass.pipe = VK_POST_TONEMAP;
-	pass.inputs[0] = (vk_post_input_t){ post.scene, VK_NULL_HANDLE, post.nearest };
+	pass.inputs[0] = (vk_post_input_t){ post.source, VK_NULL_HANDLE, post.nearest };
 	if( FBitSet( flags, VK_POST_USE_BLOOM ))
 		pass.inputs[1] = (vk_post_input_t){ post.bloom[0], VK_NULL_HANDLE, post.linear };
 	if( FBitSet( flags, VK_POST_USE_AO ))
-		pass.inputs[2] = (vk_post_input_t){ post.ao, VK_NULL_HANDLE, post.linear };
+		pass.inputs[2] = (vk_post_input_t){ rt_ao ? rt_ao : post.ao, VK_NULL_HANDLE, post.linear };
 	pass.buffer = FBitSet( flags, VK_POST_USE_EXPOSURE ) != 0;
 	pass.output = ldr = post.ldr[next];
 	VK_PostSetRect( &pass, x, y, w, h );
-	VK_PostSetTexel( &pass, post.scene, ldr );
+	VK_PostSetTexel( &pass, post.source, ldr );
 	pass.push.iparams[0] = post.s.tonemap;
 	pass.push.iparams[1] = flags;
 	pass.push.iparams[2] = post.num_bloom;

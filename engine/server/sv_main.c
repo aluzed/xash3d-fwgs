@@ -134,6 +134,7 @@ CVAR_DEFINE_AUTO( sv_enttools_maxfire, "5", FCVAR_ARCHIVE|FCVAR_PROTECTED, "limi
 CVAR_DEFINE( public_server, "public", "0", 0, "change server type from private to public" );
 
 CVAR_DEFINE_AUTO( sv_novis, "0", 0, "force to ignore server visibility" );			// disable server culling entities by vis
+CVAR_DEFINE_AUTO( sv_maxlook, "", FCVAR_SERVER, "highest rendering look of Xash clients: classic or enhanced, empty for no limit (physinfo key maxlook)" );
 CVAR_DEFINE( sv_pausable, "pausable", "1", 0, "allow players to pause or not" );
 CVAR_DEFINE( sv_maxclients, "maxplayers", "1", FCVAR_LATCH, "server max capacity" );
 CVAR_DEFINE_AUTO( sv_check_errors, "0", FCVAR_ARCHIVE, "check edicts for errors" );
@@ -948,6 +949,7 @@ void SV_Init( void )
 	Cvar_RegisterVariable( &sv_consistency );
 	Cvar_RegisterVariable( &sv_downloadurl );
 	Cvar_RegisterVariable( &sv_novis );
+	Cvar_RegisterVariable( &sv_maxlook );
 	Cvar_RegisterVariable( &sv_hostmap );
 	Cvar_DirectSet( &sv_hostmap, GI->startmap );
 	Cvar_RegisterVariable( &sv_password );

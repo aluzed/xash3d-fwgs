@@ -52,6 +52,7 @@ static qboolean R_Init( void )
 	VK_RegisterPostCvars();
 	VK_RegisterStreamCvars();
 	VK_RegisterRTCvars();
+	VK_RegisterRTEffectsCvars();
 	R_ClearDecals();
 
 	// the engine falls back to the next renderer when this fails
@@ -82,6 +83,11 @@ static qboolean R_Init( void )
 
 	VK_InitProfile();
 	VK_InitRT();
+	if( !VK_InitRTEffects( ))
+	{
+		gEngfuncs.Con_Printf( S_ERROR "ref_vk: can't create the ray traced effects\n" );
+		VK_ShutdownRTEffects();
+	}
 	VK_CreateInitialSwapchain();
 
 	return true;
@@ -95,6 +101,7 @@ static void R_Shutdown( void )
 	VK_ShutdownMaterials();
 	VK_ShutdownStream();
 	VK_ShutdownPost();
+	VK_ShutdownRTEffects();
 	VK_ShutdownRT();
 	VK_ShutdownGraph();
 	VK_ShutdownTextures();

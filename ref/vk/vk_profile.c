@@ -43,6 +43,7 @@ static const char *vk_profile_names[VK_PROF_COUNT] =
 	"view model",
 	"water",
 	"rt build",
+	"rt effects",
 	"post SSAO",
 	"post bloom",
 	"post exposure",

@@ -450,11 +450,21 @@ qboolean VK_RTAvailable( void );
 VkDeviceAddress VK_BufferAddress( VkBuffer buffer );
 void VK_RTNewMap( const uint32_t *indices, uint32_t total_indices, const uint32_t *first_index, const uint32_t *num_indices, VkBuffer vertices, uint32_t num_verts );
 void VK_RTBeginScene( void );
-void VK_RTBeginStudio( const cl_entity_t *e, const model_t *model, qboolean viewmodel );
+void VK_RTBeginStudio( const cl_entity_t *e, const model_t *model, qboolean viewmodel, float ambient, float shade );
 void VK_RTEndStudio( void );
 void VK_RTCaptureTriangles( const vk_imm_vertex_t *verts, int count, int texture, qboolean alpha_test );
 void VK_RTBuildScene( void );
 void VK_RTDebugView( int x, int y, int w, int h );
+qboolean VK_RTFrame( VkAccelerationStructureKHR *tlas, VkDeviceAddress *scene, int *num_instances );
+
+//
+// vk_rtfx.c: ray traced shadows, occlusion and reflections (025)
+//
+void VK_RegisterRTEffectsCvars( void );
+qboolean VK_InitRTEffects( void );
+void VK_ShutdownRTEffects( void );
+qboolean VK_RTEffectsWanted( void );
+qboolean VK_RTEffects( VkCommandBuffer cmd, vk_image_t *scene, int x, int y, int w, int h, vk_image_t **out_scene, vk_image_t **out_ao );
 
 //
 // vk_profile.c: GPU time of each part of the frame (r_vk_gpu_profile)
@@ -469,6 +479,7 @@ typedef enum
 	VK_PROF_VIEWMODEL,
 	VK_PROF_WATER,
 	VK_PROF_RT_BUILD,        // acceleration structures of the frame (vk_rt.c)
+	VK_PROF_RT_EFFECTS,      // ray traced shadows, occlusion, reflections (vk_rtfx.c)
 	VK_PROF_POST_SSAO,       // post-processing of the HDR scene (vk_post.c)
 	VK_PROF_POST_BLOOM,
 	VK_PROF_POST_EXPOSURE,
@@ -507,6 +518,7 @@ int VK_MaterialAlbedo( int texnum );
 int VK_MaterialIndex( int texnum );
 qboolean VK_MaterialShades( int texnum );
 qboolean VK_MaterialHasNormal( int texnum );
+qboolean VK_MaterialReflective( int texnum );
 void VK_MaterialsChanged( void );
 void VK_MaterialNoteUse( int texnum, float need, int game_width );
 
@@ -535,6 +547,7 @@ qboolean VK_InitPost( void );
 void VK_ShutdownPost( void );
 void VK_PostBeginFrame( void );
 qboolean VK_PostBeginScene( void );
+qboolean VK_PostLookRT( void );
 void VK_PostEndScene( int x, int y, int w, int h );
 
 //

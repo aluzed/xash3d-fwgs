@@ -66,7 +66,8 @@ Vulkan specific:
 | `r_vk_texture_stream` | `1` | stream the mip levels of KTX2 material maps, 0 loads them whole |
 | `r_vk_texture_upload` | `512` | megabytes a second of streamed maps sent to the GPU |
 | `r_vk_rt` | `0` | build acceleration structures of the scene every frame (ray tracing GPUs, no restart) |
-| `r_vk_rt_debug` | `0` | cheat: the scene traced from the camera, 1 albedo, 2 normals, 3 instances, 4 depth against the raster view (red where they differ), 5 albedo with the view model |
+| `r_vk_rt_debug` | `0` | cheat: the scene traced from the camera, 1 albedo, 2 normals, 3 instances, 4 depth against the raster view (red where they differ), 5 albedo with the view model, 6 studio models only, red when online the rays leave them out |
+| `r_vk_debug_view` | `""` | cheat: `"x y z pitch yaw"`, the main view drawn from there (regression captures) |
 
 Commands: `r_vk_meminfo` (GPU memory usage), `r_vk_rtinfo` (acceleration
 structures of the scene), `texturelist`,
@@ -102,17 +103,19 @@ driver included, the variable does nothing.
 - The world: one BLAS with an opaque and an alpha tested geometry (the ray
   query reads the texture's alpha for the second), water in a BLAS of its
   own. Brush models (`*1`, `*2`...) have one each, instanced for the
-  brush entities drawn with their transform. All are built at the first
-  frame with `r_vk_rt 1` after the map load.
+  brush entities drawn with their transform. All are built with the map
+  when ray tracing is on, else at the first frame it is turned on.
 - Studio models: the triangles they're drawn with, captured in world
   space, in a BLAS per entity, refit every frame while the triangle count
   stays and rebuilt when it changes, in one build call. Only the models
   drawn are in the scene: rays see what the player can see.
 - Sprites, particles, beams and decals are left out, drawn over the
   result as now.
-- Instance masks: world, models, view model, water, translucent.
-- Tables of geometries, triangle surfaces and surfaces (texture, flags)
-  give the hit's texture coordinates and normal.
+- Instance masks: world, brush entities, models, view model, water,
+  translucent.
+- Tables of geometries, triangle surfaces and surfaces (texture, lightmap
+  page, flags), instances (entity, origin, studio lighting), dynamic
+  lights, skybox and light gamma table give what a hit needs to be shaded.
 
 `de_dust2` with 31 bots: the build takes 0.89 ms on average, 1.67 ms at
 most (`r_vk_gpu_profile`, "rt build"), for 19 entities and 14 800 studio
@@ -128,14 +131,14 @@ is clamped any more. The overbright lighting of `gl_overbright` (twice the
 texture in gamma space, up to 4.6 times in linear) and additive effects
 keep their brightness above white. Compute passes then make the view's
 final pixels; the HUD, menus and console are drawn over them as usual.
-`rt` is reserved for the ray tracing stories and renders as `enhanced` for
-now. Everything changes at once at runtime, no restart. The video options
+`rt` adds the ray traced effects below, and renders as `enhanced` on GPUs
+without ray queries. Everything changes at once at runtime, no restart. The video options
 menu has the choice ("Rendering quality", classic or enhanced) while
 `ref_vk` is loaded.
 
 | Variable                   | Default | Meaning                                                        |
 |----------------------------|---------|----------------------------------------------------------------|
-| `r_vk_quality`             | `classic` | `classic`, `enhanced` or `rt`                                |
+| `r_vk_quality`             | `classic` | `classic`, `enhanced` or `rt` (enhanced with ray traced effects) |
 | `r_vk_tonemap`             | `3`     | 0 clamp, 1 ACES (Hill's fit), 2 AgX, 3 neutral                 |
 | `r_vk_exposure`            | `0`     | exposure compensation, in EV                                   |
 | `r_vk_autoexposure`        | `1`     | adapt the exposure to the view like an eye                     |
@@ -219,6 +222,81 @@ roughness / metalness / occlusion and emissive maps on world surfaces:
   budget (8.0 ms under 512 MB). The i386 build runs it too.
 - Each surface's tangent frame is in a storage buffer, read through the
   draw's instance index, and the materials in another (descriptor set 2).
+
+## Ray traced effects (`r_vk_quality rt`)
+
+`vk_rtfx.c` runs compute passes on the HDR scene of the main view, before
+the post-processing, with ray queries through the scene of `vk_rt.c`. Each
+pixel's surface is found again by a ray from the eye; when the raster
+depth is nearer, the pixel shows something left out of the scene (a
+sprite, a particle) and stays as drawn.
+
+GoldSrc's light is in the lightmaps, the world's shadows included: the
+rays don't light the scene again, they add what the bake couldn't know.
+
+- **Shadows.** Where an entity (a player, a weapon, a door) stands between
+  a lightmapped surface and the sun or a dynamic light, the light it
+  receives from it leaves its lightmap texel: the sun is movevars'
+  `skycolor` times the cosine (the light `light_environment` puts in the
+  lightmaps), a dynamic light what `R_AddDynamicLights` adds. The texel is
+  decoded and encoded again through `R_BuildLightMap`'s gamma table, so a
+  player's shadow is as dark as the baked shadow of a wall next to it.
+  The sun counts only where the world itself lets it through, where the
+  lightmap has it. Studio models lit by the sky (`R_EntityDynamicLight`)
+  lose their directional light where the world or another entity hides
+  the sun. A dynamic light ignores the entity it follows (the muzzle
+  flash of a player doesn't make the player's shadow).
+- **Ambient occlusion**, in place of SSAO: one ray a pixel in the normal's
+  hemisphere, accumulated over up to 24 frames where the surface stays
+  (reprojected with the previous view, rejected where its distance to the
+  eye changed: 4 frames on studio models), then a 5x5 filter over the
+  pixels at the same distance.
+- **Reflections** on water, glass (brush entities drawn with
+  `kRenderTransTexture`, translucent `func_water`) and materials with
+  `reflective 1`: a mirror ray, a little rippled on water, with Schlick's
+  Fresnel; what it hits is lit as the raster draws it (texture times
+  lightmap, or the studio model's lit vertex colour), the skybox when it
+  hits nothing.
+
+| Variable              | Default | Meaning                                                         |
+|-----------------------|---------|-----------------------------------------------------------------|
+| `r_vk_rt_shadows`     | `1`     | shadows of entities in the sun and the dynamic lights           |
+| `r_vk_rt_ao`          | `1`     | ray traced ambient occlusion strength, 0 off                    |
+| `r_vk_rt_ao_radius`   | `32`    | its radius in world units                                       |
+| `r_vk_rt_reflections` | `1`     | reflections strength, 0 off                                     |
+| `r_vk_rt_sun`         | `1`     | part of `skycolor` the sun put in the lightmaps                 |
+| `r_vk_rt_shadow_keep` | `0.3`   | least part of its light a shadowed surface keeps                |
+
+**Online, the rays show no more than the player sees.** A studio model is
+in the scene only when drawn, and a pass marks those whose points (feet,
+middle, head, sides) the eye can't see past the world and the brush
+entities: they cast no shadow, no occlusion and show in no reflection
+(`r_vk_rt_debug 6` shows them red). A player around a corner isn't given
+away by a shadow on the floor in view. The exposure limit of
+the enhanced look applies too.
+
+**A server can keep its players from it.** The physinfo key `maxlook`
+(`classic` or `enhanced`) caps the look of every `ref_vk` client: the game
+or a plugin sets it with `SetPhysicsKeyValue` on HLDS / ReHLDS, a Xash
+server with `sv_maxlook`. It goes through the physinfo string the server
+already sends: no protocol change.
+
+On an RTX 2080 Ti at 1280x720, the passes take 0.6-0.7 ms
+(`r_vk_gpu_profile`, "rt effects"), the acceleration structures 0.2 ms
+alone, 1.6 ms with 31 bots in view. The long demos (3 runs):
+
+| Demo            | enhanced avg / 1 % / 0.1 % low | rt avg / 1 % / 0.1 % low |
+|-----------------|--------------------------------|--------------------------|
+| `long_c2a5`     | 1119 / 557 / 237 fps           | 606 / 388 / 282 fps      |
+| `long_de_dust2` | 1207 / 579 / 208 fps           | 609 / 366 / 139 fps      |
+
+The map's acceleration structures are built with the map while loading
+(it waits for them): built at its first frame, they made it 17 ms.
+
+Not done yet: the noise of soft shadows and rough reflections needs the
+denoiser of story 027; AO is the only effect with noise, and the
+temporal accumulation keeps it out. Sprites and additive effects drawn
+over a shadowed surface are darkened with it.
 
 ## Performance
 

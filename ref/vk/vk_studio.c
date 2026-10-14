@@ -1962,7 +1962,7 @@ static void R_StudioDrawPoints_( void );
 static void R_StudioDrawPoints( void )
 {
 	if( !FBitSet( g_nForceFaceFlags, STUDIO_NF_CHROME ))
-		VK_RTBeginStudio( RI.currententity, RI.currententity->model, RI.currententity == tr.viewent );
+		VK_RTBeginStudio( RI.currententity, RI.currententity->model, RI.currententity == tr.viewent, g_studio.ambientlight, g_studio.shadelight );
 
 	R_StudioDrawPoints_();
 	VK_RTEndStudio();

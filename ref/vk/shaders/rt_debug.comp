@@ -5,7 +5,8 @@
 // check them against the raster view
 //   1 albedo at the hit, 2 normals, 3 instances, 4 depth against the raster
 //   depth (red where they differ by more than 2 units, the view model left
-//   out), 5 like 1 with the view model
+//   out), 5 like 1 with the view model, 6 the studio models only, red
+//   where online the rays leave them out (out of the player's sight)
 
 layout( local_size_x = 8, local_size_y = 8 ) in;
 
@@ -45,10 +46,16 @@ void main()
 	// the view is drawn with GL's bottom-up y: top of the image is +1
 	vec4 far = pc.inv_view_proj * vec4( uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 1.0, 1.0 );
 	vec3 dir = normalize( far.xyz / far.w - pc.eye.xyz );
-	uint mask = RT_MASK_WORLD | RT_MASK_MODELS | RT_MASK_WATER | RT_MASK_TRANS;
+	uint mask = RT_MASK_WORLD | RT_MASK_BRUSH | RT_MASK_MODELS | RT_MASK_WATER | RT_MASK_TRANS;
 
 	if( pc.mode == 1 || pc.mode == 2 || pc.mode == 3 || pc.mode == 5 )
 		mask |= RT_MASK_VIEWMODEL;
+
+	if( pc.mode == 6 )
+	{
+		mask = RT_MASK_MODELS;
+		rt_skip_hidden = false;
+	}
 
 	rt_scene_r scene = rt_scene_r( pc.scene );
 	rt_hit_s hit;
@@ -64,6 +71,8 @@ void main()
 			color = hit.normal * 0.5 + 0.5;
 		else if( pc.mode == 3 )
 			color = Hash( uint( instance ) * 7919u + 13u );
+		else if( pc.mode == 6 )
+			color = ( rt_instances_r( scene.instances ).v[instance].flags & RT_INST_HIDDEN ) != 0 ? vec3( 1.0, 0.0, 0.0 ) : albedo;
 		else if( pc.mode == 4 )
 		{
 			// the raster's eye distance at this pixel, against the ray's

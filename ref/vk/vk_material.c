@@ -357,6 +357,14 @@ int VK_MaterialIndex( int texnum )
 	return texnum > 0 && texnum < VK_MAX_TEXTURES ? vk_mat.of_texture[texnum] : 0;
 }
 
+// reflective 1: the ray traced reflections show on it
+qboolean VK_MaterialReflective( int texnum )
+{
+	const vk_material_t *mat = VK_MaterialForTexture( texnum );
+
+	return mat && mat->reflective;
+}
+
 // the normal map needs the light directions of the lightmaps
 qboolean VK_MaterialHasNormal( int texnum )
 {

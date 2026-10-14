@@ -84,7 +84,8 @@ GNU General Public License for more details.
 // 21. Added REF_VULKAN graphics API and Vulkan_* window callbacks, so a renderer can create a
 //     Vulkan surface on the engine window without linking the Vulkan loader itself.
 // 22. Added Job_Submit and Job_WaitIdle: the engine's worker threads (engine/common/jobs.c).
-#define REF_API_VERSION 22
+// 23. Added PhysInfo_ValueForKey: the server's physinfo keys, the way it limits what the renderer shows.
+#define REF_API_VERSION 23
 
 #define TF_SKY		(TF_SKYSIDE|TF_NOMIPMAP|TF_ALLOW_NEAREST)
 #define TF_FONT		(TF_NOMIPMAP|TF_CLAMP|TF_ALLOW_NEAREST)
@@ -545,6 +546,9 @@ typedef struct ref_api_s
 	// the queue is full. Job_WaitIdle finishes every job submitted so far.
 	qboolean (*Job_Submit)( void (*run)( void *data ), void (*done)( void *data ), void *data );
 	void (*Job_WaitIdle)( void );
+
+	// a key of the physinfo string the server sends (pmove->physinfo), "" when absent
+	const char *(*PhysInfo_ValueForKey)( const char *key );
 } ref_api_t;
 
 struct mip_s;

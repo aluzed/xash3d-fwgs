@@ -112,6 +112,16 @@ RT_SHOTS = ["r_vk_rt 1", "wait 10", "shot raster", "r_vk_rt_debug 1", "wait 5", 
             "r_vk_rt_debug 4", "wait 5", "shot depth", "r_vk_rt_debug 5", "wait 5", "shot albedo_viewmodel",
             "r_vk_rt_debug 0", "r_vk_rt 0"]
 
+# the ray traced effects (025): enhanced, each effect alone, all of them,
+# then their GPU time; the cvars go back to their defaults (vulkan.cfg)
+RTFX_SHOTS = ["r_vk_quality enhanced", "wait 30", "shot enhanced",
+              "r_vk_quality rt", "r_vk_rt_ao 0", "r_vk_rt_reflections 0", "wait 30", "shot rt_shadows",
+              "r_vk_rt_shadows 0", "r_vk_rt_ao 1", "wait 90", "shot rt_ao",
+              "r_vk_rt_ao 0", "r_vk_rt_reflections 1", "wait 30", "shot rt_reflections",
+              "r_vk_rt_shadows 1", "r_vk_rt_ao 1", "wait 90", "shot rt",
+              "r_vk_gpu_profile 1", "r_vk_gpu_profile_reset", "wait 300", "r_vk_gpu_profile_print", "r_vk_gpu_profile 0",
+              "r_vk_quality classic"]
+
 # every effect off but the HDR scene, then one at a time, then all of them
 HDR_NONE = ["r_vk_tonemap 0", "r_vk_autoexposure 0", "r_vk_exposure 0", "r_vk_bloom 0",
             "r_vk_ssao 0", "r_vk_aa 0", "r_vk_sharpen 0"]
@@ -305,6 +315,45 @@ SHOT_SCENES = [
                                          "r_vk_gpu_profile 0", "r_vk_rt 0"]},
     {"name": "rt_valve", "game": "valve", "map": "c2a5", "server": [],
      "lines": ["wait 200"] + HL_SETUP + ["hud_draw 0", "wait 60"] + RT_SHOTS},
+    # the ray traced effects from fixed points of view (r_vk_debug_view):
+    # water in the sun, players in the sun
+    {"name": "rtfx_valve", "game": "valve", "map": "c2a5", "server": [],
+     "lines": ["wait 200"] + HL_SETUP + ["hud_draw 0", "r_drawviewmodel 0", "sv_novis 1",
+                                         'r_vk_debug_view "-1389 2600 -200 20 90"', "wait 60"] + RTFX_SHOTS
+              + ['r_vk_debug_view ""']},
+    # glass: a window of the first map (func_breakable *43, kRenderTransTexture), from both sides
+    {"name": "rtfx_glass", "game": "valve", "map": "c1a0", "server": [],
+     "lines": ["wait 200", "sv_cheats 1", "hud_draw 0", "r_drawviewmodel 0", "sv_novis 1",
+               'r_vk_debug_view "-650 -580 -110 5 165"', "r_vk_quality enhanced", "wait 30", "shot a_enhanced",
+               "r_vk_quality rt", "wait 60", "shot a_rt",
+               'r_vk_debug_view "-900 -400 -110 5 -15"', "r_vk_quality enhanced", "wait 30", "shot b_enhanced",
+               "r_vk_quality rt", "wait 60", "shot b_rt",
+               "r_vk_quality classic", 'r_vk_debug_view ""']},
+    # a server limiting the look (sv_maxlook, physinfo key maxlook)
+    {"name": "rtfx_maxlook", "game": "valve", "map": "c2a5", "server": [],
+     "lines": ["wait 200"] + HL_SETUP + ["hud_draw 0", "r_drawviewmodel 0", 'r_vk_debug_view "-1389 2600 -200 20 90"',
+                                         "r_vk_quality classic", "wait 30", "shot classic",
+                                         "r_vk_quality enhanced", "wait 30", "shot enhanced",
+                                         "r_vk_quality rt", "wait 30", "shot rt",
+                                         "sv_maxlook enhanced", "wait 30", "shot rt_limited_enhanced",
+                                         "sv_maxlook classic", "wait 30", "shot rt_limited_classic",
+                                         "sv_maxlook rt", "wait 30", "shot rt_unlimited",
+                                         "r_vk_quality classic", 'r_vk_debug_view ""']},
+    {"name": "rtfx_aztec", "game": "cstrike", "map": "de_aztec", "server": CS_SERVER,
+     "lines": ["wait 250"] + CS_SETUP + ["hud_draw 0", "r_drawviewmodel 0", "sv_novis 1",
+                                         'r_vk_debug_view "-638 -300 -420 20 90"', "wait 150"] + RTFX_SHOTS
+              + ['r_vk_debug_view ""']},
+    # online (maxplayers 32), YaPB bots at the CT spawn: their shadows
+    {"name": "rtfx_bots_cstrike", "game": "cstrike", "map": "de_dust2",
+     "server": CS_SERVER + ["+maxplayers", "32", "+mp_freezetime", "60"],
+     "lines": ["wait 250"] + CS_SETUP + ["yb_quota 31", "hud_draw 0", "r_drawviewmodel 0", "sv_novis 1",
+                                         'r_vk_debug_view "-520 -780 250 18 185"', "wait 900"] + RTFX_SHOTS
+              # what the rays see: the models out of sight are left out
+              + ["r_vk_quality rt", "r_vk_rt_debug 5", "wait 5", "shot rt_scene", "r_vk_rt_debug 6", "wait 5", "shot rt_hidden", "r_vk_rt_debug 0",
+                 # from the player's eye at the CT spawn, walls between it and the T spawn
+                 'r_vk_debug_view ""', "r_vk_rt_debug 6",
+                 "wait 5", "shot hidden_rt", "r_vk_rt_debug 0", "wait 5", "shot hidden_raster",
+                 "r_vk_quality classic", 'r_vk_debug_view ""']},
     {"name": "hud_cstrike", "game": "cstrike", "map": "de_dust2", "server": CS_SERVER,
      "lines": ["gl_clear 1", "r_norefresh 1", "wait 250"] + CS_SETUP
               + ["wait 150", "shot hud", "+showscores", "wait 30", "shot scores", "-showscores",

@@ -320,6 +320,11 @@ static qboolean R_Init_Video_( ref_graphic_apis_t type )
 }
 
 
+static const char *pfnPhysInfo_ValueForKey( const char *key )
+{
+	return Info_ValueForKey( cls.physinfo, key );
+}
+
 static const ref_api_t gEngfuncs =
 {
 	pfnEngineGetParm,
@@ -458,6 +463,8 @@ static const ref_api_t gEngfuncs =
 
 	Job_Submit,
 	Job_WaitIdle,
+
+	pfnPhysInfo_ValueForKey,
 };
 
 static void R_UnloadProgs( void )
