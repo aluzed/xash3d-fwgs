@@ -13,4 +13,5 @@ layout( push_constant ) uniform world_push_s
 	float alpha_ref; // glAlphaFunc( GL_GREATER, alpha_ref )
 	int alpha_test;  // GL_ALPHA_TEST enabled
 	vec2 tcoffset;   // conveyor scroll added to the texture coordinates
+	int fog;         // fog state, 0 when GL_FOG is off
 } pc;

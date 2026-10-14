@@ -1,11 +1,11 @@
 # 015 - Sky and fog
 
 ## Tasks
-- [ ] Skybox from `skyname` (6 faces, `ref/common/ref_skybox.c` naming
+- [x] Skybox from `skyname` (6 faces, `ref/common/ref_skybox.c` naming
       rules), rendered at infinite depth.
 - [ ] Quake-style scrolling sky (`R_SetSkyCloudsTextures`) for Quake maps.
 - [ ] `sv_skycolor` / `sv_skyvec` exposed for later use (024-026).
-- [ ] Fog: GoldSrc `TriFog`/`FogParams` client fog (used by some mods),
+- [x] Fog: GoldSrc `TriFog`/`FogParams` client fog (used by some mods),
       water fog; exact linear / exp formula as `ref_gl`.
 
 ## Acceptance criteria
@@ -17,7 +17,17 @@
   face is missing); `R_SetupSky`, `PARM_TEX_SKYBOX`, `PARM_TEX_SKYTEXNUM`.
 - World + sky, ref_vk vs ref_gl (entities off): 37/37 captures above 40 dB,
   most of them 70-88 dB.
-- Fog and the Quake sky sphere / clouds are not done.
+- Fog (`vk_fog.c`) keeps ref_gl's GL_FOG state machine: R_CheckFog,
+  R_DrawFog, R_AllowFog, the per-pass fog colours of gl_rsurf.c, the half
+  density sky, TriFog and FogParams. Every draw snapshots the state into a
+  per-frame table (descriptor set 1) that the fragment shaders apply on
+  the eye plane distance, like fixed function GL_EXP / GL_EXP2 / GL_LINEAR.
+- Under fog ref_gl adds a stub gray detail pass to every surface; it is
+  drawn too, and the fog colours match only with it.
+- Harness: `underwater_valve` (noclip into the c2a5 river, then back to
+  walking so the water level is computed) 76 dB against ref_gl.
+- The Quake sky sphere / clouds and `sv_skycolor` / `sv_skyvec` are not
+  done (Quake mods, later stories).
 
 ## Dependencies
 013.

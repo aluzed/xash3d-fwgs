@@ -103,6 +103,90 @@ static qboolean VK_CreateTextureSet( void )
 	return true;
 }
 
+/*
+=================
+Fog table set: one per frame in flight, written by vk_fog.c
+=================
+*/
+static qboolean VK_CreateFogSets( void )
+{
+	VkDescriptorSetLayoutBinding binding = {
+		.binding = VK_BINDING_FOG,
+		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+		.descriptorCount = 1,
+		.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+	};
+
+	VkDescriptorSetLayoutCreateInfo layout = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		.bindingCount = 1,
+		.pBindings = &binding,
+	};
+
+	if( vkCreateDescriptorSetLayout( vk.device, &layout, NULL, &vk_pipe.fog_layout ) != VK_SUCCESS )
+		return false;
+
+	VkDescriptorPoolSize size = {
+		.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+		.descriptorCount = VK_FRAMES_IN_FLIGHT,
+	};
+
+	VkDescriptorPoolCreateInfo pool = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+		.maxSets = VK_FRAMES_IN_FLIGHT,
+		.poolSizeCount = 1,
+		.pPoolSizes = &size,
+	};
+
+	if( vkCreateDescriptorPool( vk.device, &pool, NULL, &vk_pipe.fog_pool ) != VK_SUCCESS )
+		return false;
+
+	VkDescriptorSetLayout layouts[VK_FRAMES_IN_FLIGHT];
+	for( int i = 0; i < VK_FRAMES_IN_FLIGHT; i++ )
+		layouts[i] = vk_pipe.fog_layout;
+
+	VkDescriptorSetAllocateInfo alloc = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+		.descriptorPool = vk_pipe.fog_pool,
+		.descriptorSetCount = VK_FRAMES_IN_FLIGHT,
+		.pSetLayouts = layouts,
+	};
+
+	if( vkAllocateDescriptorSets( vk.device, &alloc, vk_pipe.fog_sets ) != VK_SUCCESS )
+		return false;
+
+	VK_SetObjectName( VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, (uint64_t)vk_pipe.fog_layout, "fog layout" );
+	return true;
+}
+
+void VK_WriteFogDescriptor( int frame, VkBuffer buffer, VkDeviceSize offset, VkDeviceSize range )
+{
+	VkDescriptorBufferInfo info = {
+		.buffer = buffer,
+		.offset = offset,
+		.range = range,
+	};
+
+	VkWriteDescriptorSet write = {
+		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		.dstSet = vk_pipe.fog_sets[frame],
+		.dstBinding = VK_BINDING_FOG,
+		.descriptorCount = 1,
+		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+		.pBufferInfo = &info,
+	};
+
+	vkUpdateDescriptorSets( vk.device, 1, &write, 0, NULL );
+}
+
+// the textures and the fog table of the frame being recorded
+void VK_BindDescriptorSets( VkCommandBuffer cmd )
+{
+	VkDescriptorSet sets[2] = { vk_pipe.texture_set, vk_pipe.fog_sets[VK_FrameIndex( )] };
+
+	vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipe.layout, 0, 2, sets, 0, NULL );
+}
+
 void VK_WriteTextureDescriptor( int texnum, VkImageView view, VkSampler sampler )
 {
 	VkDescriptorImageInfo image = {
@@ -498,6 +582,14 @@ qboolean VK_InitPipelines( void )
 		return false;
 	}
 
+	if( !VK_CreateFogSets( ))
+	{
+		gEngfuncs.Con_Printf( S_ERROR "ref_vk: can't create the fog sets\n" );
+		return false;
+	}
+
+	VkDescriptorSetLayout set_layouts[2] = { vk_pipe.texture_layout, vk_pipe.fog_layout };
+
 	VkPushConstantRange push = {
 		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 		.size = VK_PUSH_CONSTANTS_SIZE, // every pass shares the layout
@@ -505,8 +597,8 @@ qboolean VK_InitPipelines( void )
 
 	VkPipelineLayoutCreateInfo layout = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.setLayoutCount = 1,
-		.pSetLayouts = &vk_pipe.texture_layout,
+		.setLayoutCount = 2,
+		.pSetLayouts = set_layouts,
 		.pushConstantRangeCount = 1,
 		.pPushConstantRanges = &push,
 	};
@@ -558,6 +650,10 @@ void VK_ShutdownPipelines( void )
 		vkDestroyDescriptorPool( vk.device, vk_pipe.texture_pool, NULL );
 	if( vk_pipe.texture_layout )
 		vkDestroyDescriptorSetLayout( vk.device, vk_pipe.texture_layout, NULL );
+	if( vk_pipe.fog_pool )
+		vkDestroyDescriptorPool( vk.device, vk_pipe.fog_pool, NULL );
+	if( vk_pipe.fog_layout )
+		vkDestroyDescriptorSetLayout( vk.device, vk_pipe.fog_layout, NULL );
 
 	memset( &vk_pipe, 0, sizeof( vk_pipe ));
 }

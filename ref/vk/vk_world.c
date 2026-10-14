@@ -303,10 +303,6 @@ int TriWorldToScreen( const float *world, float *screen )
 	return retval;
 }
 
-// fog comes with story 015
-void R_AllowFog( qboolean allowed )
-{
-}
 
 /*
 =================
@@ -1620,6 +1616,9 @@ static void R_DrawSkyBox( VkCommandBuffer cmd )
 	push.mode = VK_WORLD_MODE_TEXTURE; // GL_REPLACE
 	Vector4Set( push.color, 1.0f, 1.0f, 1.0f, 1.0f );
 
+	VK_FogSkyBegin();
+	push.fog = VK_FogIndex();
+
 	for( int i = 0; i < SKYBOX_MAX_SIDES; i++ )
 	{
 		int texnum;
@@ -1636,6 +1635,7 @@ static void R_DrawSkyBox( VkCommandBuffer cmd )
 		vkCmdDraw( cmd, 6, 1, first[i], 0 );
 	}
 
+	VK_FogSkyEnd();
 	VK_EndLabel( cmd );
 }
 
@@ -1740,7 +1740,7 @@ static void VK_BindBrushGeometry( VkCommandBuffer cmd )
 {
 	VkDeviceSize offset = 0;
 
-	vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipe.layout, 0, 1, &vk_pipe.texture_set, 0, NULL );
+	VK_BindDescriptorSets( cmd );
 	vkCmdBindVertexBuffers( cmd, 0, 1, &vk_wgeo.vertices.buffer, &offset );
 	vkCmdBindIndexBuffer( cmd, vk_wgeo.indices.buffer, 0, VK_INDEX_TYPE_UINT32 );
 }
@@ -1829,6 +1829,9 @@ static void VK_DrawWaterSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 		if( !FBitSet( warp->flags, SURF_DRAWTURB ) || !warp->polys )
 			continue;
 
+		// reset fog color for nonlightmapped water
+		GL_ResetFogColor();
+
 		// a backside surface of an entity is drawn reversed (R_RenderBrushPoly)
 		const qboolean reverse = check_backside && R_CullSurface( warp, &RI.frustum, 0 ) == CULL_BACKSIDE;
 
@@ -1900,6 +1903,7 @@ static void VK_DrawWaterSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 		push.mode = st->mode;
 		push.texture = VK_TextureForDraw( R_TextureAnimation( warp )->gl_texturenum );
 		push.alpha_test = st->alpha_test;
+		push.fog = VK_FogIndex();
 		VK_PushWorld( cmd, &push );
 		vkCmdDraw( cmd, num_verts, 1, 0, 0 );
 
@@ -1917,9 +1921,15 @@ static void VK_DrawWaterSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 			push.scale = gl_overbright.value && st->lightmap_equal ? 128.0f / 192.0f : 1.0f;
 			push.lightmap = VK_TextureForDraw( tr.lightmapTextures[warp->lightmaptexturenum] );
 			push.alpha_test = false;
+
+			// blended like R_BlendLightmaps
+			GL_SetupFogColorForSurfacesEx( r_detailtextures.value ? 3 : 2, 1.0f, true );
+			push.fog = VK_FogIndex();
 			VK_PushWorld( cmd, &push );
 			vkCmdDraw( cmd, num_verts, 1, 0, 0 );
 		}
+
+		GL_SetupFogColorForSurfaces();
 	}
 
 	if( any )
@@ -1965,6 +1975,7 @@ static void VK_DrawBrushSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 	push.alpha_test = st->alpha_test;
 	push.alpha_ref = st->alpha_ref;
 	push.texture = -1;
+	push.fog = VK_FogIndex( );
 
 	vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, VK_WorldPipeline( st->blend, st->depth_write, false ));
 
@@ -1989,16 +2000,31 @@ static void VK_DrawBrushSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 			if( FBitSet( s->flags, SURF_CONVEYOR ))
 				R_ConveyorOffset( gl_texnum, &sOffset, &tOffset );
 
-			if( texnum != push.texture || sOffset != push.tcoffset[0] || tOffset != push.tcoffset[1] )
+			// DrawGLPoly: tiled surfaces have no lightmap pass to share the fog with
+			if( FBitSet( s->flags, SURF_DRAWTILED ))
+				GL_ResetFogColor();
+
+			const int fogindex = VK_FogIndex();
+
+			if( texnum != push.texture || sOffset != push.tcoffset[0] || tOffset != push.tcoffset[1] || fogindex != push.fog )
 			{
 				push.texture = texnum;
 				push.tcoffset[0] = sOffset;
 				push.tcoffset[1] = tOffset;
+				push.fog = fogindex;
 				VK_PushWorld( cmd, &push );
 			}
 		}
+		else if( push.fog != VK_FogIndex( ))
+		{
+			push.fog = VK_FogIndex();
+			VK_PushWorld( cmd, &push );
+		}
 
 		VK_DrawSurface( cmd, surfnum );
+
+		if( FBitSet( s->flags, SURF_DRAWTILED ))
+			GL_SetupFogColorForSurfaces();
 
 		// R_RenderDecalsForSurface
 		if( s->pdecals )
@@ -2038,8 +2064,13 @@ static void VK_DrawBrushSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 		VK_ResumeBrushDraws( cmd, st, &push );
 	}
 
+	GL_ResetFogColor();
+
 	if( !any_lightmap )
 		return;
+
+	// R_BlendLightmaps
+	GL_SetupFogColorForSurfacesEx( r_detailtextures.value ? 3 : 2, 1.0f, true );
 
 	if( r_lightmap->value )
 		vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, VK_WorldPipeline( VK_BLEND_NONE, false, st->lightmap_equal ));
@@ -2050,6 +2081,7 @@ static void VK_DrawBrushSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 	push.scale = gl_overbright.value && st->lightmap_equal ? 128.0f / 192.0f : 1.0f;
 	push.alpha_test = false;
 	push.tcoffset[0] = push.tcoffset[1] = 0.0f;
+	push.fog = VK_FogIndex();
 
 	for( int i = 0; i < MAX_LIGHTMAPS; i++ )
 	{
@@ -2062,6 +2094,60 @@ static void VK_DrawBrushSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 		for( msurface_t *surf = lightmap_surfaces[i]; surf != NULL; surf = surf->info->lightmapchain )
 			VK_DrawSurface( cmd, surf - WORLDMODEL->surfaces );
 	}
+
+	// restore fog here
+	GL_ResetFogColor();
+}
+
+/*
+=================
+VK_DrawFogDetails
+
+R_RenderDetails with R_RenderDetailsForSurface: under fog, ref_gl gives
+every surface a stub gray detail pass, blended over the lightmaps with its
+own fog colour (detail textures themselves aren't supported, HL has none)
+=================
+*/
+static void VK_DrawFogDetails( VkCommandBuffer cmd, msurface_t **surfs, int count, const matrix4x4 modelview )
+{
+	vk_world_push_t push = { 0 };
+	qboolean any = false;
+
+	if( !r_detailtextures.value || !VK_FogActive( ))
+		return;
+
+	// don't apply detail textures for windows in the fog
+	if( RI.currententity->curstate.rendermode == kRenderTransTexture )
+		return;
+
+	for( int i = 0; i < count; i++ )
+	{
+		msurface_t *s = surfs[i];
+
+		if( FBitSet( s->flags, SURF_DRAWTURB|SURF_DRAWSKY ))
+			continue;
+
+		if( !any )
+		{
+			GL_SetupFogColorForSurfacesEx( 3, 1.0f, false );
+
+			// GL_DST_COLOR, GL_SRC_COLOR with GL_DECAL of the gray texture, GL_EQUAL
+			vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, VK_WorldPipeline( VK_BLEND_OVERBRIGHT, false, true ));
+			VK_ComputeMVP( push.mvp, modelview );
+			push.mode = VK_WORLD_MODE_TEXTURE;
+			push.texture = VK_TextureForDraw( GL_FindTexture( REF_GRAY_TEXTURE ));
+			Vector4Set( push.color, 1.0f, 1.0f, 1.0f, 1.0f );
+			push.fog = VK_FogIndex();
+			VK_PushWorld( cmd, &push );
+			any = true;
+		}
+
+		VK_DrawSurface( cmd, s - WORLDMODEL->surfaces );
+	}
+
+	// restore fog here
+	if( any )
+		GL_ResetFogColor();
 }
 
 static void VK_SetSolidLightmapBlend( vk_brush_state_t *st )
@@ -2132,8 +2218,11 @@ static void VK_DrawWorldSurfaces( VkCommandBuffer cmd )
 	VK_BeginLabel( cmd, "world" );
 	VK_BindBrushGeometry( cmd );
 	VK_SetBrushOffset( cmd, 0.0f, 0.0f );
+	GL_SetupFogColorForSurfaces(); // R_DrawTextureChains
 	VK_DrawBrushSurfaces( cmd, vk_draw_surfs, count, &st, RI.worldviewMatrix );
+	VK_DrawFogDetails( cmd, vk_draw_surfs, count, RI.worldviewMatrix );
 	VK_DrawWaterSurfaces( cmd, vk_draw_surfs, count, &st, RI.worldviewMatrix, false );
+	GL_ResetFogColor(); // what R_BlendLightmaps leaves
 	VK_EndLabel( cmd );
 }
 
@@ -2693,7 +2782,12 @@ static void R_DrawBrushModel( VkCommandBuffer cmd, cl_entity_t *e )
 	else VK_SetBrushOffset( cmd, 0.0f, 0.0f );
 
 	R_SetRenderModeImm( e );
+	if( e->curstate.rendermode == kRenderTransAdd )
+		R_AllowFog( false );
+	GL_SetupFogColorForSurfaces();
+
 	VK_DrawBrushSurfaces( cmd, vk_draw_surfs, num_sorted, &st, modelview );
+	VK_DrawFogDetails( cmd, vk_draw_surfs, num_sorted, modelview );
 	VK_DrawWaterSurfaces( cmd, vk_draw_surfs, num_sorted, &st, modelview, true );
 
 	if( gl_polyoffset_bmodels.value )
@@ -2706,6 +2800,10 @@ static void R_DrawBrushModel( VkCommandBuffer cmd, cl_entity_t *e )
 	VK_ImmBlendEnable( false );
 	VK_ImmDepthMask( true );
 	VK_ImmTexture2D( true );
+
+	// restore fog here
+	if( e->curstate.rendermode == kRenderTransAdd )
+		R_AllowFog( true );
 
 	e->curstate.rendermode = old_rendermode;
 	tr.modelviewIdentity = true;
@@ -2763,6 +2861,11 @@ static void R_DrawEntitiesOnList( VkCommandBuffer cmd )
 	if( FBitSet( RI.rvp.flags, RF_DRAW_WORLD ))
 		gEngfuncs.pfnDrawNormalTriangles();
 
+	// Vampire Slayer leave GL_LINEAR fog with their own start/end after
+	// pfnDrawNormalTriangles; restore engine fog for the translucent
+	// entities and viewmodel drawn below.
+	R_DrawFog();
+
 	VK_BindBrushGeometry( cmd );
 
 	for( uint i = 0; i < tr.draw_list->num_trans_entities && !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ); i++ )
@@ -2802,7 +2905,11 @@ static void R_DrawEntitiesOnList( VkCommandBuffer cmd )
 	}
 
 	if( !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ))
+	{
+		R_AllowFog( false );
 		gEngfuncs.CL_DrawEFX( frametime, true );
+		R_AllowFog( true );
+	}
 
 	VK_ImmBlendEnable( false ); // Trinity Render issues
 
@@ -2862,6 +2969,7 @@ static void R_RenderScene( void )
 
 	VK_SetViewport( x, y, w, h );
 	VK_ImmSet3D( true );
+	VK_FogSetupFrame(); // R_SetupFrame
 
 	// R_Clear: depth only, and the clear colour becomes grey (green in overview)
 	if( ENGINE_GET_PARM( PARM_DEV_OVERVIEW ))
@@ -2872,7 +2980,9 @@ static void R_RenderScene( void )
 	if( WORLDMODEL )
 	{
 		R_MarkLeaves();
+		R_DrawFog();
 		R_DrawWorld( cmd );
+		R_CheckFog();
 		R_DrawEntitiesOnList( cmd );
 		R_DrawWaterSurfaces( cmd );
 	}
@@ -2951,6 +3061,7 @@ void R_NewMap( void )
 	tr.world = (world_static_t *)ENGINE_GET_PARM( PARM_GET_WORLD_PTR );
 
 	R_ClearDecals(); // clear all level decals
+	VK_FogNewMap();
 	R_StudioResetPlayerModels();
 
 	for( int i = 0; i < WORLDMODEL->numleafs; i++ )

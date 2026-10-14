@@ -299,6 +299,7 @@ typedef struct vk_imm_push_s
 	int texture;
 	int alpha_test;
 	float alpha_ref;
+	int fog;         // VK_FogIndex
 } vk_imm_push_t;
 
 // mirrors world_common.glsl
@@ -313,6 +314,7 @@ typedef struct vk_world_push_s
 	float alpha_ref;
 	int alpha_test;
 	float tcoffset[2];
+	int fog;         // VK_FogIndex
 } vk_world_push_t;
 
 #define VK_PUSH_CONSTANTS_SIZE 128
@@ -322,6 +324,9 @@ typedef struct vk_pipelines_s
 	VkDescriptorSetLayout texture_layout;
 	VkDescriptorPool texture_pool;
 	VkDescriptorSet texture_set;
+	VkDescriptorSetLayout fog_layout;
+	VkDescriptorPool fog_pool;
+	VkDescriptorSet fog_sets[VK_FRAMES_IN_FLIGHT];
 	VkPipelineLayout layout;
 	VkPipelineCache cache;
 	VkPipeline imm[VK_TOPOLOGY_COUNT][VK_BLEND_ALL];
@@ -333,6 +338,8 @@ extern vk_pipelines_t vk_pipe;
 qboolean VK_InitPipelines( void );
 void VK_ShutdownPipelines( void );
 void VK_WriteTextureDescriptor( int texnum, VkImageView view, VkSampler sampler );
+void VK_WriteFogDescriptor( int frame, VkBuffer buffer, VkDeviceSize offset, VkDeviceSize range );
+void VK_BindDescriptorSets( VkCommandBuffer cmd );
 VkPipeline VK_WorldPipeline( vk_blend_t blend, qboolean depth_write, qboolean depth_equal );
 
 //
@@ -346,6 +353,7 @@ void VK_ClearScreen( void );
 void VK_SetClearColor( float r, float g, float b );
 void VK_SetViewport( int x, int y, int width, int height );
 void VK_SetDepthRange( float min, float max );
+int VK_FrameIndex( void );
 void VK_ResetViewport( void );
 void VK_ClearMainDepth( void );
 qboolean VK_ScreenShot( const char *filename, int shot_type );
@@ -402,6 +410,16 @@ typedef struct
 	cl_entity_t *currentbeam; // beam entity being drawn
 	float skyMins[2][SKYBOX_MAX_SIDES];
 	float skyMaxs[2][SKYBOX_MAX_SIDES];
+
+	// fog
+	qboolean fogEnabled;    // underwater or Quake fog
+	qboolean fogCustom;     // TriFog
+	qboolean fogSkybox;
+	vec4_t fogColor;
+	float fogDensity;
+	float fogStart, fogEnd;
+	int cached_contents;    // in water
+	int cached_waterlevel;
 } vk_refinst_t;
 
 typedef struct
@@ -533,6 +551,30 @@ qboolean R_AddEntity( struct cl_entity_s *clent, int type );
 int CL_FxBlend( cl_entity_t *e );
 
 //
+// vk_fog.c
+//
+extern convar_t r_detailtextures;
+extern convar_t gl_fog;
+void VK_RegisterFogCvars( void );
+qboolean VK_InitFog( void );
+void VK_ShutdownFog( void );
+void VK_FogBeginFrame( int frame );
+int VK_FogIndex( void );
+void VK_FogSet2D( qboolean enable );
+void VK_FogSetupFrame( void );
+qboolean VK_FogActive( void );
+void VK_FogNewMap( void );
+void VK_FogSkyBegin( void );
+void VK_FogSkyEnd( void );
+void R_DrawFog( void );
+void R_CheckFog( void );
+void GL_SetupFogColorForSurfacesEx( int passes, float density, qboolean blend_lightmaps );
+void GL_SetupFogColorForSurfaces( void );
+void GL_ResetFogColor( void );
+void TriFog( float flFogColor[3], float flStart, float flEnd, int bOn );
+void TriFogParams( float flDensity, int iFogSkybox );
+
+//
 // vk_decals.c
 //
 void R_DecalInit( void );
@@ -654,6 +696,7 @@ void VK_UpdateTextureRegion( int texnum, int x, int y, int width, int height, co
 int VK_TextureForDraw( int texnum );
 int VK_WhiteTexture( void );
 int VK_ParticleTexture( void );
+void VK_TextureFogParams( int texnum, byte *red, byte *green, byte *blue, byte *density );
 int VK_DefaultTexture( void );
 #define Mod_AllowMaterials() ( host_allow_materials->value && !FBitSet( gp_host->features, ENGINE_DISABLE_HDTEXTURES ))
 qboolean R_SearchForTextureReplacement( char *out, size_t size, const char *modelname, const char *fmt, ... ) FORMAT_CHECK( 4 );

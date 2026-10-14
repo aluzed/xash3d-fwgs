@@ -200,6 +200,12 @@ void VK_SetViewport( int x, int y, int width, int height )
 	vkCmdSetScissor( cmd, 0, 1, &scissor );
 }
 
+// the frame in flight being recorded
+int VK_FrameIndex( void )
+{
+	return vk_frame.frame_index;
+}
+
 // glDepthRange, kept until changed again
 void VK_SetDepthRange( float min, float max )
 {
@@ -666,6 +672,7 @@ void VK_BeginFrame( qboolean clear_scene )
 	if( vk_frame.frame_count >= VK_FRAMES_IN_FLIGHT )
 		VK_RunDeferred( vk_frame.frame_count - VK_FRAMES_IN_FLIGHT );
 	VK_BeginDynamic( vk_frame.frame_index );
+	VK_FogBeginFrame( vk_frame.frame_index );
 	VK_CheckTextureParams();
 	VK_FlushUploads(); // textures loaded since the last frame
 

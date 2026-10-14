@@ -41,6 +41,7 @@ typedef struct vk_texture_s
 	int encode;
 	size_t size;              // bytes on the GPU, for texturelist
 	float xscale, yscale;     // detail texture scale
+	rgba_t fogParams;         // water textures: fog colour and density
 	qboolean used;            // the slot holds a texture
 
 	VkImage image;
@@ -768,6 +769,7 @@ static qboolean VK_UploadTexture( vk_texture_t *tex, rgbdata_t *pic )
 		layers = pic->depth; // 2D arrays; 3D textures are sampled as layers too
 
 	VK_SetTextureDimensions( tex, pic->width, pic->height );
+	memcpy( tex->fogParams, pic->fogParams, sizeof( tex->fogParams ));
 	tex->samples = VK_CalcTextureSamples( pic->flags );
 	tex->depth = layers;
 
@@ -1320,6 +1322,17 @@ qboolean R_SearchForTextureReplacement( char *out, size_t size, const char *mode
 int VK_WhiteTexture( void )
 {
 	return vk_tex.whiteTexture;
+}
+
+// GetExtraParmsForTexture
+void VK_TextureFogParams( int texnum, byte *red, byte *green, byte *blue, byte *density )
+{
+	const vk_texture_t *tex = &vk_textures[bound( 0, texnum, VK_MAX_TEXTURES - 1 )];
+
+	if( red ) *red = tex->fogParams[0];
+	if( green ) *green = tex->fogParams[1];
+	if( blue ) *blue = tex->fogParams[2];
+	if( density ) *density = tex->fogParams[3];
 }
 
 int VK_ParticleTexture( void )

@@ -131,7 +131,7 @@ void VK_ImmFlush( void )
 		vkCmdSetStencilCompareMask( cmd, VK_STENCIL_FACE_FRONT_AND_BACK, imm.batch_raster.stencil_mask );
 		vkCmdSetStencilWriteMask( cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 0xFFFFFFFF );
 		vkCmdSetStencilReference( cmd, VK_STENCIL_FACE_FRONT_AND_BACK, imm.batch_raster.stencil_ref );
-		vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipe.layout, 0, 1, &vk_pipe.texture_set, 0, NULL );
+		VK_BindDescriptorSets( cmd );
 		vkCmdPushConstants( cmd, vk_pipe.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 			0, sizeof( imm.batch_push ), &imm.batch_push );
 		vkCmdBindVertexBuffers( cmd, 0, 1, &buffer, &offset );
@@ -162,6 +162,7 @@ static void VK_ImmEmit( vk_topology_t topology, const vk_imm_vertex_t *verts, in
 	push.texture = imm.texture_2d ? VK_TextureForDraw( imm.texture ) : VK_IMM_TEXTURE_NONE;
 	push.alpha_test = imm.alpha_test;
 	push.alpha_ref = imm.alpha_ref;
+	push.fog = imm.in2d ? 0 : VK_FogIndex( );
 
 	if( imm.num_vertices && ( topology != imm.batch_topology || blend != imm.batch_blend
 		|| memcmp( &push, &imm.batch_push, sizeof( push ))
@@ -437,7 +438,7 @@ void GL_SetRenderMode( int mode )
 	}
 }
 
-void R_Set2DMode( qboolean enable )
+static void VK_ImmSet2D( qboolean enable )
 {
 	if( enable )
 	{
@@ -456,6 +457,12 @@ void R_Set2DMode( qboolean enable )
 		VK_ImmFlush();
 		imm.in2d = false;
 	}
+}
+
+void R_Set2DMode( qboolean enable )
+{
+	VK_FogSet2D( enable );
+	VK_ImmSet2D( enable );
 }
 
 void R_Set2DOffset( float x, float y )
@@ -550,7 +557,7 @@ void VK_ImmSet3D( qboolean enable )
 	{
 		VK_SetDepthRange( 0.0f, 1.0f );
 		imm.in2d = false;
-		R_Set2DMode( true );
+		VK_ImmSet2D( true ); // the fog stays: other views may follow
 	}
 }
 

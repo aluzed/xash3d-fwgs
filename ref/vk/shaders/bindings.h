@@ -24,6 +24,16 @@ GNU General Public License for more details.
 #define VK_BINDING_TEXTURES  0
 #define VK_MAX_TEXTURES      8192 // same limit as ref_gl
 
+// set 1: the fog states of the frame (fog.glsl), indexed from the push constants
+#define VK_SET_FOG           1
+#define VK_BINDING_FOG       0
+#define VK_MAX_FOG_STATES    256  // 32 bytes each, index 0 is "no fog"
+
+// glFogi( GL_FOG_MODE )
+#define VK_FOG_LINEAR        1
+#define VK_FOG_EXP           2
+#define VK_FOG_EXP2          3
+
 // push constants of the immediate mode passes (2D, TriAPI)
 #define VK_IMM_TEXTURE_NONE  0    // texture index 0: untextured, like GL_TEXTURE_2D disabled
 

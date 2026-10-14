@@ -45,6 +45,7 @@ static qboolean R_Init( void )
 	R_StudioInit();
 	R_SpriteInit();
 	R_DecalInit();
+	VK_RegisterFogCvars();
 	R_ClearDecals();
 
 	// the engine falls back to the next renderer when this fails
@@ -55,9 +56,10 @@ static qboolean R_Init( void )
 		return false;
 	}
 
-	if( !VK_InitCore( ) || !VK_InitMemory( ) || !VK_InitFrames( ) || !VK_InitPipelines( ))
+	if( !VK_InitCore( ) || !VK_InitMemory( ) || !VK_InitFrames( ) || !VK_InitPipelines( ) || !VK_InitFog( ))
 	{
 		VK_ShutdownTextures();
+		VK_ShutdownFog();
 		VK_ShutdownPipelines();
 		VK_ShutdownFrames();
 		VK_ShutdownMemory();
@@ -74,6 +76,7 @@ static void R_Shutdown( void )
 {
 	VK_ShutdownWorld();
 	VK_ShutdownTextures();
+	VK_ShutdownFog();
 	VK_ShutdownPipelines();
 	VK_ShutdownFrames();
 	VK_ShutdownMemory();
@@ -134,11 +137,6 @@ Stubs, replaced story by story (see docs/stories)
 =================
 */
 static void R_SimpleStub( void )
-{
-	;
-}
-
-static void R_SimpleStubBool( qboolean unused )
 {
 	;
 }
@@ -282,11 +280,7 @@ entry gets a safe stub
 */
 static void RAPI_GetExtraParmsForTexture( int texture, byte *red, byte *green, byte *blue, byte *alpha )
 {
-	VK_STUB();
-	if( red ) *red = 255;
-	if( green ) *green = 255;
-	if( blue ) *blue = 255;
-	if( alpha ) *alpha = 255;
+	VK_TextureFogParams( texture, red, green, blue, alpha );
 }
 
 static float RAPI_GetFrameTime( void )
@@ -379,11 +373,6 @@ static void R_FillRenderAPI( render_api_t *api )
 	api->GL_GetProcAddress       = RAPI_GetProcAddress;
 }
 
-static void TriFog( float flFogColor[3], float flStart, float flEnd, int bOn )
-{
-	VK_STUB();
-}
-
 static void TriScreenToWorld( const float *screen, float *world )
 {
 	R_ScreenToWorld( screen, world );
@@ -407,11 +396,6 @@ static void TriGetMatrix( const int pname, float *matrix )
 		matrix[0] = matrix[5] = matrix[10] = matrix[15] = 1.0f;
 		break;
 	}
-}
-
-static void TriFogParams( float flDensity, int iFogSkybox )
-{
-	VK_STUB();
 }
 
 static void R_FillTriAPI( triangleapi_t *api )
@@ -444,7 +428,7 @@ const ref_interface_t gReffuncs =
 	.GL_BackendEndFrame   = R_SimpleStub,
 
 	.R_ClearScreen    = R_ClearScreen,
-	.R_AllowFog       = R_SimpleStubBool,
+	.R_AllowFog       = R_AllowFog,
 	.GL_SetRenderMode = GL_SetRenderMode,
 
 	.R_AddEntity      = R_AddEntity,

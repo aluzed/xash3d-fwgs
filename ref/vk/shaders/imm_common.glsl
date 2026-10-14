@@ -8,4 +8,5 @@ layout( push_constant ) uniform imm_push_s
 	int texture;     // engine texture number, VK_IMM_TEXTURE_NONE when untextured
 	int alpha_test;  // GL_ALPHA_TEST enabled
 	float alpha_ref; // glAlphaFunc( GL_GREATER, alpha_ref )
+	int fog;         // fog state, 0 when GL_FOG is off
 } pc;

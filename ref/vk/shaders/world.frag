@@ -7,11 +7,13 @@
 // glBlendFunc( GL_ZERO, GL_SRC_COLOR ) otherwise
 
 #include "world_common.glsl"
+#include "fog.glsl"
 
 layout( set = VK_SET_TEXTURES, binding = VK_BINDING_TEXTURES ) uniform sampler2D textures[VK_MAX_TEXTURES];
 
 layout( location = 0 ) in vec2 in_texcoord;
 layout( location = 1 ) in vec2 in_lightcoord;
+layout( location = 2 ) in float in_fogdist;
 
 layout( location = 0 ) out vec4 out_color;
 
@@ -19,7 +21,7 @@ void main()
 {
 	if( pc.mode == VK_WORLD_MODE_LIGHTMAP )
 	{
-		out_color = vec4( texture( textures[pc.lightmap], in_lightcoord ).rgb * pc.scale, 1.0 );
+		out_color = vec4( ApplyFog( texture( textures[pc.lightmap], in_lightcoord ).rgb * pc.scale, pc.fog, in_fogdist ), 1.0 );
 		return;
 	}
 
@@ -31,5 +33,6 @@ void main()
 	if( pc.alpha_test != 0 && !( color.a > pc.alpha_ref ))
 		discard;
 
+	color.rgb = ApplyFog( color.rgb, pc.fog, in_fogdist );
 	out_color = color;
 }
