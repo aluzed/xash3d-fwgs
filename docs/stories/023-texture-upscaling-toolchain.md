@@ -23,7 +23,15 @@ an ML model, derives PBR maps, and outputs a `materials/` pack (022 layout).
       KTX2 with every mip level, BC7 (colour, linear data) or BC5 (normal
       maps) or BC4, with bc7enc / rgbcx (`3rdparty/bc7enc_rdo` submodule,
       MIT). Colour levels are averaged in linear light, normal map levels
-      renormalized. Not incremental yet, no manifest.
+      renormalized.
+- [~] `scripts/texpack.py`: extractor (BSP embedded textures and WAD3,
+      `{` transparency) for the textures of given maps, upscale stage
+      (Lanczos, or any command with `--upscaler "cmd {input} {output}"`),
+      PBR derivation from the luminance (heuristic), compression with
+      ktx2enc, `.mat` files, manifest of hashes for incremental runs.
+      Left: studio model skins, sprites, alpha masks upscaled apart and
+      re-thresholded, seamless tiling for the model upscaler, a whole game
+      in one command.
 
 ## Acceptance criteria
 - One command produces a pack for `cstrike` and one for `valve` from the
