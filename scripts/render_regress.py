@@ -79,6 +79,12 @@ SCENES = [
      "server": CS_SERVER, "setup": CS_SETUP, "moves": WALK + TURN},
     {"name": "cs_cs_office", "game": "cstrike", "map": "cs_office",
      "server": CS_SERVER, "setup": CS_SETUP, "moves": WALK + TURN},
+    # long runs for bench: the 1% and 0.1% lows need thousands of frames,
+    # the short scenes above end before the first loading hitches fade out
+    {"name": "long_c2a5", "game": "valve", "map": "c2a5",
+     "server": [], "setup": HL_SETUP, "moves": (TURN + WALK) * 5},
+    {"name": "long_de_dust2", "game": "cstrike", "map": "de_dust2",
+     "server": CS_SERVER, "setup": CS_SETUP, "moves": (WALK + TURN) * 5},
 ]
 
 # Renderer settings both renderers share, set to their defaults before every
@@ -203,6 +209,32 @@ SHOT_SCENES = [
      "lines": ["wait 200"] + HL_SETUP + ["r_drawviewmodel 0", "hud_draw 0", "noclip", "+moveright", "wait 693",
                                          "-moveright", "+forward", "wait 18", "-forward", "+movedown", "wait 90",
                                          "-movedown", "noclip", "wait 60", "shot river"]},
+    # translucent func_water (rendermode texture, renderamt 150) of boot_camp
+    {"name": "funcwater_valve", "game": "valve", "map": "boot_camp", "server": [],
+     "lines": ["wait 200"] + HL_SETUP + ["r_drawviewmodel 0", "hud_draw 0", "noclip",
+                                         "+left", "wait 95", "-left", "+forward", "wait 404", "-forward",
+                                         "+moveup", "wait 36", "-moveup", "+lookdown", "wait 20", "-lookdown",
+                                         "wait 10", "shot pool"]},
+    # world water made translucent by the server (sv_wateralpha), next to c2a2a's start
+    {"name": "wateralpha_valve", "game": "valve", "map": "c2a2a", "server": [],
+     "lines": ["wait 200"] + HL_SETUP + ["r_drawviewmodel 0", "hud_draw 0", "sv_wateralpha 0.4",
+                                         "+lookdown", "wait 25", "-lookdown", "wait 10", "shot water",
+                                         "sv_wateralpha 1", "wait 10", "shot solid",
+                                         # player spray, the logo written by Engine.run
+                                         "+lookdown", "wait 25", "-lookdown", "impulse 201", "wait 30", "shot spray"]},
+    # a spray on an alpha tested door (func_door, rendermode 4) behind c1a3a's start
+    {"name": "gratedecal_valve", "game": "valve", "map": "c1a3a", "server": [],
+     "lines": ["wait 200"] + HL_SETUP + ["hud_draw 0", "weapon_9mmhandgun", "wait 60",
+                                         "+left", "wait 95", "-left", "r_drawviewmodel 0",
+                                         "impulse 201", "wait 60", "shot door"]},
+    # r_shadows under a Barney spawned on the player, who then steps back
+    {"name": "shadows_valve", "game": "valve", "map": "c2a2a", "server": [],
+     "lines": ["wait 200"] + HL_SETUP + ["r_drawviewmodel 0", "hud_draw 0", "r_shadows 1", "noclip",
+                                         "give monster_barney", "+back", "wait 40", "-back",
+                                         "+lookdown", "wait 10", "-lookdown", "wait 30", "shot barney",
+                                         # r_speeds counters, compared by eye: the timings differ
+                                         "r_speeds 1", "wait 10", "shot speeds1", "r_speeds 3", "wait 10", "shot speeds3",
+                                         "r_speeds 5", "wait 10", "shot speeds5", "r_speeds 0"]},
     {"name": "hud_cstrike", "game": "cstrike", "map": "de_dust2", "server": CS_SERVER,
      "lines": ["gl_clear 1", "r_norefresh 1", "wait 250"] + CS_SETUP
               + ["wait 150", "shot hud", "+showscores", "wait 30", "shot scores", "-showscores",
@@ -348,6 +380,28 @@ def compare_images(path_a, path_b, heatmap_path, masks=None):
 # Engine runs
 # --------------------------------------------------------------------------
 
+def write_spray_bmp(path):
+    """A 64x64 8-bit BMP for the player spray (impulse 201): a checkered
+    disc, the last palette entry around it."""
+    size = 64
+    palette = b"".join(bytes((i * 7 % 256, 255 - i, i, 0)) for i in range(255))
+    palette += bytes((255, 0, 0, 0))  # BGRA: blue
+    rows = []
+    for y in range(size - 1, -1, -1):  # bottom-up
+        row = bytearray()
+        for x in range(size):
+            inside = (x - 32) ** 2 + (y - 32) ** 2 <= 30 ** 2
+            row.append((x // 8 + y // 8) % 2 * 200 + 20 if inside else 255)
+        rows.append(bytes(row))
+    pixels = b"".join(rows)
+    offset = 14 + 40 + len(palette)
+    header = b"BM" + struct.pack("<IHHI", offset + len(pixels), 0, 0, offset)
+    info = struct.pack("<IiiHHIIiiII", 40, size, size, 1, 8, 0, len(pixels),
+                       2835, 2835, 256, 0)
+    with open(path, "wb") as f:
+        f.write(header + info + palette + pixels)
+
+
 class Engine:
     def __init__(self, args):
         self.dev_root = os.path.abspath(args.dev_root)
@@ -379,6 +433,12 @@ class Engine:
             if name.endswith(".cfg") and os.path.isfile(path):
                 with open(path, "rb") as f:
                     saved[path] = f.read()
+        spray = os.path.join(gamedir, "logos", "remapped.bmp")
+        spray_created = False
+        if not os.path.exists(spray):
+            os.makedirs(os.path.dirname(spray), exist_ok=True)
+            write_spray_bmp(spray)
+            spray_created = True
         logo = os.path.join(gamedir, "media", "logo.avi")
         logo_created = False
         if hide_logo and not os.path.exists(logo):
@@ -403,6 +463,8 @@ class Engine:
         finally:
             if logo_created:
                 os.remove(logo)
+            if spray_created:
+                os.remove(spray)
             for path, content in saved.items():
                 with open(path, "wb") as f:
                     f.write(content)
@@ -576,7 +638,7 @@ def cmd_bench(args):
             print(f"skipping {scene['name']}: not recorded")
             continue
         engine.install_demo(scene)
-        fps = []
+        fps, lows = [], []
         for run in range(args.runs):
             output = engine.run(scene["game"], args.ref,
                                 ["+gl_vsync", "0", "+fps_max", "0",
@@ -586,11 +648,22 @@ def cmd_bench(args):
                           r"([\d.]+) fps", output)
             if m:
                 fps.append(float(m.group(3)))
+            # engines before the frame time report print no lows
+            m = re.search(r"timedemo lows: 1% ([\d.]+) fps, 0\.1% ([\d.]+) fps, "
+                          r"slowest frame ([\d.]+) ms", output)
+            if m:
+                lows.append(tuple(float(v) for v in m.groups()))
         if fps:
-            results[scene["name"]] = {"runs": fps,
-                                      "avg_fps": sum(fps) / len(fps)}
-            print(f"{scene['name']:16} {results[scene['name']]['avg_fps']:9.1f}"
-                  f" fps  (runs: {', '.join(f'{v:.1f}' for v in fps)})")
+            result = {"runs": fps, "avg_fps": sum(fps) / len(fps)}
+            line = f"{scene['name']:16} {result['avg_fps']:9.1f} fps"
+            if lows:
+                result["low_1"] = sum(v[0] for v in lows) / len(lows)
+                result["low_01"] = sum(v[1] for v in lows) / len(lows)
+                result["slowest_ms"] = max(v[2] for v in lows)
+                line += (f"  1% low {result['low_1']:7.1f}  0.1% low {result['low_01']:7.1f}"
+                         f"  slowest {result['slowest_ms']:6.2f} ms")
+            results[scene["name"]] = result
+            print(line + f"  (runs: {', '.join(f'{v:.1f}' for v in fps)})")
         else:
             print(f"{scene['name']:16} FAILED")
     out = os.path.join(engine.data, f"bench_{args.ref}.json")

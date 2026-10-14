@@ -22,6 +22,12 @@
 - "Vulkan" is in the renderer list after OpenGL; a failed Vulkan init
   falls back to OpenGL and keeps the video settings (the engine used to
   unlink its own video cvars when a renderer failed).
+- Gaps closed after the first sign-off pass: `envshot` / `skyshot`
+  (and views smaller than the screen, which landed at the top), stencil
+  tested `r_shadows`, `r_speeds`, timedemo 1 % / 0.1 % lows. New static
+  scenes: `cubemap_valve`, `funcwater_valve`, `wateralpha_valve` (with a
+  player spray), `gratedecal_valve`, `shadows_valve`; full harness 69/69
+  above 40 dB before them.
 - Left to do with the user: HL campaign and CS sessions on real servers,
   2 h of online play, an integrated GPU.
 
