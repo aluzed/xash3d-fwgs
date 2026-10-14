@@ -1196,6 +1196,28 @@ static void CL_WriteSteamTicket( sizebuf_t *send )
 	CRC32_ProcessBuffer( &crc, key, Q_strlen( key ));
 	crc = CRC32_Final( crc );
 	i = GenerateRevEmu2013( buf, key, crc );
+
+	// the generator's brute force search prunes too eagerly and finds no
+	// solution for some keys (about 9% of them), which used to send an empty
+	// ticket that servers reject. Retry with the first hex digit of the key
+	// rotated: the steamid target stays derived from the original key, and
+	// keys that already worked produce the same ticket as before
+	if( i == 0 )
+	{
+		static const char hex[] = "0123456789abcdef";
+		const char *pos = Q_strchr( hex, key[0] );
+		int first = pos ? pos - hex : 0;
+
+		for( int attempt = 1; i == 0 && attempt < 16; attempt++ )
+		{
+			key[0] = hex[( first + attempt ) & 15];
+			i = GenerateRevEmu2013( buf, key, crc );
+		}
+
+		if( i == 0 )
+			Con_Printf( S_ERROR "%s: couldn't generate a ticket, the server will reject the connection\n", __func__ );
+	}
+
 	MSG_WriteBytes( send, buf, i );
 
 	// RevEmu2013: pTicket[1] = revHash (low), pTicket[5] = 0x01100001 (high)
