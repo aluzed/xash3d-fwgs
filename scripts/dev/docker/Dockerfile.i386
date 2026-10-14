@@ -1,0 +1,9 @@
+# i386 build environment: the host must never get *-dev:i386 packages
+# (docs/stories/001-baseline-build-and-run.md), so the 32-bit engine is
+# built here. Ubuntu stopped publishing i386 images after 18.04.
+FROM i386/debian:bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+	build-essential python3 pkg-config git ca-certificates rsync cmake \
+	libsdl2-dev libfreetype-dev libfontconfig-dev glslc \
+	&& rm -rf /var/lib/apt/lists/*

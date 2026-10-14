@@ -22,9 +22,13 @@ compatibility check. Out: any renderer change.
       `libfreetype-dev`, `libfontconfig-dev`, `libvulkan-dev`, `glslc`,
       `vulkan-tools`. **Never install `*-dev:i386` on the host** (see
       Decision).
-- [ ] Build **i386** engine + `ref_gl` inside a Docker container
-      (`i386/ubuntu:24.04`), loading Valve's original `client.so` /
-      `hl.so` / `cs.so`. Secondary target, deferred.
+- [x] Build **i386** engine + `ref_gl` + `ref_vk` inside a Docker container
+      (`scripts/dev/build-i386.sh`, `i386/debian:bookworm`: Ubuntu has no
+      i386 image after 18.04), run on the host with the Steam i386 runtime
+      (`scripts/dev/run-i386.sh`). Half-Life runs with Valve's original
+      `client.so` / `hl.so`; the current Steam `client.so` of CS crashes in
+      `HUD_Init` (`KeyValues` allocation), so CS uses cs16-client built for
+      i386 in the same container.
 - [x] Build **amd64** engine + `ref_gl` with `hlsdk-portable` (HL) and
       `cs16-client` (CS) as 64-bit game DLLs: `scripts/dev/build-amd64.sh`.
 - [x] Launch script (`scripts/dev/run-amd64.sh [valve|cstrike]`): Steam
