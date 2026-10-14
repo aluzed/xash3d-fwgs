@@ -88,6 +88,41 @@ clients in without Steam validating their emulated ticket. Joining an
 internet GoldSrc server requires the Steam broker described in
 `Documentation/goldsrc-protocol-support.md`.
 
+## Visual regression harness
+
+`scripts/render_regress.py` (standard library only, run with `python3 -I`)
+renders fixed frames with any renderer and compares them. Data lives in
+`~/xash-dev/regress` because it contains Valve assets.
+
+```
+python3 -I scripts/render_regress.py record              # once: scene demos
+python3 -I scripts/render_regress.py capture --ref gl    # reference set
+python3 -I scripts/render_regress.py capture --ref vk    # renderer under test
+python3 -I scripts/render_regress.py compare gl vk       # PSNR + HTML report
+python3 -I scripts/render_regress.py bench --ref gl      # timedemo FPS
+```
+
+How it stays deterministic:
+
+- scenes are demos recorded from scripted camera moves (HL c1a0, c2a5,
+  c3a2; CS de_dust2, de_inferno, cs_office);
+- captures play them with `timedemo`, which reads exactly one demo message
+  per rendered frame, and the engine's `demo_capture_frames` cvar saves the
+  listed frame numbers as PNG (the build number is not drawn on them);
+- while capturing, the client clock advances by a fixed step (the demo's
+  recorded rate) instead of the real frame time, so moving entities and
+  light styles interpolate identically;
+- `-fixedseed` replaces the clock-based random seed, which also drives the
+  random tiling textures picked when the renderer starts.
+
+Two `ref_gl` runs produce bit-identical images. `compare` exits non-zero
+when an image falls under the PSNR threshold (40 dB by default). The
+`--set 'cvar value'` option of `capture` adds console commands, which is
+handy to bisect a difference (for example `--set 'r_dynamic 0'`).
+
+The engine rewrites the game's `.cfg` files on exit; the harness restores
+them after every run, so it never changes the player's settings.
+
 ## Known harmless log messages
 
 - `Failed to load vgui_support library ... vgui.so: wrong ELF class` —

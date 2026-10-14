@@ -13,23 +13,38 @@ In: capture script, reference set, image diff report, timedemo benchmark.
 Out: CI integration on GitHub (local only for now).
 
 ## Tasks
-- [ ] Record short demos: HL `c1a0` (lightstyles, water), `c2a5` (sky,
+- [x] Record short demos: HL `c1a0` (lightstyles, water), `c2a5` (sky,
       outdoors), `c3a2` (studio models, sprites, beams); CS `de_dust2`,
-      `de_inferno`, `cs_office` (glass, decals, smoke, flashbang, night vision).
-- [ ] Add a console-driven capture mode: play a demo, pause on listed frame
-      numbers, take `screenshot` (or extend `VID_ScreenShot` usage), quit.
-      Prefer existing commands/cvars; add engine changes only if necessary.
-- [ ] Python script (`scripts/render_regress.py`, run with `python3 -I`)
+      `de_inferno`, `cs_office`. Scripted camera moves, `render_regress.py
+      record`. Not covered yet: glass, decals, smoke, flashbang, night
+      vision (needs scripted grenades / shots).
+- [x] Add a console-driven capture mode: `demo_capture_frames` /
+      `demo_capture_dir` cvars, active during `timedemo`; `-timedemo` quits
+      at the end. Engine changes were necessary for determinism: fixed
+      client time step while capturing, `-fixedseed`, no build number on
+      captures.
+- [x] Python script (`scripts/render_regress.py`, run with `python3 -I`)
       that launches the engine with `-ref gl|vk`, collects images and produces
       an HTML report with per-image PSNR and diff heatmaps.
-- [ ] Store reference images outside the repository (they contain Valve
-      assets); the script takes their path as argument.
+- [x] Store reference images outside the repository (they contain Valve
+      assets); the script takes their path as argument (`--data`).
 - [ ] `timedemo` performance report (avg / 1 % low FPS) for both renderers.
+      Average FPS done (`bench`); 1 % low needs per-frame times from the
+      engine, still to do.
 
 ## Acceptance criteria
 - One command produces the reference set with `ref_gl`.
 - Running it twice with `ref_gl` yields identical (or PSNR above threshold)
   images, proving determinism.
+
+## Results (2026-10-14, ref_gl, RTX 2080 Ti, 1280x720)
+- Two `ref_gl` capture runs: 30/30 images bit-identical.
+- Determinism issues found and fixed: timedemo advanced the client clock by
+  the real frame time (entity and light style interpolation), and the
+  random tiling texture table plus every later `COM_RandomLong` were seeded
+  from the wall clock.
+- timedemo average FPS: c1a0 827, c2a5 802, c3a2 1027, de_dust2 711,
+  de_inferno 596, cs_office 669.
 
 ## Dependencies
 001.
