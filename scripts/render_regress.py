@@ -116,6 +116,11 @@ SHOT_SCENES = [
     {"name": "water_valve", "game": "valve", "map": "c2a2a", "server": [],
      "lines": ["wait 200"] + HL_SETUP + ["r_drawviewmodel 0", "hud_draw 0", "+lookdown", "wait 25", "-lookdown",
                                          "wait 60", "shot pool"]},
+    # underwater fog: noclip from the c2a5 start into the river
+    {"name": "underwater_valve", "game": "valve", "map": "c2a5", "server": [],
+     "lines": ["wait 200"] + HL_SETUP + ["r_drawviewmodel 0", "hud_draw 0", "noclip", "+moveright", "wait 693",
+                                         "-moveright", "+forward", "wait 18", "-forward", "+movedown", "wait 90",
+                                         "-movedown", "noclip", "wait 60", "shot river"]},
     {"name": "hud_cstrike", "game": "cstrike", "map": "de_dust2", "server": CS_SERVER,
      "lines": ["gl_clear 1", "r_norefresh 1", "wait 250"] + CS_SETUP
               + ["wait 150", "shot hud", "+showscores", "wait 30", "shot scores", "-showscores",
@@ -453,7 +458,7 @@ def capture_shots(engine, args, out_dir, label):
     for scene in select_scenes(args.scenes, shots=True):
         shot_dir = os.path.join(engine.gamedir(scene["game"]), "regress_shots")
         shutil.rmtree(shot_dir, ignore_errors=True)
-        lines = RENDER_DEFAULTS + ["developer 0"]
+        lines = RENDER_DEFAULTS + ["developer 0"] + (args.set or [])
         expected = 0
         for line in scene["lines"]:
             if line.startswith("shot "):
@@ -462,7 +467,7 @@ def capture_shots(engine, args, out_dir, label):
                 expected += 1
             else:
                 lines.append(line)
-        lines += (args.set or []) + ["quit"]
+        lines += ["quit"]
         engine.write_cfg(scene["game"], "regress_shots.cfg", lines)
         print(f"capturing {scene['name']} with ref_{args.ref} ...", flush=True)
         run_args = ["-fixedfps", SHOT_FIXED_FPS, "-fixedseed"] + scene["server"]
