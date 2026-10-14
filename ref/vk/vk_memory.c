@@ -380,55 +380,94 @@ void VK_RunDeferred( uint64_t completed )
 Uploads
 
 copies are recorded in a dedicated command buffer and submitted before the
-frame that needs them, or right away when the staging buffer is full
+frame that needs them, or right away when the staging buffer is full. The
+submit doesn't wait: queue order and the barriers the copies end with make
+them visible to everything submitted later. Slots rotate, each with its
+staging buffer and fence, and a slot only waits for its own previous use.
 =================
 */
-static struct
+#define VK_UPLOAD_SLOTS 3
+
+typedef struct
 {
 	vk_buffer_t staging;
-	VkDeviceSize used;
 	VkCommandPool pool;
 	VkCommandBuffer cmd;
 	VkFence fence;
-	qboolean recording;
+	qboolean pending;           // submitted, the fence may not be signaled yet
 	vk_buffer_t *oversized[64]; // one-shot staging for uploads larger than the ring
 	int num_oversized;
+} vk_upload_slot_t;
+
+static struct
+{
+	vk_upload_slot_t slots[VK_UPLOAD_SLOTS];
+	int current;
+	VkDeviceSize used;
+	qboolean recording;
 } vk_upload;
+
+// waits for the previous submit of the slot and frees what it held
+static void VK_RecycleUploadSlot( vk_upload_slot_t *slot )
+{
+	if( slot->pending )
+	{
+		vkWaitForFences( vk.device, 1, &slot->fence, VK_TRUE, UINT64_MAX );
+		slot->pending = false;
+	}
+
+	for( int i = 0; i < slot->num_oversized; i++ )
+	{
+		VK_DestroyBuffer( slot->oversized[i] );
+		Mem_Free( slot->oversized[i] );
+	}
+	slot->num_oversized = 0;
+}
 
 static void VK_BeginUploadCommands( void )
 {
+	vk_upload_slot_t *slot = &vk_upload.slots[vk_upload.current];
+
 	if( vk_upload.recording )
 		return;
+
+	VK_RecycleUploadSlot( slot );
 
 	VkCommandBufferBeginInfo begin = {
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
 	};
 
-	vkResetCommandPool( vk.device, vk_upload.pool, 0 );
-	vkBeginCommandBuffer( vk_upload.cmd, &begin );
-	VK_BeginLabel( vk_upload.cmd, "uploads" );
+	vkResetCommandPool( vk.device, slot->pool, 0 );
+	vkBeginCommandBuffer( slot->cmd, &begin );
+	VK_BeginLabel( slot->cmd, "uploads" );
 	vk_upload.recording = true;
+	vk_upload.used = 0;
 }
 
 /*
 =================
 VK_FlushUploads
 
-submits the pending copies and waits for them
+submits the pending copies, without waiting for them
 =================
 */
 void VK_FlushUploads( void )
 {
+	vk_upload_slot_t *slot = &vk_upload.slots[vk_upload.current];
+
 	if( !vk_upload.recording )
 		return;
 
-	VK_EndLabel( vk_upload.cmd );
-	vkEndCommandBuffer( vk_upload.cmd );
+	// may record barriers: before the commands end
+	VK_ResolveRegionUploads();
+
+	VK_EndLabel( slot->cmd );
+	vkEndCommandBuffer( slot->cmd );
 
 	VkCommandBufferSubmitInfo cmd = {
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-		.commandBuffer = vk_upload.cmd,
+		.commandBuffer = slot->cmd,
 	};
 
 	VkSubmitInfo2 submit = {
@@ -437,19 +476,12 @@ void VK_FlushUploads( void )
 		.pCommandBufferInfos = &cmd,
 	};
 
-	vkResetFences( vk.device, 1, &vk_upload.fence );
-	vkQueueSubmit2( vk.graphics_queue, 1, &submit, vk_upload.fence );
-	vkWaitForFences( vk.device, 1, &vk_upload.fence, VK_TRUE, UINT64_MAX );
+	vkResetFences( vk.device, 1, &slot->fence );
+	vkQueueSubmit2( vk.graphics_queue, 1, &submit, slot->fence );
+	slot->pending = true;
 
 	vk_upload.recording = false;
-	vk_upload.used = 0;
-
-	for( int i = 0; i < vk_upload.num_oversized; i++ )
-	{
-		VK_DestroyBuffer( vk_upload.oversized[i] );
-		Mem_Free( vk_upload.oversized[i] );
-	}
-	vk_upload.num_oversized = 0;
+	vk_upload.current = ( vk_upload.current + 1 ) % VK_UPLOAD_SLOTS;
 }
 
 /*
@@ -463,14 +495,21 @@ buffer that must record the copies reading it
 void *VK_UploadStaging( VkDeviceSize size, VkBuffer *buffer, VkDeviceSize *offset, VkCommandBuffer *cmd )
 {
 	const VkDeviceSize align = 16;
-	VkDeviceSize start = ( vk_upload.used + align - 1 ) & ~( align - 1 );
 
 	if( size > VK_STAGING_SIZE )
 	{
+		vk_upload_slot_t *slot;
 		vk_buffer_t *big;
 
-		if( vk_upload.num_oversized >= ARRAYSIZE( vk_upload.oversized ))
+		VK_BeginUploadCommands();
+		slot = &vk_upload.slots[vk_upload.current];
+
+		if( slot->num_oversized >= ARRAYSIZE( slot->oversized ))
+		{
 			VK_FlushUploads();
+			VK_BeginUploadCommands();
+			slot = &vk_upload.slots[vk_upload.current];
+		}
 
 		big = Mem_Calloc( r_temppool, sizeof( *big ));
 		if( !VK_CreateBuffer( big, "oversized staging", size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -480,27 +519,31 @@ void *VK_UploadStaging( VkDeviceSize size, VkBuffer *buffer, VkDeviceSize *offse
 			return NULL;
 		}
 
-		vk_upload.oversized[vk_upload.num_oversized++] = big;
-		VK_BeginUploadCommands();
+		slot->oversized[slot->num_oversized++] = big;
 		*buffer = big->buffer;
 		*offset = 0;
-		*cmd = vk_upload.cmd;
+		*cmd = slot->cmd;
 		return big->alloc.mapped;
 	}
 
-	if( start + size > VK_STAGING_SIZE )
+	VK_BeginUploadCommands();
+
+	VkDeviceSize start = ( vk_upload.used + align - 1 ) & ~( align - 1 );
+
+	if( size && start + size > VK_STAGING_SIZE )
 	{
 		VK_FlushUploads();
+		VK_BeginUploadCommands();
 		start = 0;
 	}
 
-	VK_BeginUploadCommands();
+	vk_buffer_t *staging = &vk_upload.slots[vk_upload.current].staging;
 	vk_upload.used = start + size;
 
-	*buffer = vk_upload.staging.buffer;
+	*buffer = staging->buffer;
 	*offset = start;
-	*cmd = vk_upload.cmd;
-	return vk_upload.staging.alloc.mapped + start;
+	*cmd = vk_upload.slots[vk_upload.current].cmd;
+	return staging->alloc.mapped + start;
 }
 
 /*
@@ -672,33 +715,38 @@ qboolean VK_InitMemory( void )
 	memset( vk_dynamic, 0, sizeof( vk_dynamic ));
 	vk_num_deferred = 0;
 
-	if( !VK_CreateBuffer( &vk_upload.staging, "staging ring", VK_STAGING_SIZE, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT ))
-		return false;
+	for( int i = 0; i < VK_UPLOAD_SLOTS; i++ )
+	{
+		vk_upload_slot_t *slot = &vk_upload.slots[i];
 
-	VkCommandPoolCreateInfo pool = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-		.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
-		.queueFamilyIndex = vk.graphics_family,
-	};
+		if( !VK_CreateBuffer( &slot->staging, "staging ring", VK_STAGING_SIZE, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT ))
+			return false;
 
-	VkFenceCreateInfo fence = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+		VkCommandPoolCreateInfo pool = {
+			.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+			.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
+			.queueFamilyIndex = vk.graphics_family,
+		};
 
-	if( vkCreateCommandPool( vk.device, &pool, NULL, &vk_upload.pool ) != VK_SUCCESS
-		|| vkCreateFence( vk.device, &fence, NULL, &vk_upload.fence ) != VK_SUCCESS )
-		return false;
+		VkFenceCreateInfo fence = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
 
-	VkCommandBufferAllocateInfo alloc = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-		.commandPool = vk_upload.pool,
-		.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-		.commandBufferCount = 1,
-	};
+		if( vkCreateCommandPool( vk.device, &pool, NULL, &slot->pool ) != VK_SUCCESS
+			|| vkCreateFence( vk.device, &fence, NULL, &slot->fence ) != VK_SUCCESS )
+			return false;
 
-	vkAllocateCommandBuffers( vk.device, &alloc, &vk_upload.cmd );
-	VK_SetObjectName( VK_OBJECT_TYPE_COMMAND_POOL, (uint64_t)vk_upload.pool, "upload pool" );
-	VK_SetObjectName( VK_OBJECT_TYPE_COMMAND_BUFFER, (uint64_t)vk_upload.cmd, "upload commands" );
-	VK_SetObjectName( VK_OBJECT_TYPE_FENCE, (uint64_t)vk_upload.fence, "upload fence" );
+		VkCommandBufferAllocateInfo alloc = {
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+			.commandPool = slot->pool,
+			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+			.commandBufferCount = 1,
+		};
+
+		vkAllocateCommandBuffers( vk.device, &alloc, &slot->cmd );
+		VK_SetObjectName( VK_OBJECT_TYPE_COMMAND_POOL, (uint64_t)slot->pool, "upload pool %d", i );
+		VK_SetObjectName( VK_OBJECT_TYPE_COMMAND_BUFFER, (uint64_t)slot->cmd, "upload commands %d", i );
+		VK_SetObjectName( VK_OBJECT_TYPE_FENCE, (uint64_t)slot->fence, "upload fence %d", i );
+	}
 
 	gEngfuncs.Cmd_AddCommand( "r_vk_meminfo", VK_MemInfo_f, "print Vulkan memory usage" );
 
@@ -722,12 +770,18 @@ void VK_ShutdownMemory( void )
 			VK_DestroyBuffer( &vk_dynamic[i].chunks[j] );
 	}
 
-	VK_DestroyBuffer( &vk_upload.staging );
+	for( int i = 0; i < VK_UPLOAD_SLOTS; i++ )
+	{
+		vk_upload_slot_t *slot = &vk_upload.slots[i];
 
-	if( vk_upload.pool )
-		vkDestroyCommandPool( vk.device, vk_upload.pool, NULL );
-	if( vk_upload.fence )
-		vkDestroyFence( vk.device, vk_upload.fence, NULL );
+		VK_RecycleUploadSlot( slot );
+		VK_DestroyBuffer( &slot->staging );
+
+		if( slot->pool )
+			vkDestroyCommandPool( vk.device, slot->pool, NULL );
+		if( slot->fence )
+			vkDestroyFence( vk.device, slot->fence, NULL );
+	}
 
 	for( int i = 0; i < VK_MAX_BLOCKS; i++ )
 	{

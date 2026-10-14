@@ -487,6 +487,14 @@ VK_PrepareSwapchain
 creates or rebuilds the swapchain when needed, false when there is nothing to draw on
 =================
 */
+static qboolean VK_PrepareSwapchain( void );
+
+// at renderer init, like a GL context: not on the first frame drawn
+void VK_CreateInitialSwapchain( void )
+{
+	VK_PrepareSwapchain();
+}
+
 static qboolean VK_PrepareSwapchain( void )
 {
 	int width, height;

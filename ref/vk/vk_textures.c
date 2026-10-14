@@ -43,6 +43,7 @@ typedef struct vk_texture_s
 	float xscale, yscale;     // detail texture scale
 	rgba_t fogParams;         // water textures: fog colour and density
 	qboolean used;            // the slot holds a texture
+	qboolean region_pending;  // left in TRANSFER_DST by VK_UpdateTextureRegion
 
 	VkImage image;
 	VkImageView view;
@@ -668,11 +669,41 @@ static void VK_UploadLevel( vk_texture_t *tex, int level, int layer, int width, 
 }
 
 // the copies go to the upload command buffer, wrapped in these layout changes
+/*
+=================
+Region updates (lightmaps) leave their texture in TRANSFER_DST until the
+uploads are submitted, so a frame of updates costs one barrier pair per
+texture rather than per rectangle
+=================
+*/
+static vk_texture_t *vk_region_pending[64];
+static int vk_num_region_pending;
+
+static void VK_TextureToShader( vk_texture_t *tex );
+
+// before the upload commands are submitted
+void VK_ResolveRegionUploads( void )
+{
+	for( int i = 0; i < vk_num_region_pending; i++ )
+	{
+		vk_texture_t *tex = vk_region_pending[i];
+
+		tex->region_pending = false;
+		VK_TextureToShader( tex );
+	}
+
+	vk_num_region_pending = 0;
+}
+
 static void VK_TextureToTransfer( vk_texture_t *tex, qboolean discard )
 {
 	VkBuffer staging;
 	VkDeviceSize offset;
 	VkCommandBuffer cmd;
+
+	// another transition of a texture that's still in TRANSFER_DST
+	if( tex->region_pending )
+		VK_ResolveRegionUploads();
 
 	VK_UploadStaging( 0, &staging, &offset, &cmd );
 	VK_ImageBarrierRaw( cmd, tex->image, VK_IMAGE_ASPECT_COLOR_BIT,
@@ -1099,6 +1130,9 @@ void GL_FreeTexture( unsigned int texnum )
 	if( texnum == 0 || texnum >= VK_MAX_TEXTURES )
 		return;
 
+	if( vk_textures[texnum].region_pending )
+		VK_ResolveRegionUploads();
+
 	VK_DeleteTexture( &vk_textures[texnum] );
 }
 
@@ -1228,11 +1262,21 @@ void VK_UpdateTextureRegion( int texnum, int x, int y, int width, int height, co
 		return;
 
 	tex = &vk_textures[texnum];
-	VK_TextureToTransfer( tex, false );
 
+	// first: a full staging ring submits, which resolves the pending textures
 	dst = VK_UploadStaging( (VkDeviceSize)width * height * 4, &staging, &offset, &cmd );
 	if( dst )
 	{
+		if( !tex->region_pending )
+		{
+			if( vk_num_region_pending >= ARRAYSIZE( vk_region_pending ))
+				VK_ResolveRegionUploads();
+
+			VK_TextureToTransfer( tex, false );
+			tex->region_pending = true;
+			vk_region_pending[vk_num_region_pending++] = tex;
+		}
+
 		memcpy( dst, rgba, (size_t)width * height * 4 );
 
 		VkBufferImageCopy copy = {
@@ -1244,8 +1288,6 @@ void VK_UpdateTextureRegion( int texnum, int x, int y, int width, int height, co
 
 		vkCmdCopyBufferToImage( cmd, staging, tex->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy );
 	}
-
-	VK_TextureToShader( tex );
 }
 
 void R_OverrideTextureSourceSize( unsigned int texnum, unsigned int srcWidth, unsigned int srcHeight )

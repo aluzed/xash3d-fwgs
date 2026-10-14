@@ -354,6 +354,7 @@ void VK_SetClearColor( float r, float g, float b );
 void VK_SetViewport( int x, int y, int width, int height );
 void VK_SetDepthRange( float min, float max );
 int VK_FrameIndex( void );
+void VK_CreateInitialSwapchain( void );
 void VK_ResetViewport( void );
 void VK_ClearMainDepth( void );
 qboolean VK_ScreenShot( const char *filename, int shot_type );
@@ -470,6 +471,7 @@ extern vk_refinst_t RI;
 extern vk_globals_t tr;
 
 #define WORLDMODEL ( tr.worldmodel )
+
 
 #define R_ModelOpaque( rm ) ( rm == kRenderNormal )
 #define CL_IsViewEntityLocalPlayer() ( gp_cl->viewentity == ( gp_cl->playernum + 1 ))
@@ -694,6 +696,7 @@ void R_SetDetailScaleForTexture( int texture, float xScale, float yScale );
 void VK_CheckTextureParams( void );
 void VK_UpdateTextureRegion( int texnum, int x, int y, int width, int height, const byte *rgba );
 int VK_TextureForDraw( int texnum );
+void VK_ResolveRegionUploads( void );
 int VK_WhiteTexture( void );
 int VK_ParticleTexture( void );
 void VK_TextureFogParams( int texnum, byte *red, byte *green, byte *blue, byte *density );

@@ -69,6 +69,8 @@ static qboolean R_Init( void )
 		return false;
 	}
 
+	VK_CreateInitialSwapchain();
+
 	return true;
 }
 
