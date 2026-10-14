@@ -386,7 +386,7 @@ def cmd_record(args):
     manifest = load_manifest(engine)
     for scene in select_scenes(args.scenes):
         demo = "regress_" + scene["name"]
-        lines = ["developer 0", "hud_draw 1", f"wait {LOAD_FRAMES}",
+        lines = ["developer 0", "m_ignore 1", "hud_draw 1", f"wait {LOAD_FRAMES}",
                  f"record {demo}"] + scene["setup"]
         lines.append(f"wait {SETUP_FRAMES}")
         for command, frames in scene["moves"]:
@@ -458,7 +458,8 @@ def capture_shots(engine, args, out_dir, label):
     for scene in select_scenes(args.scenes, shots=True):
         shot_dir = os.path.join(engine.gamedir(scene["game"]), "regress_shots")
         shutil.rmtree(shot_dir, ignore_errors=True)
-        lines = RENDER_DEFAULTS + ["developer 0"] + (args.set or [])
+        # the game window takes the focus: a mouse moved meanwhile turns the view
+        lines = RENDER_DEFAULTS + ["developer 0", "m_ignore 1"] + (args.set or [])
         expected = 0
         for line in scene["lines"]:
             if line.startswith("shot "):
