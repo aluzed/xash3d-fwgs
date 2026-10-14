@@ -83,7 +83,20 @@ changes, `long_de_dust2`, 3 runs):
 
 No frame of play takes more than 6.5 ms with either renderer. On
 de_dust2 the 1 % low of ref_vk is below ref_gl's although its average is
-higher: a few slower frames to look at.
+higher. What is known (RTX 2080 Ti shared with a desktop, a terminal and
+CUDA services):
+
+- the slow frames wait on the frame fence; GPU timestamps show about one
+  frame in five taking 0.4-1.3 ms instead of under 0.2 ms, every ~2 ms
+  whatever the view, with no upload in those frames;
+- unchanged with 3, 4 or 5 frames in flight, with 2 more swapchain
+  images, with IMMEDIATE instead of MAILBOX;
+- with `r_norefresh 1` the GPU frames stay short, yet fence waits of
+  about 1 ms remain while the GPU work of the frame is under 0.25 ms: the
+  GPU is busy elsewhere or slow to pick the work up.
+
+A 1 % low of 700 fps is 1.4 ms frames, far from anything visible; the
+next step is the same measure on an otherwise idle GPU.
 
 ## Differences with ref_gl and known issues
 
