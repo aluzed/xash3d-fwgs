@@ -455,7 +455,7 @@ qboolean VK_MaterialHasNormal( int texnum );
 //
 // vk_deluxe.c: light directions of the lightmaps
 //
-void VK_BuildDeluxemaps( byte **pages, int block_size );
+void VK_BuildDeluxemaps( byte **pages, int block_size, size_t *num_samples, int *num_lights );
 
 //
 // vk_post.c: HDR scene and post-processing (r_vk_quality)

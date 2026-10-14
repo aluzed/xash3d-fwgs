@@ -1047,6 +1047,7 @@ static void VK_RebuildLightmaps( void )
 	if( !ENGINE_GET_PARM( PARM_CLIENT_ACTIVE ) || !WORLDMODEL )
 		return;
 
+	gEngfuncs.Job_WaitIdle(); // the light directions job reads the lightmap placement
 	VK_FreeLightmaps();
 	CL_RunLightStyles((lightstyle_t *)ENGINE_GET_PARM( PARM_GET_LIGHTSTYLES_PTR ));
 	LM_InitBlock();
@@ -3259,6 +3260,7 @@ void CL_DrawParticlesExternal( const ref_viewpass_t *rvp, qboolean trans_pass, f
 
 static void VK_FreeDeluxePages( void )
 {
+	gEngfuncs.Job_WaitIdle(); // a worker may still be filling them
 	for( int i = 0; i < MAX_LIGHTMAPS; i++ )
 		GL_FreeTexture( tr.deluxeTextures[i] );
 
@@ -3266,10 +3268,52 @@ static void VK_FreeDeluxePages( void )
 }
 
 // the light directions, when a world material has a normal map to use them
+/*
+=================
+VK_BuildDeluxePages
+
+the pages are created empty, so the surfaces know them, and filled by a
+worker thread (vk_deluxe.c): their contents arrive a few frames after the
+map, without stalling its load
+=================
+*/
+static struct
+{
+	byte *pages[MAX_LIGHTMAPS]; // allocated and freed on the main thread
+	int num_pages;
+	int textures[MAX_LIGHTMAPS];
+	double time;                // the worker's, printed by the main thread
+	size_t samples;
+	int lights;
+} vk_deluxe_job;
+
+static void VK_DeluxeJobRun( void *unused )
+{
+	const double start = gEngfuncs.pfnTime();
+
+	VK_BuildDeluxemaps( vk_deluxe_job.pages, BLOCK_SIZE, &vk_deluxe_job.samples, &vk_deluxe_job.lights );
+	vk_deluxe_job.time = gEngfuncs.pfnTime() - start;
+}
+
+static void VK_DeluxeJobDone( void *unused )
+{
+	for( int i = 0; i < vk_deluxe_job.num_pages; i++ )
+	{
+		// the map may have changed meanwhile: its pages are gone
+		if( vk_deluxe_job.textures[i] && vk_deluxe_job.textures[i] == tr.deluxeTextures[i] )
+			VK_UpdateTextureRegion( vk_deluxe_job.textures[i], 0, 0, BLOCK_SIZE, BLOCK_SIZE, vk_deluxe_job.pages[i] );
+		Mem_Free( vk_deluxe_job.pages[i] );
+	}
+
+	gEngfuncs.Con_Reportf( "ref_vk: light directions of %u lightmap samples from %d lights in %.0f ms\n",
+		(uint)vk_deluxe_job.samples, vk_deluxe_job.lights, vk_deluxe_job.time * 1000.0 );
+
+	memset( &vk_deluxe_job, 0, sizeof( vk_deluxe_job ));
+}
+
 static void VK_BuildDeluxePages( void )
 {
-	const int num_pages = tr.current_lightmap_texture; // LM_UploadBlock counted the last one
-	byte *pages[MAX_LIGHTMAPS] = { 0 };
+	const int num_pages = Q_min( tr.current_lightmap_texture, MAX_LIGHTMAPS ); // LM_UploadBlock counted the last one
 	qboolean needed = false;
 
 	VK_FreeDeluxePages();
@@ -3280,24 +3324,30 @@ static void VK_BuildDeluxePages( void )
 	if( !needed || !WORLDMODEL->lightdata )
 		return;
 
-	for( int i = 0; i < num_pages && i < MAX_LIGHTMAPS; i++ )
-		pages[i] = Mem_Calloc( r_temppool, BLOCK_SIZE * BLOCK_SIZE * 4 );
+	memset( &vk_deluxe_job, 0, sizeof( vk_deluxe_job ));
+	vk_deluxe_job.num_pages = num_pages;
 
-	VK_BuildDeluxemaps( pages, BLOCK_SIZE );
-
-	for( int i = 0; i < num_pages && i < MAX_LIGHTMAPS; i++ )
+	for( int i = 0; i < num_pages; i++ )
 	{
 		rgbdata_t pic = { 0 };
 		char name[16];
 
+		vk_deluxe_job.pages[i] = Mem_Calloc( r_temppool, BLOCK_SIZE * BLOCK_SIZE * 4 );
+
+		// no light direction (alpha 0) until the worker is done
 		Q_snprintf( name, sizeof( name ), "*deluxe%i", i );
 		pic.width = pic.height = BLOCK_SIZE;
 		pic.type = PF_RGBA_32;
 		pic.size = BLOCK_SIZE * BLOCK_SIZE * 4;
 		pic.flags = IMAGE_HAS_COLOR|IMAGE_HAS_ALPHA;
-		pic.buffer = pages[i];
-		tr.deluxeTextures[i] = GL_LoadTextureFromBuffer( name, &pic, TF_NOMIPMAP|TF_ATLAS_PAGE, false );
-		Mem_Free( pages[i] );
+		pic.buffer = vk_deluxe_job.pages[i];
+		tr.deluxeTextures[i] = vk_deluxe_job.textures[i] = GL_LoadTextureFromBuffer( name, &pic, TF_NOMIPMAP|TF_ATLAS_PAGE, false );
+	}
+
+	if( !gEngfuncs.Job_Submit( VK_DeluxeJobRun, VK_DeluxeJobDone, NULL ))
+	{
+		VK_DeluxeJobRun( NULL );
+		VK_DeluxeJobDone( NULL );
 	}
 }
 

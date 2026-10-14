@@ -23,6 +23,18 @@ asset loading and other side-effect-free work.
       `CL_Move`, delta decoding and game DLL entry points stay on the main
       thread.
 
+## Progress (2026-10-14)
+- [x] Job system core, pulled forward for 022: `engine/common/jobs.c`,
+      a fixed pool of workers (`-jobthreads N`, default CPU count - 1 up
+      to 4, 0 runs jobs on the spot) on SDL threads, pthreads or Win32
+      threads; `done` callbacks run on the main thread at the start of
+      `Host_Frame` or in `Job_WaitIdle`. Exposed to renderers as
+      `Job_Submit` / `Job_WaitIdle` (`REF_API_VERSION` 22).
+- First user: ref_vk computes the light directions of the lightmaps
+  (022) on a worker at map load.
+- Left: asynchronous file reads for textures, models and sounds, the
+  texture streaming backend, the audit, map load timings.
+
 ## Acceptance criteria
 - Map load time reduced on large maps; no change in connection sequence
   (verified against stock HLDS with packet capture).

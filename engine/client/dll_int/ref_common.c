@@ -20,6 +20,7 @@ GNU General Public License for more details.
 #include "platform/platform.h"
 #include "vid_common.h"
 #include "imagelib.h"
+#include "jobs.h"
 
 struct ref_state_s ref;
 
@@ -454,6 +455,9 @@ static const ref_api_t gEngfuncs =
 
 	R_GetWindowHandle,
 	R_GetSpriteFrame,
+
+	Job_Submit,
+	Job_WaitIdle,
 };
 
 static void R_UnloadProgs( void )

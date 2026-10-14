@@ -25,6 +25,7 @@ GNU General Public License for more details.
 #include <emscripten/emscripten.h>
 #endif
 #include "common.h"
+#include "jobs.h"
 #include "base_cmd.h"
 #include "client.h"
 #include "server.h"
@@ -674,6 +675,8 @@ void Host_Frame( double time )
 
 	double t1 = Platform_DoubleTime();
 
+	Job_RunCompletions(); // what the workers finished since the last frame
+
 	if( host.framecount == 0 )
 		Con_DPrintf( "Time to first frame: %.3f seconds\n", t1 - host.starttime );
 
@@ -1239,6 +1242,7 @@ int EXPORT Host_Main( int argc, char **argv, const char *progname, int bChangeGa
 		FCVAR_READ_ONLY, "indicates if engine was compiled with extended msurface_t struct" );
 
 	Mod_Init();
+	Job_Init();
 	NET_Init();
 	NET_InitMasters();
 	Netchan_Init();
@@ -1397,6 +1401,7 @@ void Host_ShutdownWithReason( const char *reason )
 	SV_UnloadProgs();
 	SV_ShutdownFilter();
 	CL_Shutdown();
+	Job_Shutdown(); // after the renderer, which waits for its own jobs
 
 	SoundList_Shutdown();
 	Mod_Shutdown();

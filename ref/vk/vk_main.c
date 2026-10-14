@@ -85,6 +85,7 @@ static qboolean R_Init( void )
 
 static void R_Shutdown( void )
 {
+	gEngfuncs.Job_WaitIdle(); // jobs fill renderer data
 	VK_ShutdownProfile();
 	VK_ShutdownWorld();
 	VK_ShutdownMaterials();

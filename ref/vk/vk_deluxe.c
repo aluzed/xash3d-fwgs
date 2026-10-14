@@ -31,7 +31,9 @@ direction in model space as rgb * 2 - 1, and in alpha how much of the
 light comes from it (1 for a single light, 0 for light from everywhere).
 Only the direct light counts, bounced light has no direction here.
 
-It runs once at map load, a few hundred milliseconds on big maps.
+It runs once at map load on a worker thread (vk_world.c), a few hundred
+milliseconds on big maps: it only reads the world model and writes the
+pages it is given.
 */
 
 #include "vk_local.h"
@@ -415,10 +417,9 @@ fills pages[page] (BLOCK_SIZE squared, RGBA8, allocated by the caller)
 for every lightmapped surface of the world model
 =================
 */
-void VK_BuildDeluxemaps( byte **pages, int block_size )
+void VK_BuildDeluxemaps( byte **pages, int block_size, size_t *num_samples, int *num_lights )
 {
 	const model_t *mod = WORLDMODEL;
-	const double start = gEngfuncs.pfnTime();
 	size_t samples = 0;
 
 	memset( &vk_dl, 0, sizeof( vk_dl ));
@@ -484,6 +485,6 @@ void VK_BuildDeluxemaps( byte **pages, int block_size )
 		}
 	}
 
-	gEngfuncs.Con_Printf( "ref_vk: light directions of %u lightmap samples from %d lights in %.0f ms\n",
-		(uint)samples, vk_dl.num_lights, ( gEngfuncs.pfnTime() - start ) * 1000.0 );
+	*num_samples = samples;
+	*num_lights = vk_dl.num_lights;
 }

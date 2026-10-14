@@ -83,7 +83,8 @@ GNU General Public License for more details.
 // 20. R_ClearAllDecals now accepts includePermanent argument.
 // 21. Added REF_VULKAN graphics API and Vulkan_* window callbacks, so a renderer can create a
 //     Vulkan surface on the engine window without linking the Vulkan loader itself.
-#define REF_API_VERSION 21
+// 22. Added Job_Submit and Job_WaitIdle: the engine's worker threads (engine/common/jobs.c).
+#define REF_API_VERSION 22
 
 #define TF_SKY		(TF_SKYSIDE|TF_NOMIPMAP|TF_ALLOW_NEAREST)
 #define TF_FONT		(TF_NOMIPMAP|TF_CLAMP|TF_ALLOW_NEAREST)
@@ -538,6 +539,12 @@ typedef struct ref_api_s
 
 	// sprites
 	struct mspriteframe_s *(*R_GetSpriteFrame)( const struct model_s *pModel, int frame, float yaw );
+
+	// worker threads: run( data ) on a worker, touching nothing but data, then
+	// done( data ) on the main thread at the start of a later frame. False when
+	// the queue is full. Job_WaitIdle finishes every job submitted so far.
+	qboolean (*Job_Submit)( void (*run)( void *data ), void (*done)( void *data ), void *data );
+	void (*Job_WaitIdle)( void );
 } ref_api_t;
 
 struct mip_s;
