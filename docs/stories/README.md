@@ -15,8 +15,11 @@ packs, hardware ray tracing).
    client. Everything behind those contracts (renderer architecture, the
    engine/renderer `ref_api.h` contract, threading, asset loading) may be
    redesigned freely.
-2. **Original game DLLs must keep working.** Valve's `client.so` for both
-   `valve` and `cstrike` are 32-bit; see [001](001-baseline-build-and-run.md).
+2. **Original game DLLs must keep working.** Development runs on amd64 with
+   `hlsdk-portable` and `cs16-client`, but nothing may break the interfaces
+   Valve's 32-bit `client.so` rely on; this is checked with an i386 build
+   made inside a container, never on the host. See
+   [001](001-baseline-build-and-run.md).
 3. **`ref_gl` stays the reference.** Every parity story is validated against
    `ref_gl` screenshots of the same demo frame ([002](002-regression-harness.md)).
 4. **Enhanced features are opt-in** behind cvars, can be toggled at runtime,

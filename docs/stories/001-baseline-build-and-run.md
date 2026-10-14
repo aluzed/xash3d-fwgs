@@ -27,15 +27,15 @@ compatibility check. Out: any renderer change.
       `hl.so` / `cs.so`. Secondary target, deferred.
 - [x] Build **amd64** engine + `ref_gl` with `hlsdk-portable` (HL) and
       `cs16-client` (CS) as 64-bit game DLLs: `scripts/dev/build-amd64.sh`.
-- [x] Launch script (`scripts/dev/run-amd64.sh [valve|cstrike]`) using `-basedir` / `XASH3D_BASEDIR` pointing at the Steam
-      folder, without modifying Steam files (write configs to a separate
-      `-rodir` / writable dir).
-- [ ] Verify: HL new game (c1a0) [x amd64], CS listen server on `de_dust2`
-      [x amd64], CS client [x amd64 vs ReHLDS, `scripts/dev/run-rehlds.sh`]
+- [x] Launch script (`scripts/dev/run-amd64.sh [valve|cstrike]`): Steam
+      folder mounted read-only with `-rodir`, configs and game libraries in
+      the writable `XASH3D_BASEDIR` (`~/xash-dev/amd64`).
+- [x] Verify (amd64): HL new game (c1a0), CS listen server on `de_dust2`, CS client
       joining a stock HLDS/ReHLDS server with `connect ip:port gs`
       (see `Documentation/goldsrc-protocol-support.md`), CS client joining a
       Xash3D dedicated server.
-- [ ] Write `docs/building-vulkan-renderer.md` with the above.
+      Scripts: `run-rehlds.sh`, `run-xash-server.sh`.
+- [x] Write `docs/building-vulkan-renderer.md` with the above.
 
 ## Acceptance criteria
 - Both architectures build from a clean checkout with one documented command
