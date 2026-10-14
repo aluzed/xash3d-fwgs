@@ -656,8 +656,13 @@ void VK_BeginFrame( qboolean clear_scene )
 
 	vkWaitForFences( vk.device, 1, &frame->fence, VK_TRUE, UINT64_MAX );
 
-	result = vkAcquireNextImageKHR( vk.device, vk_frame.swapchain.handle, UINT64_MAX,
+	// a window the compositor doesn't show may never release an image:
+	// skip the frame rather than block the engine
+	result = vkAcquireNextImageKHR( vk.device, vk_frame.swapchain.handle, 1000000000ull,
 		frame->acquired, VK_NULL_HANDLE, &vk_frame.image_index );
+
+	if( result == VK_TIMEOUT || result == VK_NOT_READY )
+		return;
 
 	if( result == VK_ERROR_OUT_OF_DATE_KHR )
 	{
