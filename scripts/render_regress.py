@@ -141,6 +141,13 @@ SHOT_SCENES = [
                "ui_xhair_background 0", "crosshair_import XH-04404-4607R-CEG1R-W08GC-0314T-07JM1-7ZZZZ-ZZ05T",
                "menu_crosshair", "wait 60", "shot imported", "menu_crosshair_presets", "wait 60", "shot presets",
                "crosshair_export"]},
+    # video options with the rendering quality of ref_vk (hidden with ref_gl)
+    {"name": "menu_video_valve", "game": "valve", "map": None, "server": [],
+     "lines": ["wait 200", "menu_vidoptions", "wait 60", "shot classic",
+               "r_vk_quality enhanced", "menu_vidoptions", "wait 60", "shot enhanced"]},
+    {"name": "menu_video_cstrike", "game": "cstrike", "map": None, "server": [],
+     "lines": ["wait 200", "menu_vidoptions", "wait 60", "shot classic",
+               "r_vk_quality enhanced", "menu_vidoptions", "wait 60", "shot enhanced"]},
     # envshot / skyshot write valve/gfx/env/cubetest*.tga; the shot is only there to end the run
     {"name": "cubemap_valve", "game": "valve", "map": "c2a5", "server": [],
      "lines": ["wait 100"] + HL_SETUP + ["wait 200", "envshot cubetest_env", "wait 20",

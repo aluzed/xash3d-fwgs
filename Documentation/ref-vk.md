@@ -85,7 +85,9 @@ texture in gamma space, up to 4.6 times in linear) and additive effects
 keep their brightness above white. Compute passes then make the view's
 final pixels; the HUD, menus and console are drawn over them as usual.
 `rt` is reserved for the ray tracing stories and renders as `enhanced` for
-now. Everything changes at once at runtime, no restart.
+now. Everything changes at once at runtime, no restart. The video options
+menu has the choice ("Rendering quality", classic or enhanced) while
+`ref_vk` is loaded.
 
 | Variable                   | Default | Meaning                                                        |
 |----------------------------|---------|----------------------------------------------------------------|

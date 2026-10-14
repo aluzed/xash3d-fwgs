@@ -15,6 +15,9 @@ pixel-identical to parity output.
 ## Progress (2026-10-14)
 - [x] `r_vk_quality classic|enhanced|rt` plus per-feature cvars (see
       `Documentation/ref-vk.md`); `rt` renders as `enhanced` until 024.
+      "Rendering quality" in the video options (mainui, branch `ref-vk`
+      of `3rdparty/mainui`; the same commit in cs16-client's menu), shown
+      with ref_vk only.
 - [x] HDR scene target (`R16G16B16A16_SFLOAT`) sharing the main depth: the
       imm and world pipelines exist per colour target, the HDR ones
       (built on first use) decode every colour with a gamma 2.2 power by
