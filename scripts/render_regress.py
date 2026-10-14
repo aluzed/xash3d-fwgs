@@ -103,6 +103,10 @@ SHOT_SCENES = [
      "lines": ["wait 200", "shot menu"]},
     {"name": "hud_valve", "game": "valve", "map": "c2a5", "server": [],
      "lines": ["gl_clear 1", "r_norefresh 1", "wait 100"] + HL_SETUP + ["wait 200", "shot hud"]},
+    # firing: muzzle flash sprites, shell and smoke effects
+    {"name": "fire_cstrike", "game": "cstrike", "map": "de_dust2", "server": CS_SERVER,
+     "lines": ["wait 250"] + CS_SETUP + ["wait 150", "hud_draw 0", "+attack", "wait 3", "shot first",
+                                          "wait 4", "shot burst", "-attack", "wait 20", "shot after"]},
     # c2a2a starts at the edge of a pool: world water (turbulent warp)
     {"name": "water_valve", "game": "valve", "map": "c2a2a", "server": [],
      "lines": ["wait 200"] + HL_SETUP + ["r_drawviewmodel 0", "hud_draw 0", "+lookdown", "wait 25", "-lookdown",
