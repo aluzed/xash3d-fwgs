@@ -458,7 +458,17 @@ void VK_RTDebugView( int x, int y, int w, int h );
 qboolean VK_RTFrame( VkAccelerationStructureKHR *tlas, VkDeviceAddress *scene, int *num_instances );
 
 //
-// vk_rtfx.c: ray traced shadows, occlusion and reflections (025)
+// vk_rtlights.c: the lights the map was compiled with (026)
+//
+void VK_RTLightsInit( void );
+void VK_RTLightsShutdown( void );
+void VK_RTLightsBuild( void );
+void VK_RTLightsFree( void );
+VkDeviceAddress VK_RTLightsAddress( void );
+int VK_RTLightsCount( void );
+
+//
+// vk_rtfx.c: ray traced shadows, occlusion, reflections (025) and lighting (026)
 //
 void VK_RegisterRTEffectsCvars( void );
 qboolean VK_InitRTEffects( void );
@@ -479,6 +489,7 @@ typedef enum
 	VK_PROF_VIEWMODEL,
 	VK_PROF_WATER,
 	VK_PROF_RT_BUILD,        // acceleration structures of the frame (vk_rt.c)
+	VK_PROF_RT_LIGHTING,     // ray traced lighting (vk_rtfx.c, 026)
 	VK_PROF_RT_EFFECTS,      // ray traced shadows, occlusion, reflections (vk_rtfx.c)
 	VK_PROF_POST_SSAO,       // post-processing of the HDR scene (vk_post.c)
 	VK_PROF_POST_BLOOM,
@@ -519,6 +530,7 @@ int VK_MaterialIndex( int texnum );
 qboolean VK_MaterialShades( int texnum );
 qboolean VK_MaterialHasNormal( int texnum );
 qboolean VK_MaterialReflective( int texnum );
+int VK_MaterialEmissive( int texnum, float *strength );
 void VK_MaterialsChanged( void );
 void VK_MaterialNoteUse( int texnum, float need, int game_width );
 

@@ -91,12 +91,41 @@ layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer 
 	uint64_t instances;       // rt_instance_s per instance of the TLAS
 	uint64_t lights;          // rt_light_s
 	uint64_t gamma;           // uint lightgammatable[1024], then float inverse[256]
+	uint64_t lightgrid;       // the map's lights (vk_rtlights.c), 0 for none
+	uint64_t pad64;
 	ivec4 sky;                // skybox textures of the axes 0-3
 	ivec4 sky2;               // axes 4, 5; number of lights; R_BuildLightMap's lightscale
 	ivec4 counts;             // x: instances
 	vec4 sun_dir;             // towards the sun
 	vec4 sun_color;           // movevars skycolor, lightmap units (0-255)
 };
+
+// the lights the map was compiled with, and the grid listing them by cell
+#define RT_LIGHT_POINT   0
+#define RT_LIGHT_SPOT    1
+#define RT_LIGHT_SURFACE 2
+
+struct rt_glight_s
+{
+	vec3 origin;
+	int type;
+	vec3 color;        // lightmap units at 128 units
+	int style;         // 0 for none
+	vec3 dir;          // spot, surface: where it shines
+	float cone_outer;
+	float cone_inner;
+	int texture;       // surface: times the texture's average colour
+	float pad0, pad1;
+};
+
+layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer rt_lightgrid_r
+{
+	vec4 mins;         // w: cell size
+	ivec4 dims;        // cells along x, y, z; lights
+	uvec4 offsets;     // bytes from here: cells (uvec2: first index, static | styled << 16), indices, lights
+};
+layout( buffer_reference, std430, buffer_reference_align = 8 ) readonly buffer rt_uvec2s_r { uvec2 v[]; };
+layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer rt_glights_r { rt_glight_s v[]; };
 
 layout( set = VK_SET_TEXTURES, binding = VK_BINDING_TEXTURES ) uniform sampler2D textures[VK_MAX_TEXTURES];
 

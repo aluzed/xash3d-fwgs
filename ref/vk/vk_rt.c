@@ -131,6 +131,8 @@ typedef struct
 	VkDeviceAddress instances;
 	VkDeviceAddress lights;
 	VkDeviceAddress gamma;   // uint lightgammatable[1024], then its inverse, float[256]
+	VkDeviceAddress lightgrid; // the map's lights (vk_rtlights.c), 0 for none
+	VkDeviceAddress pad64;
 	int sky[4];              // skybox textures of the axes 0-3
 	int sky2[2];             // axes 4 and 5
 	int num_lights;
@@ -581,6 +583,7 @@ static qboolean VK_RTUpload( vk_buffer_t *buf, const char *name, const void *dat
 
 static void VK_RTFreeMap( void )
 {
+	VK_RTLightsFree();
 	VK_DestroyAS( &vk_rt.world.as );
 	VK_DestroyAS( &vk_rt.water.as );
 	for( int i = 0; i < MAX_MODELS; i++ )
@@ -752,6 +755,10 @@ static void VK_RTBuildMap( void )
 
 		VK_RTBarrier( cmd, VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
 			VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR );
+
+		// the lights it was compiled with, for the ray traced lighting
+		if( ok )
+			VK_RTLightsBuild();
 
 		if( !ok )
 		{
@@ -1306,6 +1313,7 @@ void VK_RTBuildScene( void )
 		scene->instances = info_addr;
 		scene->lights = lights_addr;
 		scene->gamma = gamma_addr;
+		scene->lightgrid = VK_RTLightsAddress();
 		scene->num_instances = num_instances;
 		scene->num_lights = VK_RTLights( lights );
 		scene->lightscale = gl_overbright.value ? 256 : (int)( pow( 2.0f, 1.0f / v_lightgamma->value ) * 256 + 0.5f );
@@ -1538,6 +1546,7 @@ void VK_InitRT( void )
 
 	vk_rt.available = true;
 	gEngfuncs.Cmd_AddCommand( "r_vk_rtinfo", VK_RTInfo_f, "the ray traced scene of the last frame" );
+	VK_RTLightsInit();
 }
 
 void VK_ShutdownRT( void )
@@ -1573,5 +1582,6 @@ void VK_ShutdownRT( void )
 		Mem_Free( vk_rt.studio_tris );
 
 	gEngfuncs.Cmd_RemoveCommand( "r_vk_rtinfo" );
+	VK_RTLightsShutdown();
 	memset( &vk_rt, 0, sizeof( vk_rt ));
 }

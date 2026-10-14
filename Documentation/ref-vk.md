@@ -267,6 +267,9 @@ rays don't light the scene again, they add what the bake couldn't know.
 | `r_vk_rt_sun`         | `1`     | part of `skycolor` the sun put in the lightmaps                 |
 | `r_vk_rt_shadow_keep` | `0.3`   | least part of its light a shadowed surface keeps                |
 
+`r_vk_gpu_profile` counts the lighting below as "rt lighting", the rest
+as "rt effects".
+
 **Online, the rays show no more than the player sees.** A studio model is
 in the scene only when drawn, and a pass marks those whose points (feet,
 middle, head, sides) the eye can't see past the world and the brush
@@ -292,6 +295,44 @@ alone, 1.6 ms with 31 bots in view. The long demos (3 runs):
 
 The map's acceleration structures are built with the map while loading
 (it waits for them): built at its first frame, they made it 17 ms.
+
+### Ray traced lighting (`r_vk_rt_gi`)
+
+With `r_vk_rt_gi` above 0, the rays light the lightmapped surfaces too,
+from the lights the map was compiled with (`vk_rtlights.c`, extracted
+with the map's acceleration structures):
+
+- `light` and `light_spot` entities (colour, brightness, cones, the
+  lightstyle the compiler gave switchable ones), `~` texture lights (their
+  texture's average colour; `lights.rad` doesn't ship with the games, so
+  they all get brightness 300), emissive material maps, the sun of the
+  movevars, and the dynamic lights with `R_AddDynamicLights`' falloff.
+- A grid of 256 unit cells lists the lights reaching each cell. Per pixel:
+  one light without a style picked by its light (resampled importance
+  sampling) with a shadow ray, and one bounce whose hit is lit by its
+  lightmap (the bake's light, bounces included) or by the sky; that part
+  is accumulated over the frames and filtered by depth and normal. The
+  sun and the lights with a style are traced every frame, so lightstyles
+  animate; the history starts over where a lightmap changed (a light
+  switched).
+- The result replaces `r_vk_rt_gi` of the lightmap's light, through the
+  same gamma table as the shadows; where the lightmap is nearly black,
+  the colour comes from the texture. Studio models keep GoldSrc's
+  lighting.
+
+| Variable            | Default | Meaning                                                    |
+|---------------------|---------|------------------------------------------------------------|
+| `r_vk_rt_gi`        | `0`     | part of the lighting the rays give, 1 the rays only        |
+| `r_vk_rt_gi_scale`  | `1`     | their brightness against the lightmaps                     |
+| `r_vk_rt_gi_bounce` | `1`     | strength of the bounce, 0 skips its ray                    |
+| `r_vk_rt_gi_sky`    | `0.25`  | light of the sky around, as a part of `skycolor`           |
+
+`r_vk_rtlights [count]` lists the lights nearest the view. A map can be
+tuned with `maps/<map>.rtlights` (`scale`, `texlight <texture> r g b
+brightness`, `light x y z r g b brightness [style]`). The lighting alone
+(`r_lightmap 1`) is as bright as the lightmaps': 68 against 62 in a lab of
+c1a0, 75 against 72 at the T spawn of de_dust2 (mean of the view). It
+costs 1-2.5 ms at 1280x720: `long_c2a5` 379 fps, `long_de_dust2` 366.
 
 Not done yet: the noise of soft shadows and rough reflections needs the
 denoiser of story 027; AO is the only effect with noise, and the

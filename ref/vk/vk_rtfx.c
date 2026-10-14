@@ -1,5 +1,5 @@
 /*
-vk_rtfx.c - ray traced shadows, occlusion and reflections
+vk_rtfx.c - ray traced shadows, occlusion, reflections and lighting
 Copyright (C) 2026 aluzed
 
 This program is free software: you can redistribute it and/or modify
@@ -21,7 +21,12 @@ tracing rays through the scene vk_rt.c built for the frame:
   visibility  online only: studio models the eye doesn't see past the
               world are marked hidden, they cast and reflect nothing
               (rt_visibility.comp)
-  effects     HDR scene -> HDR scene with shadows and reflections, and the
+  lighting    with r_vk_rt_gi: the lights of the map (vk_rtlights.c)
+              and one bounce, accumulated in a history, filtered with the
+              sun and styled lights of the frame (rt_gi.comp,
+              rt_gi_filter.comp)
+  effects     HDR scene -> HDR scene with shadows, the ray traced lighting
+              in place of part of the lightmaps', and reflections, and the
               occlusion of the frame accumulated with the previous ones
               in a history image (rt_effects.comp)
   occlusion   history -> occlusion the tonemap multiplies the scene with,
@@ -48,6 +53,12 @@ static const uint32_t rt_ao_blur_spv[] =
 static const uint32_t rt_visibility_spv[] =
 #include "shaders/rt_visibility.comp.inc"
 ;
+static const uint32_t rt_gi_spv[] =
+#include "shaders/rt_gi.comp.inc"
+;
+static const uint32_t rt_gi_filter_spv[] =
+#include "shaders/rt_gi_filter.comp.inc"
+;
 
 CVAR_DEFINE_AUTO( r_vk_rt_shadows, "1", FCVAR_GLCONFIG, "r_vk_quality rt: shadows of entities in the light of the sun and of dynamic lights" );
 CVAR_DEFINE_AUTO( r_vk_rt_ao, "1", FCVAR_GLCONFIG, "r_vk_quality rt: ray traced ambient occlusion strength, 0 disables it" );
@@ -55,20 +66,29 @@ CVAR_DEFINE_AUTO( r_vk_rt_ao_radius, "32", FCVAR_GLCONFIG, "r_vk_quality rt: amb
 CVAR_DEFINE_AUTO( r_vk_rt_reflections, "1", FCVAR_GLCONFIG, "r_vk_quality rt: reflections on water, glass and reflective materials, 0 disables them" );
 CVAR_DEFINE_AUTO( r_vk_rt_sun, "1", FCVAR_GLCONFIG, "r_vk_quality rt: part of movevars skycolor the sun puts in the lightmaps" );
 CVAR_DEFINE_AUTO( r_vk_rt_shadow_keep, "0.3", FCVAR_GLCONFIG, "r_vk_quality rt: least part of its light a shadowed surface keeps" );
+CVAR_DEFINE_AUTO( r_vk_rt_gi, "0", FCVAR_GLCONFIG, "r_vk_quality rt: part of the lighting of lightmapped surfaces the rays give, 0 the lightmaps, 1 the rays only" );
+CVAR_DEFINE_AUTO( r_vk_rt_gi_scale, "1", FCVAR_GLCONFIG, "r_vk_quality rt: brightness of the ray traced lighting against the lightmaps" );
+CVAR_DEFINE_AUTO( r_vk_rt_gi_bounce, "1", FCVAR_GLCONFIG, "r_vk_quality rt: strength of the bounced light of the ray traced lighting" );
+CVAR_DEFINE_AUTO( r_vk_rt_gi_sky, "0.25", FCVAR_GLCONFIG, "r_vk_quality rt: light of the sky around, as a part of the sun's colour" );
 
 #define FX_SHADOWS     1
 #define FX_AO          2
 #define FX_REFLECTIONS 4
 #define FX_HISTORY     8
+#define FX_GI          16
 
 #define VK_RTFX_HISTORY_FORMAT VK_FORMAT_R16G16B16A16_SFLOAT
 #define VK_RTFX_AO_FORMAT      VK_FORMAT_R32_SFLOAT
+#define VK_RTFX_GI_FORMAT      VK_FORMAT_R16G16B16A16_SFLOAT
+#define VK_RTFX_DYNAMIC_FORMAT VK_FORMAT_R32G32B32A32_SFLOAT
 
 typedef enum
 {
 	VK_RTFX_VISIBILITY = 0,
 	VK_RTFX_EFFECTS,
 	VK_RTFX_AO_BLUR,
+	VK_RTFX_GI,
+	VK_RTFX_GI_FILTER,
 	VK_RTFX_PASSES
 } vk_rtfx_pass_t;
 
@@ -86,6 +106,8 @@ typedef struct
 	float light[4];
 	int misc[4];
 	int rect[4];
+	float gi[4];
+	float styles[MAX_LIGHTSTYLES];
 } vk_rtfx_params_t;
 
 typedef struct
@@ -111,6 +133,7 @@ static struct
 	vec3_t prev_eye;
 	int prev_generation;
 	int prev_rect[4];
+	qboolean prev_gi;  // the lighting history is of the previous frame
 	uint64_t frame;
 } rtfx;
 
@@ -122,6 +145,10 @@ void VK_RegisterRTEffectsCvars( void )
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_rt_reflections );
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_rt_sun );
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_rt_shadow_keep );
+	gEngfuncs.Cvar_RegisterVariable( &r_vk_rt_gi );
+	gEngfuncs.Cvar_RegisterVariable( &r_vk_rt_gi_scale );
+	gEngfuncs.Cvar_RegisterVariable( &r_vk_rt_gi_bounce );
+	gEngfuncs.Cvar_RegisterVariable( &r_vk_rt_gi_sky );
 }
 
 // r_vk_quality rt on a device that can, unless the server says otherwise
@@ -169,7 +196,8 @@ qboolean VK_InitRTEffects( void )
 	if( !VK_RTAvailable( ))
 		return true; // nothing to do on this device
 
-	VkDescriptorBindingFlags flags[3] = {
+	VkDescriptorBindingFlags flags[4] = {
+		VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
 		VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
 		VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
 		VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
@@ -177,21 +205,23 @@ qboolean VK_InitRTEffects( void )
 
 	VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
-		.bindingCount = 3,
+		.bindingCount = 4,
 		.pBindingFlags = flags,
 	};
 
-	// the scene, the sampled inputs, the written images
-	VkDescriptorSetLayoutBinding bindings[3] = {
+	// the scene, the sampled inputs, the written images (16-bit), one more
+	// written image (rt_gi.comp's 32-bit one)
+	VkDescriptorSetLayoutBinding bindings[4] = {
 		{ 0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_COMPUTE_BIT },
 		{ 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4, VK_SHADER_STAGE_COMPUTE_BIT },
 		{ 2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2, VK_SHADER_STAGE_COMPUTE_BIT },
+		{ 3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT },
 	};
 
 	VkDescriptorSetLayoutCreateInfo layout = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		.pNext = &binding_flags,
-		.bindingCount = 3,
+		.bindingCount = 4,
 		.pBindings = bindings,
 	};
 
@@ -199,7 +229,7 @@ qboolean VK_InitRTEffects( void )
 	VkDescriptorPoolSize sizes[3] = {
 		{ VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, num_sets },
 		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, num_sets * 4 },
-		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, num_sets * 2 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, num_sets * 3 },
 	};
 
 	VkDescriptorPoolCreateInfo pool = {
@@ -247,6 +277,8 @@ qboolean VK_InitRTEffects( void )
 	rtfx.pipes[VK_RTFX_VISIBILITY] = VK_RTFXPipeline( rt_visibility_spv, sizeof( rt_visibility_spv ), "rt_visibility.comp" );
 	rtfx.pipes[VK_RTFX_EFFECTS] = VK_RTFXPipeline( rt_effects_spv, sizeof( rt_effects_spv ), "rt_effects.comp" );
 	rtfx.pipes[VK_RTFX_AO_BLUR] = VK_RTFXPipeline( rt_ao_blur_spv, sizeof( rt_ao_blur_spv ), "rt_ao_blur.comp" );
+	rtfx.pipes[VK_RTFX_GI] = VK_RTFXPipeline( rt_gi_spv, sizeof( rt_gi_spv ), "rt_gi.comp" );
+	rtfx.pipes[VK_RTFX_GI_FILTER] = VK_RTFXPipeline( rt_gi_filter_spv, sizeof( rt_gi_filter_spv ), "rt_gi_filter.comp" );
 
 	for( int i = 0; i < VK_RTFX_PASSES; i++ )
 	{
@@ -308,7 +340,7 @@ typedef struct
 
 // this frame slot's set of a pass: the GPU is done with its previous frame
 static VkDescriptorSet VK_RTFXSet( VkCommandBuffer cmd, vk_rtfx_pass_t pass, VkAccelerationStructureKHR tlas,
-	const vk_rtfx_image_t *inputs, int num_inputs, vk_image_t *const *outputs, int num_outputs )
+	const vk_rtfx_image_t *inputs, int num_inputs, vk_image_t *const *outputs, int num_outputs, vk_image_t *output3 )
 {
 	VkDescriptorSet set = rtfx.sets[VK_FrameIndex()][pass];
 	VkWriteDescriptorSetAccelerationStructureKHR as_info = {
@@ -316,8 +348,8 @@ static VkDescriptorSet VK_RTFXSet( VkCommandBuffer cmd, vk_rtfx_pass_t pass, VkA
 		.accelerationStructureCount = 1,
 		.pAccelerationStructures = &tlas,
 	};
-	VkDescriptorImageInfo sampled[4], storage[2];
-	VkWriteDescriptorSet writes[3];
+	VkDescriptorImageInfo sampled[4], storage[2], storage3;
+	VkWriteDescriptorSet writes[4];
 	int num_writes = 0;
 
 	writes[num_writes++] = (VkWriteDescriptorSet){ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = &as_info,
@@ -348,6 +380,14 @@ static VkDescriptorSet VK_RTFXSet( VkCommandBuffer cmd, vk_rtfx_pass_t pass, VkA
 	{
 		writes[num_writes++] = (VkWriteDescriptorSet){ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set,
 			.dstBinding = 2, .descriptorCount = num_outputs, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .pImageInfo = storage };
+	}
+
+	if( output3 )
+	{
+		VK_GraphUse( cmd, output3, VK_USE_STORAGE );
+		storage3 = (VkDescriptorImageInfo){ VK_NULL_HANDLE, output3->view, VK_IMAGE_LAYOUT_GENERAL };
+		writes[num_writes++] = (VkWriteDescriptorSet){ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set,
+			.dstBinding = 3, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .pImageInfo = &storage3 };
 	}
 
 	vkUpdateDescriptorSets( vk.device, num_writes, writes, 0, NULL );
@@ -400,7 +440,7 @@ qboolean VK_RTEffects( VkCommandBuffer cmd, vk_image_t *scene, int x, int y, int
 	const VkImageUsageFlags storage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 	VkAccelerationStructureKHR tlas;
 	VkDeviceAddress scene_addr, params_addr;
-	vk_image_t *result, *history[2], *ao, *depth = VK_MainDepthImage();
+	vk_image_t *result, *history[2], *ao, *gi_history[2], *gi_dynamic, *gi, *depth = VK_MainDepthImage();
 	vk_rtfx_params_t *params;
 	vk_rtfx_push_t push = { 0 };
 	matrix4x4 mvp, inv;
@@ -423,6 +463,8 @@ qboolean VK_RTEffects( VkCommandBuffer cmd, vk_image_t *scene, int x, int y, int
 		SetBits( flags, FX_AO );
 	if( r_vk_rt_reflections.value > 0.0f )
 		SetBits( flags, FX_REFLECTIONS );
+	if( r_vk_rt_gi.value > 0.0f && VK_RTLightsAddress( ))
+		SetBits( flags, FX_GI );
 
 	if( !flags )
 	{
@@ -435,6 +477,16 @@ qboolean VK_RTEffects( VkCommandBuffer cmd, vk_image_t *scene, int x, int y, int
 	history[0] = VK_GraphImage( "rt history 0", VK_RTFX_HISTORY_FORMAT, storage, 0 );
 	history[1] = VK_GraphImage( "rt history 1", VK_RTFX_HISTORY_FORMAT, storage, 0 );
 	ao = VK_GraphImage( "rt occlusion", VK_RTFX_AO_FORMAT, storage, 0 );
+	gi_history[0] = gi_history[1] = gi_dynamic = gi = NULL;
+	if( FBitSet( flags, FX_GI ))
+	{
+		gi_history[0] = VK_GraphImage( "rt lighting 0", VK_RTFX_GI_FORMAT, storage, 0 );
+		gi_history[1] = VK_GraphImage( "rt lighting 1", VK_RTFX_GI_FORMAT, storage, 0 );
+		gi_dynamic = VK_GraphImage( "rt lighting dynamic", VK_RTFX_DYNAMIC_FORMAT, storage, 0 );
+		gi = VK_GraphImage( "rt lighting", VK_RTFX_GI_FORMAT, storage, 0 );
+		if( !gi_history[0] || !gi_history[1] || !gi_dynamic || !gi )
+			ClearBits( flags, FX_GI );
+	}
 	params = VK_DynamicAlloc( sizeof( *params ), 16, &buffer, &offset );
 
 	if( !result || !history[0] || !history[1] || !ao || !params )
@@ -472,6 +524,12 @@ qboolean VK_RTEffects( VkCommandBuffer cmd, vk_image_t *scene, int x, int y, int
 	params->rect[1] = y;
 	params->rect[2] = w;
 	params->rect[3] = h;
+	params->gi[0] = bound( 0.0f, r_vk_rt_gi.value, 1.0f );
+	params->gi[1] = Q_max( 0.0f, r_vk_rt_gi_scale.value );
+	params->gi[2] = Q_max( 0.0f, r_vk_rt_gi_bounce.value );
+	params->gi[3] = Q_max( 0.0f, r_vk_rt_gi_sky.value );
+	for( int i = 0; i < MAX_LIGHTSTYLES; i++ )
+		params->styles[i] = g_lightstylevalue[i] / 256.0f;
 
 	push.scene = scene_addr;
 	push.params = params_addr;
@@ -481,21 +539,56 @@ qboolean VK_RTEffects( VkCommandBuffer cmd, vk_image_t *scene, int x, int y, int
 	// online: models out of sight are left out of every ray
 	if( gp_cl->maxclients > 1 && num_instances > 0 )
 	{
-		VkDescriptorSet set = VK_RTFXSet( cmd, VK_RTFX_VISIBILITY, tlas, NULL, 0, NULL, 0 );
+		VkDescriptorSet set = VK_RTFXSet( cmd, VK_RTFX_VISIBILITY, tlas, NULL, 0, NULL, 0, NULL );
 
 		VK_RTFXDispatch( cmd, VK_RTFX_VISIBILITY, set, &push, ( num_instances + 63 ) / 64, 1 );
 		VK_RTFXBufferBarrier( cmd );
 	}
 
+	// the lighting: accumulated, then filtered with the dynamic part
+	VK_ProfileMark( cmd, VK_PROF_RT_LIGHTING );
+	if( FBitSet( flags, FX_GI ))
+	{
+		const qboolean gi_history_ok = FBitSet( flags, FX_HISTORY ) && gi_history[cur ^ 1]->layout != VK_IMAGE_LAYOUT_UNDEFINED
+			&& rtfx.prev_gi;
+		vk_rtfx_image_t inputs[3] = {
+			{ depth, VK_MainDepthSampleView() },
+			{ FBitSet( flags, FX_HISTORY ) ? history[cur ^ 1] : scene, VK_NULL_HANDLE },
+			{ gi_history_ok ? gi_history[cur ^ 1] : scene, VK_NULL_HANDLE },
+		};
+		vk_image_t *outputs[1] = { gi_history[cur] };
+		VkDescriptorSet set;
+
+		// without a history of its own, the lighting starts over (the
+		// parameters are read when the GPU runs: in the push constants)
+		vk_rtfx_push_t gi_push = push;
+
+		gi_push.iparams[0] = gi_history_ok;
+		set = VK_RTFXSet( cmd, VK_RTFX_GI, tlas, inputs, 3, outputs, 1, gi_dynamic );
+		VK_RTFXDispatch( cmd, VK_RTFX_GI, set, &gi_push, ( w + 7 ) / 8, ( h + 7 ) / 8 );
+
+		vk_rtfx_image_t filter_inputs[3] = {
+			{ gi_history[cur], VK_NULL_HANDLE },
+			{ gi_dynamic, VK_NULL_HANDLE },
+			{ depth, VK_MainDepthSampleView() },
+		};
+		vk_image_t *filter_outputs[1] = { gi };
+
+		set = VK_RTFXSet( cmd, VK_RTFX_GI_FILTER, tlas, filter_inputs, 3, filter_outputs, 1, NULL );
+		VK_RTFXDispatch( cmd, VK_RTFX_GI_FILTER, set, &push, ( w + 7 ) / 8, ( h + 7 ) / 8 );
+	}
+
+	VK_ProfileMark( cmd, VK_PROF_RT_EFFECTS );
 	{
 		// nothing to read yet: the scene stands in for the history, unread
-		vk_rtfx_image_t inputs[3] = {
+		vk_rtfx_image_t inputs[4] = {
 			{ scene, VK_NULL_HANDLE },
 			{ depth, VK_MainDepthSampleView() },
 			{ FBitSet( flags, FX_HISTORY ) ? history[cur ^ 1] : scene, VK_NULL_HANDLE },
+			{ FBitSet( flags, FX_GI ) ? gi : scene, VK_NULL_HANDLE },
 		};
 		vk_image_t *outputs[2] = { result, history[cur] };
-		VkDescriptorSet set = VK_RTFXSet( cmd, VK_RTFX_EFFECTS, tlas, inputs, 3, outputs, 2 );
+		VkDescriptorSet set = VK_RTFXSet( cmd, VK_RTFX_EFFECTS, tlas, inputs, 4, outputs, 2, NULL );
 
 		VK_RTFXDispatch( cmd, VK_RTFX_EFFECTS, set, &push, ( w + 7 ) / 8, ( h + 7 ) / 8 );
 	}
@@ -504,7 +597,7 @@ qboolean VK_RTEffects( VkCommandBuffer cmd, vk_image_t *scene, int x, int y, int
 	{
 		vk_rtfx_image_t inputs[1] = { { history[cur], VK_NULL_HANDLE } };
 		vk_image_t *outputs[1] = { ao };
-		VkDescriptorSet set = VK_RTFXSet( cmd, VK_RTFX_AO_BLUR, tlas, inputs, 1, outputs, 1 );
+		VkDescriptorSet set = VK_RTFXSet( cmd, VK_RTFX_AO_BLUR, tlas, inputs, 1, outputs, 1, NULL );
 
 		VK_RTFXDispatch( cmd, VK_RTFX_AO_BLUR, set, &push, ( w + 7 ) / 8, ( h + 7 ) / 8 );
 		*out_ao = ao;
@@ -519,7 +612,8 @@ qboolean VK_RTEffects( VkCommandBuffer cmd, vk_image_t *scene, int x, int y, int
 	rtfx.prev_rect[1] = y;
 	rtfx.prev_rect[2] = w;
 	rtfx.prev_rect[3] = h;
-	rtfx.have_prev = FBitSet( flags, FX_AO ) != 0;
+	rtfx.have_prev = true; // the occlusion history always has the distances
+	rtfx.prev_gi = FBitSet( flags, FX_GI ) != 0;
 	rtfx.frame++;
 
 	*out_scene = result;

@@ -122,6 +122,16 @@ RTFX_SHOTS = ["r_vk_quality enhanced", "wait 30", "shot enhanced",
               "r_vk_gpu_profile 1", "r_vk_gpu_profile_reset", "wait 300", "r_vk_gpu_profile_print", "r_vk_gpu_profile 0",
               "r_vk_quality classic"]
 
+# the ray traced lighting (026) against the lightmaps: the lighting alone
+# (r_lightmap 1) and the view, lightmaps then rays
+RTGI_SHOTS = ["r_vk_quality rt", "r_vk_rt_ao 0", "r_vk_rt_reflections 0", "wait 30", "shot lightmaps",
+              "r_lightmap 1", "wait 10", "shot lightmaps_light",
+              "r_vk_rt_gi 1", "wait 90", "shot rays_light", "r_lightmap 0", "wait 10", "shot rays",
+              "r_vk_rt_gi 0.5", "wait 30", "shot half", "r_vk_rt_gi_bounce 0", "r_lightmap 1", "wait 60", "shot rays_direct_light",
+              "r_lightmap 0", "r_vk_rt_gi_bounce 1", "r_vk_rt_ao 1", "r_vk_rt_reflections 1", "r_vk_rt_gi 1", "wait 90", "shot rays_all",
+              "r_vk_gpu_profile 1", "r_vk_gpu_profile_reset", "wait 300", "r_vk_gpu_profile_print", "r_vk_gpu_profile 0",
+              "r_vk_rt_gi 0", "r_vk_quality classic"]
+
 # every effect off but the HDR scene, then one at a time, then all of them
 HDR_NONE = ["r_vk_tonemap 0", "r_vk_autoexposure 0", "r_vk_exposure 0", "r_vk_bloom 0",
             "r_vk_ssao 0", "r_vk_aa 0", "r_vk_sharpen 0"]
@@ -329,6 +339,22 @@ SHOT_SCENES = [
                'r_vk_debug_view "-900 -400 -110 5 -15"', "r_vk_quality enhanced", "wait 30", "shot b_enhanced",
                "r_vk_quality rt", "wait 60", "shot b_rt",
                "r_vk_quality classic", 'r_vk_debug_view ""']},
+    # the ray traced lighting: a lab of the first map, the T spawn of de_dust2
+    {"name": "rtgi_valve", "game": "valve", "map": "c1a0", "server": [],
+     "lines": ["wait 200", "sv_cheats 1", "hud_draw 0", "r_drawviewmodel 0", "sv_novis 1",
+               'r_vk_debug_view "-650 -580 -110 5 165"', "wait 30"] + RTGI_SHOTS + ['r_vk_debug_view ""']},
+    {"name": "rtgi_cstrike", "game": "cstrike", "map": "de_dust2", "server": CS_SERVER,
+     "lines": ["wait 250"] + CS_SETUP + ["hud_draw 0", "r_drawviewmodel 0", "sv_novis 1",
+                                         'r_vk_debug_view "-520 -780 250 18 185"', "wait 30"] + RTGI_SHOTS
+              + ['r_vk_debug_view ""']},
+    # lightstyles: the lights of an office switched off (ent_fire), lightmaps and rays
+    {"name": "rtgi_styles", "game": "valve", "map": "c1a0", "server": [],
+     "lines": ["wait 200", "sv_cheats 1", "sv_enttools_enable 1", "hud_draw 0", "r_drawviewmodel 0", "sv_novis 1",
+               "r_vk_quality rt", 'r_vk_debug_view "-650 -630 -110 5 180"', "wait 30", "shot on_lightmaps",
+               "r_vk_rt_gi 1", "wait 90", "shot on_rays", "ent_fire office1 use", "wait 10", "shot off_rays",
+               "r_vk_rt_gi 0", "wait 10", "shot off_lightmaps", "ent_fire office1 use", "wait 10", "shot again_lightmaps",
+               "r_vk_rt_gi 1", "wait 10", "shot again_rays",
+               "r_vk_rt_gi 0", "r_vk_quality classic", 'r_vk_debug_view ""']},
     # a server limiting the look (sv_maxlook, physinfo key maxlook)
     {"name": "rtfx_maxlook", "game": "valve", "map": "c2a5", "server": [],
      "lines": ["wait 200"] + HL_SETUP + ["hud_draw 0", "r_drawviewmodel 0", 'r_vk_debug_view "-1389 2600 -200 20 90"',

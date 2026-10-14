@@ -1,0 +1,62 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+// the accumulated static lighting of rt_gi.comp averaged over 5x5 pixels at
+// the same eye distance and facing the same way (wider while few frames are
+// accumulated), plus the dynamic lighting, noiseless, of the pixel itself
+//
+// inputs: lighting history, dynamic lighting, depth
+// output: lighting (rgb, 1 where there is some)
+
+layout( local_size_x = 8, local_size_y = 8 ) in;
+
+#include "rtfx_common.glsl"
+
+layout( set = 1, binding = 2, rgba16f ) uniform writeonly image2D outputs[2];
+
+void main()
+{
+	rtfx_params_r p = rtfx_params_r( pc.params );
+
+	if( any( greaterThanEqual( gl_GlobalInvocationID.xy, uvec2( p.rect.zw ))))
+		return;
+
+	ivec2 pixel = ivec2( gl_GlobalInvocationID.xy ) + p.rect.xy;
+	vec4 centre = texelFetch( inputs[0], pixel, 0 );
+	vec4 dynamic = texelFetch( inputs[1], pixel, 0 );
+
+	if( centre.a <= 0.0 )
+	{
+		imageStore( outputs[0], pixel, vec4( 0.0 ));
+		return;
+	}
+
+	float z = EyeDepth( p, texelFetch( inputs[2], pixel, 0 ).r );
+	vec3 n = UnpackNormal( dynamic.a );
+	int step = centre.a < 8.0 ? 2 : 1;
+	vec3 sum = vec3( 0.0 );
+	float weight = 0.0;
+
+	for( int y = -2; y <= 2; y++ )
+	{
+		for( int x = -2; x <= 2; x++ )
+		{
+			ivec2 q = clamp( pixel + ivec2( x, y ) * step, p.rect.xy, p.rect.xy + p.rect.zw - 1 );
+			vec4 s = texelFetch( inputs[0], q, 0 );
+
+			if( s.a <= 0.0 )
+				continue;
+
+			float zs = EyeDepth( p, texelFetch( inputs[2], q, 0 ).r );
+			vec3 ns = UnpackNormal( texelFetch( inputs[1], q, 0 ).a );
+			float w = exp( -abs( zs - z ) / ( 0.5 + 0.02 * z )) * pow( max( dot( n, ns ), 0.0 ), 16.0 )
+				* ( 3.0 - 0.4 * float( abs( x ) + abs( y ))) * min( s.a, 8.0 );
+
+			sum += s.rgb * w;
+			weight += w;
+		}
+	}
+
+	vec3 lighting = ( weight > 0.0 ? sum / weight : centre.rgb ) + dynamic.rgb;
+	imageStore( outputs[0], pixel, vec4( lighting, 1.0 ));
+}

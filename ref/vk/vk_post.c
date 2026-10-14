@@ -1117,7 +1117,7 @@ void VK_PostEndScene( int x, int y, int w, int h )
 	if( !cmd || w <= 0 || h <= 0 )
 		return;
 
-	VK_ProfileMark( cmd, VK_PROF_RT_EFFECTS );
+	VK_ProfileMark( cmd, VK_PROF_RT_LIGHTING );
 	post.source = post.scene;
 	VK_RTEffects( cmd, post.scene, x, y, w, h, &post.source, &rt_ao );
 

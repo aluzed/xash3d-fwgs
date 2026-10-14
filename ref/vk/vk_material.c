@@ -357,6 +357,15 @@ int VK_MaterialIndex( int texnum )
 	return texnum > 0 && texnum < VK_MAX_TEXTURES ? vk_mat.of_texture[texnum] : 0;
 }
 
+// the emissive map, 0 for none, and its strength: a light of the ray traced lighting (026)
+int VK_MaterialEmissive( int texnum, float *strength )
+{
+	const vk_material_t *mat = VK_MaterialForTexture( texnum );
+
+	*strength = mat ? mat->emissive_strength : 0.0f;
+	return mat && mat->emissive ? VK_MapTexture( mat->emissive ) : 0;
+}
+
 // reflective 1: the ray traced reflections show on it
 qboolean VK_MaterialReflective( int texnum )
 {
