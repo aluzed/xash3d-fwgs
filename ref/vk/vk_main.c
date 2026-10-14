@@ -16,6 +16,8 @@ GNU General Public License for more details.
 #include "vk_local.h"
 
 CVAR_DEFINE_AUTO( r_vk_log_stubs, "0", 0, "log every unimplemented ref_vk call once" );
+CVAR_DEFINE_AUTO( r_vk_validation, "0", FCVAR_GLCONFIG, "enable the Vulkan validation layer (restart the renderer), -vkvalidation does the same" );
+CVAR_DEFINE_AUTO( r_vk_device, "-1", FCVAR_GLCONFIG, "physical device index to use, -1 picks the best one (restart the renderer)" );
 
 /*
 =================
@@ -25,6 +27,8 @@ Lifetime
 static qboolean R_Init( void )
 {
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_log_stubs );
+	gEngfuncs.Cvar_RegisterVariable( &r_vk_validation );
+	gEngfuncs.Cvar_RegisterVariable( &r_vk_device );
 
 	r_temppool = Mem_AllocPool( "ref_vk temp" );
 
@@ -37,8 +41,9 @@ static qboolean R_Init( void )
 
 	VK_InitTextures();
 
-	if( !VK_InitCore( ))
+	if( !VK_InitCore( ) || !VK_InitFrames( ))
 	{
+		VK_ShutdownCore();
 		gEngfuncs.R_Free_Video();
 		Mem_FreePool( &r_temppool );
 		return false;
@@ -50,6 +55,7 @@ static qboolean R_Init( void )
 static void R_Shutdown( void )
 {
 	VK_ShutdownTextures();
+	VK_ShutdownFrames();
 	VK_ShutdownCore();
 	gEngfuncs.R_Free_Video();
 	Mem_FreePool( &r_temppool );
@@ -105,7 +111,7 @@ static void GL_SetupAttributes( int safegl )
 
 static void R_BeginFrame( qboolean clearScene )
 {
-	VK_STUB();
+	VK_BeginFrame( clearScene );
 }
 
 static void R_RenderScene( void )
@@ -115,12 +121,12 @@ static void R_RenderScene( void )
 
 static void R_EndFrame( void )
 {
-	VK_STUB();
+	VK_EndFrame();
 }
 
 static void R_ClearScreen( void )
 {
-	VK_STUB();
+	VK_ClearScreen();
 }
 
 static void R_GammaChanged( qboolean do_reset_gamma )
@@ -184,8 +190,7 @@ static int WorldToScreen( const vec3_t world, vec3_t screen )
 
 static qboolean VID_ScreenShot( const char *filename, int shot_type )
 {
-	VK_STUB();
-	return false;
+	return VK_ScreenShot( filename, shot_type );
 }
 
 static qboolean VID_CubemapShot( const char *base, uint size, const float *vieworg, qboolean skyshot )
