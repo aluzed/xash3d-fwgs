@@ -15,6 +15,6 @@ layout( location = 1 ) out vec2 out_lightcoord;
 void main()
 {
 	gl_Position = pc.mvp * vec4( in_position, 1.0 );
-	out_texcoord = in_texcoord;
+	out_texcoord = in_texcoord + pc.tcoffset;
 	out_lightcoord = in_lightcoord;
 }

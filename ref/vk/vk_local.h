@@ -299,6 +299,7 @@ typedef struct vk_world_push_s
 	vec4_t color;
 	float alpha_ref;
 	int alpha_test;
+	float tcoffset[2];
 } vk_world_push_t;
 
 #define VK_PUSH_CONSTANTS_SIZE 128

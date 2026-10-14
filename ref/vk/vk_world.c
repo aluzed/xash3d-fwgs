@@ -38,6 +38,13 @@ CVAR_DEFINE_AUTO( r_large_lightmaps, "0", FCVAR_GLCONFIG|FCVAR_LATCH, "enable la
 #define BLOCK_SIZE_MAX     1024
 #define MAX_LIGHTMAPS      256
 #define SUBDIVIDE_SIZE     64
+#define TURBSCALE          ( 256.0f / ( M_PI2 ))
+
+// speed up sin calculations
+static const float r_turbsin[] =
+{
+#include "warpsin.h"
+};
 
 #define FRUSTUM_LEFT    0
 #define FRUSTUM_RIGHT   1
@@ -1766,6 +1773,182 @@ R_RenderBrushPoly for a list of surfaces then R_BlendLightmaps, ref_gl's
 two passes, with the GL state of the current entity
 =================
 */
+// DrawGLPoly: SURF_CONVEYOR texture scroll, speed in the entity colour
+static void R_ConveyorOffset( int texnum, float *sOffset, float *tOffset )
+{
+	const cl_entity_t *e = RI.currententity;
+	float flConveyorSpeed;
+	float sy, cy;
+
+	if( e == CL_GetEntityByIndex( 0 ) && FBitSet( gp_host->features, ENGINE_QUAKE_COMPATIBLE ))
+	{
+		// same as doom speed
+		flConveyorSpeed = -35.0f;
+	}
+	else
+	{
+		flConveyorSpeed = ( e->curstate.rendercolor.g << 8 | e->curstate.rendercolor.b ) / 16.0f;
+		if( e->curstate.rendercolor.r ) flConveyorSpeed = -flConveyorSpeed;
+	}
+
+	float flRate = fabs( flConveyorSpeed ) / (float)VK_TextureParm( PARM_TEX_SRC_WIDTH, texnum );
+	float flAngle = ( flConveyorSpeed >= 0 ) ? 180 : 0;
+
+	SinCos( flAngle * ( M_PI_F / 180.0f ), &sy, &cy );
+	*sOffset = gp_cl->time * cy * flRate;
+	*tOffset = gp_cl->time * sy * flRate;
+
+	// make sure that we are positive
+	if( *sOffset < 0.0f ) *sOffset += 1.0f + -(int)*sOffset;
+	if( *tOffset < 0.0f ) *tOffset += 1.0f + -(int)*tOffset;
+
+	// make sure that we are in a [0,1] range
+	*sOffset = *sOffset - (int)*sOffset;
+	*tOffset = *tOffset - (int)*tOffset;
+}
+
+static qboolean Mod_HaveLightmappedWater( void )
+{
+	// if this flag set, it's level designer's job to ensure water has been properly lit
+	if( FBitSet( tr.world->flags, FWORLD_HAS_LITWATER ))
+		return true;
+
+	// otherwise, check user preference, as some maps have lightmapped water
+	return gl_litwater_force.value ? true : false;
+}
+
+/*
+=================
+VK_DrawWaterSurfaces
+
+EmitWaterPolys and EmitWaterLightPolys: the warp moves with time, so the
+vertices are computed every frame like ref_gl does, into dynamic memory.
+Only the SURF_DRAWTURB surfaces of the list are drawn. r_ripple isn't
+supported (ref_gl's default is off).
+=================
+*/
+static void VK_DrawWaterSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int count, const vk_brush_state_t *st, const matrix4x4 modelview, qboolean check_backside )
+{
+	vk_world_push_t push = { 0 };
+	const qboolean lit = st->lightmaps && Mod_HaveLightmappedWater( );
+	qboolean any = false;
+
+	VK_ComputeMVP( push.mvp, modelview );
+	Vector4Copy( st->color, push.color );
+	push.alpha_test = st->alpha_test;
+	push.alpha_ref = st->alpha_ref;
+
+	for( int i = 0; i < count; i++ )
+	{
+		msurface_t *warp = surfs[i];
+		float waveHeight, *dst, *out;
+		VkBuffer buffer;
+		VkDeviceSize offset;
+		int num_verts = 0;
+
+		if( !FBitSet( warp->flags, SURF_DRAWTURB ) || !warp->polys )
+			continue;
+
+		// a backside surface of an entity is drawn reversed (R_RenderBrushPoly)
+		const qboolean reverse = check_backside && R_CullSurface( warp, &RI.frustum, 0 ) == CULL_BACKSIDE;
+
+		for( glpoly2_t *p = warp->polys; p; p = p->next )
+			num_verts += ( p->numverts - 2 ) * 3;
+
+		if( num_verts <= 0 || !( dst = VK_DynamicAlloc( num_verts * VERTEXSIZE * sizeof( float ), 16, &buffer, &offset )))
+			continue;
+
+		// set the current waveheight
+		if( warp->polys->verts[0][2] >= RI.rvp.vieworigin[2] )
+			waveHeight = -RI.currententity->curstate.scale;
+		else waveHeight = RI.currententity->curstate.scale;
+
+		out = dst;
+
+		for( glpoly2_t *p = warp->polys; p; p = p->next )
+		{
+			float fan[3][VERTEXSIZE];
+
+			for( int j = 0; j < p->numverts; j++ )
+			{
+				const float *v = reverse ? p->verts[p->numverts - 1 - j] : p->verts[j];
+				float nv, s, t;
+
+				if( waveHeight )
+				{
+					nv = r_turbsin[(int)( gp_cl->time * 160.0f + v[1] + v[0] ) & 255] + 8.0f;
+					nv = ( r_turbsin[(int)( v[0] * 5.0f + gp_cl->time * 171.0f - v[1] ) & 255] + 8.0f ) * 0.8f + nv;
+					nv = nv * waveHeight + v[2];
+				}
+				else nv = v[2];
+
+				float os = v[3];
+				float ot = v[4];
+
+				s = os + r_turbsin[(int)(( ot * 0.125f + gp_cl->time ) * TURBSCALE ) & 255];
+				t = ot + r_turbsin[(int)(( os * 0.125f + gp_cl->time ) * TURBSCALE ) & 255];
+
+				s *= ( 1.0f / SUBDIVIDE_SIZE );
+				t *= ( 1.0f / SUBDIVIDE_SIZE );
+
+				float *w = fan[j < 2 ? j : 2];
+				w[0] = v[0]; w[1] = v[1]; w[2] = nv;
+				w[3] = s; w[4] = t;
+				w[5] = v[5]; w[6] = v[6];
+
+				// GL_POLYGON is a fan
+				if( j >= 2 )
+				{
+					memcpy( out, fan[0], sizeof( fan[0] )); out += VERTEXSIZE;
+					memcpy( out, fan[1], sizeof( fan[0] )); out += VERTEXSIZE;
+					memcpy( out, fan[2], sizeof( fan[0] )); out += VERTEXSIZE;
+					memcpy( fan[1], fan[2], sizeof( fan[0] ));
+				}
+			}
+		}
+
+		if( !any )
+		{
+			VK_BeginLabel( cmd, "water" );
+			any = true;
+		}
+
+		vkCmdBindVertexBuffers( cmd, 0, 1, &buffer, &offset );
+
+		// warp texture
+		vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, VK_WorldPipeline( st->blend, st->depth_write, false ));
+		push.mode = st->mode;
+		push.texture = VK_TextureForDraw( R_TextureAnimation( warp )->gl_texturenum );
+		push.alpha_test = st->alpha_test;
+		VK_PushWorld( cmd, &push );
+		vkCmdDraw( cmd, num_verts, 1, 0, 0 );
+
+		// add lightmaps if requested, over the same moved vertices
+		if( lit && !FBitSet( warp->flags, SURF_DRAWTILED ))
+		{
+			R_UpdateSurfaceLightmap( warp, warp - WORLDMODEL->surfaces );
+
+			if( r_lightmap->value )
+				vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, VK_WorldPipeline( VK_BLEND_NONE, false, st->lightmap_equal ));
+			else
+				vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, VK_WorldPipeline( st->lightmap_blend, false, st->lightmap_equal ));
+
+			push.mode = VK_WORLD_MODE_LIGHTMAP;
+			push.scale = gl_overbright.value && st->lightmap_equal ? 128.0f / 192.0f : 1.0f;
+			push.lightmap = VK_TextureForDraw( tr.lightmapTextures[warp->lightmaptexturenum] );
+			push.alpha_test = false;
+			VK_PushWorld( cmd, &push );
+			vkCmdDraw( cmd, num_verts, 1, 0, 0 );
+		}
+	}
+
+	if( any )
+	{
+		VK_BindBrushGeometry( cmd );
+		VK_EndLabel( cmd );
+	}
+}
+
 static void VK_DrawBrushSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int count, const vk_brush_state_t *st, const matrix4x4 modelview )
 {
 	vk_world_push_t push = { 0 };
@@ -1796,11 +1979,18 @@ static void VK_DrawBrushSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 
 		if( st->mode == VK_WORLD_MODE_TEXTURE )
 		{
-			int texnum = VK_TextureForDraw( R_TextureAnimation( s )->gl_texturenum );
+			const int gl_texnum = R_TextureAnimation( s )->gl_texturenum;
+			const int texnum = VK_TextureForDraw( gl_texnum );
+			float sOffset = 0.0f, tOffset = 0.0f;
 
-			if( texnum != push.texture )
+			if( FBitSet( s->flags, SURF_CONVEYOR ))
+				R_ConveyorOffset( gl_texnum, &sOffset, &tOffset );
+
+			if( texnum != push.texture || sOffset != push.tcoffset[0] || tOffset != push.tcoffset[1] )
 			{
 				push.texture = texnum;
+				push.tcoffset[0] = sOffset;
+				push.tcoffset[1] = tOffset;
 				VK_PushWorld( cmd, &push );
 			}
 		}
@@ -1828,6 +2018,7 @@ static void VK_DrawBrushSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 	push.mode = VK_WORLD_MODE_LIGHTMAP;
 	push.scale = gl_overbright.value && st->lightmap_equal ? 128.0f / 192.0f : 1.0f;
 	push.alpha_test = false;
+	push.tcoffset[0] = push.tcoffset[1] = 0.0f;
 
 	for( int i = 0; i < MAX_LIGHTMAPS; i++ )
 	{
@@ -1855,6 +2046,8 @@ World surfaces: R_DrawTextureChains then R_BlendLightmaps
 */
 static msurface_t **vk_draw_surfs;
 static int vk_max_draw_surfs;
+static msurface_t **vk_alpha_water; // draw_wateralpha
+static int vk_num_alpha_water;
 
 static void VK_DrawWorldSurfaces( VkCommandBuffer cmd )
 {
@@ -1870,7 +2063,12 @@ static void VK_DrawWorldSurfaces( VkCommandBuffer cmd )
 			Mem_Free( vk_draw_surfs );
 		vk_max_draw_surfs = WORLDMODEL->numsurfaces;
 		vk_draw_surfs = Mem_Malloc( r_temppool, sizeof( *vk_draw_surfs ) * vk_max_draw_surfs );
+		if( vk_alpha_water )
+			Mem_Free( vk_alpha_water );
+		vk_alpha_water = Mem_Malloc( r_temppool, sizeof( *vk_alpha_water ) * vk_max_draw_surfs );
 	}
+
+	vk_num_alpha_water = 0;
 
 	// texture chains, in texture order
 	for( int i = 0; i < WORLDMODEL->numtextures; i++ )
@@ -1880,8 +2078,15 @@ static void VK_DrawWorldSurfaces( VkCommandBuffer cmd )
 		if( !t || !t->texturechain || i == tr.skytexturenum )
 			continue;
 
+		// translucent water is drawn after the entities (R_DrawWaterSurfaces)
+		const qboolean alpha_water = FBitSet( t->texturechain->flags, SURF_DRAWTURB ) && gp_movevars->wateralpha < 1.0f;
+
 		for( msurface_t *s = t->texturechain; s != NULL && count < vk_max_draw_surfs; s = s->texturechain )
-			vk_draw_surfs[count++] = s;
+		{
+			if( alpha_water )
+				vk_alpha_water[vk_num_alpha_water++] = s;
+			else vk_draw_surfs[count++] = s;
+		}
 
 		t->texturechain = NULL;
 	}
@@ -1897,7 +2102,40 @@ static void VK_DrawWorldSurfaces( VkCommandBuffer cmd )
 	VK_BindBrushGeometry( cmd );
 	vkCmdSetDepthBias( cmd, 0.0f, 0.0f, 0.0f );
 	VK_DrawBrushSurfaces( cmd, vk_draw_surfs, count, &st, RI.worldviewMatrix );
+	VK_DrawWaterSurfaces( cmd, vk_draw_surfs, count, &st, RI.worldviewMatrix, false );
 	VK_EndLabel( cmd );
+}
+
+/*
+=================
+R_DrawWaterSurfaces
+
+the translucent world water, after the entities
+=================
+*/
+static void R_DrawWaterSurfaces( VkCommandBuffer cmd )
+{
+	vk_brush_state_t st = { 0 };
+
+	if( !FBitSet( RI.rvp.flags, RF_DRAW_WORLD ) || FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ) || !vk_num_alpha_water )
+		return;
+
+	// restore worldmodel
+	RI.currententity = CL_GetEntityByIndex( 0 );
+	RI.currentmodel = RI.currententity->model;
+
+	// GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA without depth writes, GL_MODULATE by wateralpha
+	st.blend = VK_BLEND_ALPHA;
+	st.depth_write = false;
+	st.mode = VK_WORLD_MODE_TEXTURE;
+	Vector4Set( st.color, 1.0f, 1.0f, 1.0f, gp_movevars->wateralpha );
+	st.lightmaps = R_HasLightmap();
+	VK_SetSolidLightmapBlend( &st );
+
+	VK_BindBrushGeometry( cmd );
+	vkCmdSetDepthBias( cmd, 0.0f, 0.0f, 0.0f );
+	VK_DrawWaterSurfaces( cmd, vk_alpha_water, vk_num_alpha_water, &st, RI.worldviewMatrix, false );
+	vk_num_alpha_water = 0;
 }
 
 static void R_DrawWorld( VkCommandBuffer cmd )
@@ -2389,6 +2627,7 @@ static void R_DrawBrushModel( VkCommandBuffer cmd, cl_entity_t *e )
 	// gl_polyoffset_bmodels: glPolygonOffset( -0.5, -2 )
 	vkCmdSetDepthBias( cmd, -2.0f, 0.0f, -0.5f );
 	VK_DrawBrushSurfaces( cmd, vk_draw_surfs, num_sorted, &st, modelview );
+	VK_DrawWaterSurfaces( cmd, vk_draw_surfs, num_sorted, &st, modelview, true );
 	vkCmdSetDepthBias( cmd, 0.0f, 0.0f, 0.0f );
 
 	e->curstate.rendermode = old_rendermode;
@@ -2533,9 +2772,8 @@ static void R_RenderScene( void )
 		R_MarkLeaves();
 		R_DrawWorld( cmd );
 		R_DrawEntitiesOnList( cmd );
+		R_DrawWaterSurfaces( cmd );
 	}
-
-	// water surfaces: story 014
 
 	VK_ResetViewport();
 }
