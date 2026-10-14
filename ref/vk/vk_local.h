@@ -350,6 +350,9 @@ void R_GammaChanged( qboolean do_reset_gamma );
 void GL_SubdivideSurface( model_t *loadmodel, msurface_t *fa );
 byte *Mod_GetCurrentVis( void );
 void GL_OrthoBounds( const float *mins, const float *maxs );
+void R_SetupSky( int *skyboxTextures );
+void R_SetSkyCloudsTextures( int solidskyTexture, int alphaskyTexture );
+intptr_t VK_SkyParm( int parm, int arg );
 
 //
 // vk_imm.c

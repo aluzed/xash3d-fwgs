@@ -76,6 +76,8 @@ static struct
 	matrix4x4 objectMatrix;
 	cl_entity_t *currententity;
 	model_t *currentmodel;
+	float skyMins[2][SKYBOX_MAX_SIDES];
+	float skyMaxs[2][SKYBOX_MAX_SIDES];
 } RI;
 
 // tr of ref_gl
@@ -103,6 +105,9 @@ static struct
 
 	msurface_t *skychain;
 	vec2_t ortho_mins, ortho_maxs;
+
+	int skyboxTextures[SKYBOX_MAX_SIDES];
+	int solidskyTexture, alphaskyTexture; // Quake sky, unused by HL / CS
 } tr;
 
 #define WORLDMODEL ( tr.worldmodel )
@@ -1356,6 +1361,301 @@ static void VK_ComputeMVP( float out[16], const matrix4x4 modelview )
 
 /*
 =================
+Skybox (gl_warp.c): the sky surfaces only mark which parts of the box are
+seen, the box is drawn after the world at half the far clip distance
+=================
+*/
+#define MAX_CLIP_VERTS 128
+
+static const vec3_t skyclip[SKYBOX_MAX_SIDES] =
+{
+{  1,  1,  0 },
+{  1, -1,  0 },
+{  0, -1,  1 },
+{  0,  1,  1 },
+{  1,  0,  1 },
+{ -1,  0,  1 }
+};
+
+// 1 = s, 2 = t, 3 = 2048
+static const int st_to_vec[SKYBOX_MAX_SIDES][3] =
+{
+{  3, -1,  2 },
+{ -3,  1,  2 },
+{  1,  3,  2 },
+{ -1, -3,  2 },
+{ -2, -1,  3 },  // 0 degrees yaw, look straight up
+{  2, -1, -3 }   // look straight down
+};
+
+static void DrawSkyPolygon( int nump, vec3_t vecs )
+{
+	vec3_t v;
+	float *vp = vecs;
+
+	VectorClear( v );
+	for( int i = 0; i < nump; i++, vp += 3 )
+		VectorAdd( vp, v, v );
+
+	const int axis = R_SkyboxAxisFromDir( v );
+
+	for( int i = 0; i < nump; i++, vecs += 3 )
+	{
+		float s, t;
+
+		if( !R_SkyboxProject( vecs, axis, &s, &t ))
+			continue;
+
+		if( s < RI.skyMins[0][axis] ) RI.skyMins[0][axis] = s;
+		if( t < RI.skyMins[1][axis] ) RI.skyMins[1][axis] = t;
+		if( s > RI.skyMaxs[0][axis] ) RI.skyMaxs[0][axis] = s;
+		if( t > RI.skyMaxs[1][axis] ) RI.skyMaxs[1][axis] = t;
+	}
+}
+
+static void ClipSkyPolygon( int nump, vec3_t vecs, int stage )
+{
+	const float *norm;
+	float *v, d, e;
+	qboolean front, back;
+	float dists[MAX_CLIP_VERTS + 1];
+	int sides[MAX_CLIP_VERTS + 1];
+	vec3_t newv[2][MAX_CLIP_VERTS + 1];
+	int newc[2];
+	int i, j;
+
+	if( nump > MAX_CLIP_VERTS )
+		gEngfuncs.Host_Error( "%s: MAX_CLIP_VERTS\n", __func__ );
+loc1:
+	if( stage == 6 )
+	{
+		DrawSkyPolygon( nump, vecs );
+		return;
+	}
+
+	front = back = false;
+	norm = skyclip[stage];
+	for( i = 0, v = vecs; i < nump; i++, v += 3 )
+	{
+		d = DotProduct( v, norm );
+		if( d > ON_EPSILON )
+		{
+			front = true;
+			sides[i] = SIDE_FRONT;
+		}
+		else if( d < -ON_EPSILON )
+		{
+			back = true;
+			sides[i] = SIDE_BACK;
+		}
+		else
+			sides[i] = SIDE_ON;
+		dists[i] = d;
+	}
+
+	if( !front || !back )
+	{
+		stage++;
+		goto loc1;
+	}
+
+	sides[i] = sides[0];
+	dists[i] = dists[0];
+	VectorCopy( vecs, ( vecs + ( i * 3 )));
+	newc[0] = newc[1] = 0;
+
+	for( i = 0, v = vecs; i < nump; i++, v += 3 )
+	{
+		switch( sides[i] )
+		{
+		case SIDE_FRONT:
+			VectorCopy( v, newv[0][newc[0]] );
+			newc[0]++;
+			break;
+		case SIDE_BACK:
+			VectorCopy( v, newv[1][newc[1]] );
+			newc[1]++;
+			break;
+		case SIDE_ON:
+			VectorCopy( v, newv[0][newc[0]] );
+			newc[0]++;
+			VectorCopy( v, newv[1][newc[1]] );
+			newc[1]++;
+			break;
+		}
+
+		if( sides[i] == SIDE_ON || sides[i+1] == SIDE_ON || sides[i+1] == sides[i] )
+			continue;
+
+		d = dists[i] / ( dists[i] - dists[i+1] );
+		for( j = 0; j < 3; j++ )
+		{
+			e = v[j] + d * ( v[j+3] - v[j] );
+			newv[0][newc[0]][j] = e;
+			newv[1][newc[1]][j] = e;
+		}
+		newc[0]++;
+		newc[1]++;
+	}
+
+	ClipSkyPolygon( newc[0], newv[0][0], stage + 1 );
+	ClipSkyPolygon( newc[1], newv[1][0], stage + 1 );
+}
+
+static void MakeSkyVec( float s, float t, int axis, float *out )
+{
+	int farclip = RI.farClip;
+	vec3_t b, v;
+
+	b[0] = s * ( farclip >> 1 );
+	b[1] = t * ( farclip >> 1 );
+	b[2] = ( farclip >> 1 );
+
+	for( int j = 0; j < 3; j++ )
+	{
+		int k = st_to_vec[axis][j];
+		v[j] = ( k < 0 ) ? -b[-k-1] : b[k-1];
+		v[j] += RI.cullorigin[j];
+	}
+
+	// avoid bilerp seam, clamp to edge is always there
+	s = bound( 0.0f, ( s + 1.0f ) * 0.5f, 1.0f );
+	t = bound( 0.0f, ( t + 1.0f ) * 0.5f, 1.0f );
+	t = 1.0f - t;
+
+	VectorCopy( v, out );
+	out[3] = s;
+	out[4] = t;
+	out[5] = out[6] = 0.0f;
+}
+
+static void R_ClearSkyBox( void )
+{
+	for( int i = 0; i < SKYBOX_MAX_SIDES; i++ )
+	{
+		RI.skyMins[0][i] = RI.skyMins[1][i] = 9999999.0f;
+		RI.skyMaxs[0][i] = RI.skyMaxs[1][i] = -9999999.0f;
+	}
+}
+
+static void R_AddSkyBoxSurface( msurface_t *fa )
+{
+	vec3_t verts[MAX_CLIP_VERTS];
+
+	// the Quake sky sphere (FWORLD_SKYSPHERE) isn't part of the HL / CS scope
+	for( glpoly2_t *p = fa->polys; p; p = p->next )
+	{
+		for( int i = 0; i < p->numverts; i++ )
+			VectorSubtract( p->verts[i], RI.cullorigin, verts[i] );
+		ClipSkyPolygon( p->numverts, verts[0], 0 );
+	}
+}
+
+static void R_DrawSkyBox( VkCommandBuffer cmd )
+{
+	vk_world_push_t push = { 0 };
+	float verts[SKYBOX_MAX_SIDES * 6][VERTEXSIZE];
+	int first[SKYBOX_MAX_SIDES], num_verts = 0;
+	VkBuffer buffer;
+	VkDeviceSize offset;
+	void *dst;
+
+	for( int i = 0; i < SKYBOX_MAX_SIDES; i++ )
+	{
+		float quad[4][VERTEXSIZE];
+
+		first[i] = -1;
+
+		if( RI.skyMins[0][i] >= RI.skyMaxs[0][i] || RI.skyMins[1][i] >= RI.skyMaxs[1][i] )
+			continue;
+
+		MakeSkyVec( RI.skyMins[0][i], RI.skyMins[1][i], i, quad[0] );
+		MakeSkyVec( RI.skyMins[0][i], RI.skyMaxs[1][i], i, quad[1] );
+		MakeSkyVec( RI.skyMaxs[0][i], RI.skyMaxs[1][i], i, quad[2] );
+		MakeSkyVec( RI.skyMaxs[0][i], RI.skyMins[1][i], i, quad[3] );
+
+		// GL_QUADS
+		first[i] = num_verts;
+		memcpy( verts[num_verts++], quad[0], sizeof( quad[0] ));
+		memcpy( verts[num_verts++], quad[1], sizeof( quad[0] ));
+		memcpy( verts[num_verts++], quad[2], sizeof( quad[0] ));
+		memcpy( verts[num_verts++], quad[0], sizeof( quad[0] ));
+		memcpy( verts[num_verts++], quad[2], sizeof( quad[0] ));
+		memcpy( verts[num_verts++], quad[3], sizeof( quad[0] ));
+	}
+
+	if( !num_verts || !( dst = VK_DynamicAlloc( num_verts * sizeof( verts[0] ), 16, &buffer, &offset )))
+		return;
+
+	memcpy( dst, verts, num_verts * sizeof( verts[0] ));
+
+	VK_BeginLabel( cmd, "skybox" );
+	vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipe.world_opaque );
+	vkCmdBindVertexBuffers( cmd, 0, 1, &buffer, &offset );
+
+	VK_ComputeMVP( push.mvp, RI.worldviewMatrix );
+	push.mode = VK_WORLD_MODE_TEXTURE; // GL_REPLACE
+
+	for( int i = 0; i < SKYBOX_MAX_SIDES; i++ )
+	{
+		int texnum;
+
+		if( first[i] < 0 )
+			continue;
+
+		texnum = tr.skyboxTextures[r_skyTexOrder[i]];
+		if( !texnum )
+			texnum = GL_FindTexture( REF_GRAY_TEXTURE ); // stub
+
+		push.texture = VK_TextureForDraw( texnum );
+		vkCmdPushConstants( cmd, vk_pipe.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof( push ), &push );
+		vkCmdDraw( cmd, 6, 1, first[i], 0 );
+	}
+
+	VK_EndLabel( cmd );
+}
+
+static void R_UnloadSkybox( void )
+{
+	for( int i = 0; i < SKYBOX_MAX_SIDES; i++ )
+	{
+		if( tr.skyboxTextures[i] )
+			GL_FreeTexture( tr.skyboxTextures[i] );
+	}
+
+	memset( tr.skyboxTextures, 0, sizeof( tr.skyboxTextures ));
+
+	if( tr.world )
+		ClearBits( tr.world->flags, FWORLD_CUSTOM_SKYBOX );
+}
+
+void R_SetupSky( int *skyboxTextures )
+{
+	R_UnloadSkybox();
+
+	if( !skyboxTextures )
+		return;
+
+	for( int i = 0; i < SKYBOX_MAX_SIDES; i++ )
+		tr.skyboxTextures[i] = skyboxTextures[i];
+}
+
+void R_SetSkyCloudsTextures( int solidskyTexture, int alphaskyTexture )
+{
+	tr.solidskyTexture = solidskyTexture;
+	tr.alphaskyTexture = alphaskyTexture;
+}
+
+intptr_t VK_SkyParm( int parm, int arg )
+{
+	if( parm == PARM_TEX_SKYBOX )
+		return tr.skyboxTextures[bound( 0, arg, SKYBOX_MAX_SIDES - 1 )];
+
+	return tr.skytexturenum; // PARM_TEX_SKYTEXNUM
+}
+
+/*
+=================
 Drawing
 =================
 */
@@ -1495,12 +1795,20 @@ static void R_DrawWorld( VkCommandBuffer cmd )
 
 	VectorCopy( RI.cullorigin, tr.modelorg );
 	tr.skychain = NULL;
+	R_ClearSkyBox();
 
 	R_RecursiveWorldNode( WORLDMODEL->nodes, RI.frustum.clipFlags );
 
+	// R_DrawTextureChains clips the sky surfaces first
+	for( msurface_t *s = tr.skychain; s != NULL; s = s->texturechain )
+		R_AddSkyBoxSurface( s );
+
 	VK_DrawWorldSurfaces( cmd );
 
-	tr.skychain = NULL; // the sky comes with story 015
+	if( tr.skychain && !ENGINE_GET_PARM( PARM_DEV_OVERVIEW ))
+		R_DrawSkyBox( cmd );
+
+	tr.skychain = NULL;
 	gEngfuncs.R_DrawWorldHull();
 }
 
