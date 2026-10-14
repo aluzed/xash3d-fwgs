@@ -101,6 +101,14 @@ SHOT_SCENES = [
      "lines": ["wait 200", "shot menu"] + CONSOLE_TEXT + ["toggleconsole", "wait 100", "shot console"]},
     {"name": "ui_cstrike", "game": "cstrike", "map": None, "server": [],
      "lines": ["wait 200", "shot menu"]},
+    # options page of the customizable crosshair (cs16-client mainui)
+    {"name": "menu_crosshair_cstrike", "game": "cstrike", "map": None, "server": [],
+     "lines": ["wait 200", "menu_options", "wait 60", "shot options",
+               "xhair_enable 0", "menu_crosshair", "wait 60", "shot classic",
+               "xhair_enable 1", "xhair_size 3.5", "xhair_gap 0.5", "xhair_thick 0.75", "xhair_dot 1",
+               "xhair_pad 1", 'xhair_pad_color "255 0 255"', "menu_crosshair", "wait 60", "shot custom",
+               # black background, to compare the 1:1 view with crosshair_cstrike's menu_match
+               "ui_xhair_background 1", "menu_crosshair", "wait 60", "shot black"]},
     {"name": "hud_valve", "game": "valve", "map": "c2a5", "server": [],
      "lines": ["gl_clear 1", "r_norefresh 1", "wait 100"] + HL_SETUP + ["wait 200", "shot hud"]},
     # customizable crosshair (cs16-client xhair_*), over a black screen
@@ -113,7 +121,12 @@ SHOT_SCENES = [
                  "xhair_t 0", "xhair_dot 0", "xhair_style 1", "xhair_gap 3.5", "xhair_thick 0.6", "xhair_pad 1.5",
                  "xhair_pad_color \"0 0 0 200\"", "wait 30", "shot circle",
                  "xhair_style 0", "xhair_gap 2", "xhair_thick 1", "xhair_pad 1", "xhair_pad_color \"255 0 255\"",
-                 "xhair_aa 0", "wait 30", "shot outline"]},
+                 "xhair_aa 0", "wait 30", "shot outline",
+                 # same crosshair as menu_crosshair_cstrike's preview
+                 "xhair_aa 1", "xhair_style 0", "xhair_t 0", "xhair_size 3.5", "xhair_gap 0.5",
+                 "xhair_thick 0.75", "xhair_dot 1", "xhair_dot_size 0", "xhair_pad 1", "xhair_scale 1",
+                 'xhair_color "0 255 0 255"', "xhair_additive 0",
+                 'xhair_pad_color "255 0 255"', "wait 30", "shot menu_match"]},
     # crosshair presets over the map, for side by side boards
     {"name": "crosshair_board", "game": "cstrike", "map": "de_dust2", "server": CS_SERVER,
      "lines": ["wait 250"] + CS_SETUP + ["wait 150", "cl_dynamiccrosshair 0", "xhair_dynamic_move 0",
