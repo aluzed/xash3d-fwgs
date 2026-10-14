@@ -1955,7 +1955,20 @@ R_StudioDrawPoints
 
 ===============
 */
+static void R_StudioDrawPoints_( void );
+
+// the triangles drawn are captured for the ray traced scene, glow shells
+// (a second, inflated draw) left out
 static void R_StudioDrawPoints( void )
+{
+	if( !FBitSet( g_nForceFaceFlags, STUDIO_NF_CHROME ))
+		VK_RTBeginStudio( RI.currententity, RI.currententity->model, RI.currententity == tr.viewent );
+
+	R_StudioDrawPoints_();
+	VK_RTEndStudio();
+}
+
+static void R_StudioDrawPoints_( void )
 {
 	float		shellscale = 0.0f;
 	qboolean		need_sort = false;

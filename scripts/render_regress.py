@@ -106,6 +106,12 @@ SHOT_FIXED_FPS = "60"
 CONSOLE_TEXT = ["clear", "echo regression console test", "echo 0123456789 abcdefghijklmnopqrstuvwxyz",
                 "echo ABCDEFGHIJKLMNOPQRSTUVWXYZ !@#$%^&*()"]
 
+# the ray traced scene (024) against the raster view
+RT_SHOTS = ["r_vk_rt 1", "wait 10", "shot raster", "r_vk_rt_debug 1", "wait 5", "shot albedo",
+            "r_vk_rt_debug 2", "wait 5", "shot normals", "r_vk_rt_debug 3", "wait 5", "shot instances",
+            "r_vk_rt_debug 4", "wait 5", "shot depth", "r_vk_rt_debug 5", "wait 5", "shot albedo_viewmodel",
+            "r_vk_rt_debug 0", "r_vk_rt 0"]
+
 # every effect off but the HDR scene, then one at a time, then all of them
 HDR_NONE = ["r_vk_tonemap 0", "r_vk_autoexposure 0", "r_vk_exposure 0", "r_vk_bloom 0",
             "r_vk_ssao 0", "r_vk_aa 0", "r_vk_sharpen 0"]
@@ -287,6 +293,18 @@ SHOT_SCENES = [
                                          "wait 10", "shot sun_classic", "r_vk_quality enhanced", "wait 60", "shot sun_enhanced",
                                          "r_lightmap 1", "wait 10", "shot sun_lighting", "r_lightmap 0",
                                          "r_vk_streaminfo all"]},
+    {"name": "rt_cstrike", "game": "cstrike", "map": "de_dust2", "server": CS_SERVER,
+     "lines": ["wait 250"] + CS_SETUP + ["hud_draw 0", "wait 150"] + RT_SHOTS},
+    # 32 players (31 YaPB bots): the acceleration structure build time, in
+    # the log (r_vk_gpu_profile_print), and the scene with them
+    {"name": "rt_bots_cstrike", "game": "cstrike", "map": "de_dust2",
+     "server": CS_SERVER + ["+maxplayers", "32"],
+     "lines": ["wait 250"] + CS_SETUP + ["yb_quota 31", "hud_draw 0", "r_vk_rt 1", "wait 1500", "r_vk_gpu_profile 1",
+                                         "r_vk_gpu_profile_reset", "wait 600", "r_vk_gpu_profile_print", "r_vk_rtinfo", "shot raster",
+                                         "r_vk_rt_debug 3", "wait 5", "shot instances", "r_vk_rt_debug 0",
+                                         "r_vk_gpu_profile 0", "r_vk_rt 0"]},
+    {"name": "rt_valve", "game": "valve", "map": "c2a5", "server": [],
+     "lines": ["wait 200"] + HL_SETUP + ["hud_draw 0", "wait 60"] + RT_SHOTS},
     {"name": "hud_cstrike", "game": "cstrike", "map": "de_dust2", "server": CS_SERVER,
      "lines": ["gl_clear 1", "r_norefresh 1", "wait 250"] + CS_SETUP
               + ["wait 150", "shot hud", "+showscores", "wait 30", "shot scores", "-showscores",

@@ -65,8 +65,11 @@ Vulkan specific:
 | `r_vk_texture_budget` | `1024` | megabytes of GPU memory for streamed material maps |
 | `r_vk_texture_stream` | `1` | stream the mip levels of KTX2 material maps, 0 loads them whole |
 | `r_vk_texture_upload` | `512` | megabytes a second of streamed maps sent to the GPU |
+| `r_vk_rt` | `0` | build acceleration structures of the scene every frame (ray tracing GPUs, no restart) |
+| `r_vk_rt_debug` | `0` | cheat: the scene traced from the camera, 1 albedo, 2 normals, 3 instances, 4 depth against the raster view (red where they differ), 5 albedo with the view model |
 
-Commands: `r_vk_meminfo` (GPU memory usage), `texturelist`,
+Commands: `r_vk_meminfo` (GPU memory usage), `r_vk_rtinfo` (acceleration
+structures of the scene), `texturelist`,
 `r_vk_gpu_profile_print` and `r_vk_gpu_profile_reset`. With
 `r_vk_gpu_profile 1`, the frame writes a timestamp when it enters each
 part (frame start, world, solid entities, effects, translucent, view
@@ -87,6 +90,33 @@ stages and accesses, none between two reads in one layout. The transient
 images are asked for by name, format and size relative to the main target
 (`VK_GraphImage`), made again when the window size changes and freed after
 three seconds without use.
+
+## Ray tracing foundation (`r_vk_rt`)
+
+On GPUs with `VK_KHR_acceleration_structure` and `VK_KHR_ray_query` (and
+buffer device addresses, 64-bit integers in shaders), `vk_rt.c` keeps the
+scene of every frame in a TLAS that shaders trace with ray queries
+(`shaders/rt_common.glsl`). Elsewhere, the i386 build with NVIDIA's 32-bit
+driver included, the variable does nothing.
+
+- The world: one BLAS with an opaque and an alpha tested geometry (the ray
+  query reads the texture's alpha for the second), water in a BLAS of its
+  own. Brush models (`*1`, `*2`...) have one each, instanced for the
+  brush entities drawn with their transform. All are built at the first
+  frame with `r_vk_rt 1` after the map load.
+- Studio models: the triangles they're drawn with, captured in world
+  space, in a BLAS per entity, refit every frame while the triangle count
+  stays and rebuilt when it changes, in one build call. Only the models
+  drawn are in the scene: rays see what the player can see.
+- Sprites, particles, beams and decals are left out, drawn over the
+  result as now.
+- Instance masks: world, models, view model, water, translucent.
+- Tables of geometries, triangle surfaces and surfaces (texture, flags)
+  give the hit's texture coordinates and normal.
+
+`de_dust2` with 31 bots: the build takes 0.89 ms on average, 1.67 ms at
+most (`r_vk_gpu_profile`, "rt build"), for 19 entities and 14 800 studio
+triangles. `long_c2a5` drops from about 1740 to 1320 fps with it on.
 
 ## Enhanced look (`r_vk_quality`)
 

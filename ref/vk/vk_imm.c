@@ -177,6 +177,10 @@ static void VK_ImmEmit( vk_topology_t topology, const vk_imm_vertex_t *verts, in
 
 	memcpy( &imm.vertices[imm.num_vertices], verts, count * sizeof( *verts ));
 	imm.num_vertices += count;
+
+	// studio models drawn now are part of the ray traced scene (vk_rt.c)
+	if( topology == VK_TOPOLOGY_TRIANGLES && !imm.in2d )
+		VK_RTCaptureTriangles( verts, count, push.texture, imm.alpha_test );
 }
 
 /*

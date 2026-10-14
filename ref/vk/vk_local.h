@@ -70,7 +70,8 @@ GNU General Public License for more details.
 	X( vkSetDebugUtilsObjectNameEXT ) \
 	X( vkCmdBeginDebugUtilsLabelEXT ) \
 	X( vkCmdEndDebugUtilsLabelEXT ) \
-	X( vkGetPhysicalDeviceMemoryProperties2 )
+	X( vkGetPhysicalDeviceMemoryProperties2 ) \
+	X( vkGetPhysicalDeviceProperties2 )
 
 // entry points loaded from the device
 #define VK_DEVICE_FUNCS( X ) \
@@ -164,12 +165,22 @@ GNU General Public License for more details.
 	X( vkCmdDispatch ) \
 	X( vkResetDescriptorPool ) \
 	X( vkCmdCopyImage ) \
-	X( vkCmdFillBuffer )
+	X( vkCmdFillBuffer ) \
+	X( vkGetBufferDeviceAddress )
+
+// ray tracing (VK_KHR_acceleration_structure, VK_KHR_ray_query), loaded when vk.caps.rt
+#define VK_RT_FUNCS( X ) \
+	X( vkCreateAccelerationStructureKHR ) \
+	X( vkDestroyAccelerationStructureKHR ) \
+	X( vkGetAccelerationStructureBuildSizesKHR ) \
+	X( vkCmdBuildAccelerationStructuresKHR ) \
+	X( vkGetAccelerationStructureDeviceAddressKHR )
 
 #define VK_DECLARE_FUNC( name ) extern PFN_##name name;
 VK_GLOBAL_FUNCS( VK_DECLARE_FUNC )
 VK_INSTANCE_FUNCS( VK_DECLARE_FUNC )
 VK_DEVICE_FUNCS( VK_DECLARE_FUNC )
+VK_RT_FUNCS( VK_DECLARE_FUNC )
 #undef VK_DECLARE_FUNC
 
 // optional device capabilities, detected once at startup
@@ -181,6 +192,7 @@ typedef struct vk_caps_s
 	qboolean ray_tracing_pipeline;   // VK_KHR_ray_tracing_pipeline
 	qboolean texture_compression_bc;
 	qboolean anisotropy;
+	qboolean rt;                     // acceleration structures and ray queries, enabled
 } vk_caps_t;
 
 typedef struct vk_state_s
@@ -429,6 +441,22 @@ int VK_GraphGeneration( void );
 void VK_ShutdownGraph( void );
 
 //
+// vk_rt.c: acceleration structures of the scene (024)
+//
+void VK_RegisterRTCvars( void );
+void VK_InitRT( void );
+void VK_ShutdownRT( void );
+qboolean VK_RTAvailable( void );
+VkDeviceAddress VK_BufferAddress( VkBuffer buffer );
+void VK_RTNewMap( const uint32_t *indices, uint32_t total_indices, const uint32_t *first_index, const uint32_t *num_indices, VkBuffer vertices, uint32_t num_verts );
+void VK_RTBeginScene( void );
+void VK_RTBeginStudio( const cl_entity_t *e, const model_t *model, qboolean viewmodel );
+void VK_RTEndStudio( void );
+void VK_RTCaptureTriangles( const vk_imm_vertex_t *verts, int count, int texture, qboolean alpha_test );
+void VK_RTBuildScene( void );
+void VK_RTDebugView( int x, int y, int w, int h );
+
+//
 // vk_profile.c: GPU time of each part of the frame (r_vk_gpu_profile)
 //
 typedef enum
@@ -440,6 +468,7 @@ typedef enum
 	VK_PROF_TRANSLUCENT,
 	VK_PROF_VIEWMODEL,
 	VK_PROF_WATER,
+	VK_PROF_RT_BUILD,        // acceleration structures of the frame (vk_rt.c)
 	VK_PROF_POST_SSAO,       // post-processing of the HDR scene (vk_post.c)
 	VK_PROF_POST_BLOOM,
 	VK_PROF_POST_EXPOSURE,

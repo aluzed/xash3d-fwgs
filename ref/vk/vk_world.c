@@ -999,14 +999,17 @@ static void VK_BuildWorldGeometry( void )
 		vk_wgeo.num_indices[i] = num_indices - vk_wgeo.first_index[i];
 	}
 
+	// the ray traced scene (vk_rt.c) is built from these vertices too
 	if( VK_CreateBuffer( &vk_wgeo.vertices, "world vertices", num_verts * VERTEXSIZE * sizeof( float ),
-		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT )
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+		| ( vk.caps.rt ? VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR : 0 ), VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT )
 		&& VK_CreateBuffer( &vk_wgeo.indices, "world indices", num_indices * sizeof( uint32_t ),
 		VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT ))
 	{
 		VK_UploadBuffer( &vk_wgeo.vertices, verts, num_verts * VERTEXSIZE * sizeof( float ));
 		VK_UploadBuffer( &vk_wgeo.indices, indices, num_indices * sizeof( uint32_t ));
 		VK_FlushUploads();
+		VK_RTNewMap( indices, num_indices, vk_wgeo.first_index, vk_wgeo.num_indices, vk_wgeo.vertices.buffer, num_verts );
 	}
 
 	Mem_Free( verts );
@@ -3152,6 +3155,13 @@ static void R_RenderScene( void )
 	if( !WORLDMODEL && FBitSet( RI.rvp.flags, RF_DRAW_WORLD ))
 		gEngfuncs.Host_Error( "%s: NULL worldmodel\n", __func__ );
 
+	// the main view: HDR scene, ray traced scene
+	const qboolean main_view = FBitSet( RI.rvp.flags, RF_DRAW_WORLD ) && WORLDMODEL
+		&& !FBitSet( RI.rvp.flags, RF_DRAW_CUBEMAP|RF_DRAW_OVERVIEW|RF_ONLY_CLIENTDRAW ) && !ENGINE_GET_PARM( PARM_DEV_OVERVIEW );
+
+	if( main_view )
+		VK_RTBeginScene();
+
 	post = VK_PostBeginScene(); // into the HDR scene with r_vk_quality enhanced
 	cmd = VK_BeginMainPass();
 	if( !cmd )
@@ -3219,8 +3229,14 @@ static void R_RenderScene( void )
 	VK_ImmSet3D( false );
 	VK_ResetViewport();
 
+	if( main_view )
+		VK_RTBuildScene();
+
 	if( post )
 		VK_PostEndScene( x, y, w, h );
+
+	if( main_view )
+		VK_RTDebugView( x, y, w, h );
 
 	VK_ProfileMark( cmd, VK_PROF_2D ); // until the next view, if any
 }

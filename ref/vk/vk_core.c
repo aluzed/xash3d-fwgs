@@ -19,6 +19,7 @@ GNU General Public License for more details.
 VK_GLOBAL_FUNCS( VK_DEFINE_FUNC )
 VK_INSTANCE_FUNCS( VK_DEFINE_FUNC )
 VK_DEVICE_FUNCS( VK_DEFINE_FUNC )
+VK_RT_FUNCS( VK_DEFINE_FUNC )
 #undef VK_DEFINE_FUNC
 
 vk_state_t vk;
@@ -44,6 +45,10 @@ static void VK_LoadDeviceFuncs( void )
 {
 #define VK_LOAD_FUNC( name ) name = (PFN_##name)vkGetDeviceProcAddr( vk.device, #name );
 	VK_DEVICE_FUNCS( VK_LOAD_FUNC )
+	if( vk.caps.rt )
+	{
+		VK_RT_FUNCS( VK_LOAD_FUNC )
+	}
 #undef VK_LOAD_FUNC
 }
 
@@ -53,6 +58,7 @@ static void VK_ClearFuncs( void )
 	VK_GLOBAL_FUNCS( VK_CLEAR_FUNC )
 	VK_INSTANCE_FUNCS( VK_CLEAR_FUNC )
 	VK_DEVICE_FUNCS( VK_CLEAR_FUNC )
+	VK_RT_FUNCS( VK_CLEAR_FUNC )
 #undef VK_CLEAR_FUNC
 }
 
@@ -452,6 +458,21 @@ static void VK_QueryDevice( VkPhysicalDevice handle, vk_device_info_t *info )
 	info->caps.anisotropy = info->features.features.samplerAnisotropy;
 	Mem_Free( exts );
 
+	// ray queries on acceleration structures (024-027): the extensions and their features
+	if( info->caps.acceleration_structure && info->caps.ray_query && info->props.apiVersion >= VK_MIN_API_VERSION )
+	{
+		VkPhysicalDeviceRayQueryFeaturesKHR ray_query = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR };
+		VkPhysicalDeviceAccelerationStructureFeaturesKHR accel = {
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
+			.pNext = &ray_query,
+		};
+		VkPhysicalDeviceFeatures2 features = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &accel };
+
+		vkGetPhysicalDeviceFeatures2( handle, &features );
+		info->caps.rt = accel.accelerationStructure && ray_query.rayQuery && info->features12.bufferDeviceAddress
+			&& info->features.features.shaderInt64; // 64-bit addresses in the shaders
+	}
+
 	vkGetPhysicalDeviceQueueFamilyProperties( handle, &count, NULL );
 	families = Mem_Malloc( r_temppool, Q_max( count, 1 ) * sizeof( *families ));
 	vkGetPhysicalDeviceQueueFamilyProperties( handle, &count, families );
@@ -563,7 +584,7 @@ static qboolean VK_PickPhysicalDevice( vk_device_info_t *picked )
 static qboolean VK_CreateDevice( const vk_device_info_t *info )
 {
 	const float priority = 1.0f;
-	const char *extensions[2];
+	const char *extensions[8];
 	uint32_t num_extensions = 0;
 	uint32_t num_queues = 1;
 	VkResult result;
@@ -578,6 +599,24 @@ static qboolean VK_CreateDevice( const vk_device_info_t *info )
 	extensions[num_extensions++] = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
 	if( vk.caps.memory_budget )
 		extensions[num_extensions++] = VK_EXT_MEMORY_BUDGET_EXTENSION_NAME;
+
+	// enabled whenever there: r_vk_rt switches it on and off without a restart
+	VkPhysicalDeviceRayQueryFeaturesKHR ray_query = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
+		.rayQuery = VK_TRUE,
+	};
+	VkPhysicalDeviceAccelerationStructureFeaturesKHR accel = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
+		.pNext = &ray_query,
+		.accelerationStructure = VK_TRUE,
+	};
+
+	if( vk.caps.rt )
+	{
+		extensions[num_extensions++] = VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME;
+		extensions[num_extensions++] = VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME;
+		extensions[num_extensions++] = VK_KHR_RAY_QUERY_EXTENSION_NAME;
+	}
 
 	VkDeviceQueueCreateInfo queues[2] = {
 		{
@@ -600,6 +639,7 @@ static qboolean VK_CreateDevice( const vk_device_info_t *info )
 	// the baseline, plus what later stories rely on when it is there
 	VkPhysicalDeviceVulkan13Features features13 = {
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+		.pNext = vk.caps.rt ? &accel : NULL,
 		.dynamicRendering = VK_TRUE,
 		.synchronization2 = VK_TRUE,
 		.maintenance4 = info->features13.maintenance4,
@@ -628,6 +668,7 @@ static qboolean VK_CreateDevice( const vk_device_info_t *info )
 			.textureCompressionBC = info->features.features.textureCompressionBC,
 			.fillModeNonSolid = info->features.features.fillModeNonSolid,
 			.depthClamp = info->features.features.depthClamp,
+			.shaderInt64 = info->features.features.shaderInt64,
 		},
 	};
 

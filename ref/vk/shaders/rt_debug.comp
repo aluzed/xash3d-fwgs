@@ -1,0 +1,86 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+// r_vk_rt_debug: the view traced through the acceleration structures, to
+// check them against the raster view
+//   1 albedo at the hit, 2 normals, 3 instances, 4 depth against the raster
+//   depth (red where they differ by more than 2 units, the view model left
+//   out), 5 like 1 with the view model
+
+layout( local_size_x = 8, local_size_y = 8 ) in;
+
+#include "rt_common.glsl"
+
+layout( set = 1, binding = 0 ) uniform accelerationStructureEXT tlas;
+layout( set = 1, binding = 1, rgba8 ) uniform writeonly image2D out_image;
+layout( set = 1, binding = 2 ) uniform sampler2D raster_depth;
+
+layout( push_constant ) uniform rt_debug_push_s
+{
+	mat4 inv_view_proj;  // clip space (Vulkan depth) to world
+	ivec4 rect;          // pixels: x, y, width, height of the view
+	vec4 eye;            // xyz, w: depth near plane
+	vec4 forward;        // xyz, w: depth far plane
+	uint64_t scene;
+	int mode;
+} pc;
+
+vec3 Hash( uint n )
+{
+	n = ( n ^ 61u ) ^ ( n >> 16 );
+	n *= 9u;
+	n ^= n >> 4;
+	n *= 0x27d4eb2du;
+	n ^= n >> 15;
+	return vec3( n & 255u, ( n >> 8 ) & 255u, ( n >> 16 ) & 255u ) / 255.0;
+}
+
+void main()
+{
+	if( any( greaterThanEqual( gl_GlobalInvocationID.xy, uvec2( pc.rect.zw ))))
+		return;
+
+	ivec2 pixel = ivec2( gl_GlobalInvocationID.xy ) + pc.rect.xy;
+	vec2 uv = ( vec2( gl_GlobalInvocationID.xy ) + 0.5 ) / vec2( pc.rect.zw );
+	// the view is drawn with GL's bottom-up y: top of the image is +1
+	vec4 far = pc.inv_view_proj * vec4( uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 1.0, 1.0 );
+	vec3 dir = normalize( far.xyz / far.w - pc.eye.xyz );
+	uint mask = RT_MASK_WORLD | RT_MASK_MODELS | RT_MASK_WATER | RT_MASK_TRANS;
+
+	if( pc.mode == 1 || pc.mode == 2 || pc.mode == 3 || pc.mode == 5 )
+		mask |= RT_MASK_VIEWMODEL;
+
+	rt_scene_r scene = rt_scene_r( pc.scene );
+	rt_hit_s hit;
+	int instance;
+	float t;
+	vec3 color = vec3( 0.25, 0.35, 0.5 ); // missed: the sky
+
+	if( RTTrace( tlas, scene, pc.eye.xyz, dir, 65536.0, mask, hit, instance, t ))
+	{
+		vec3 albedo = hit.texture > 0 ? textureLod( textures[nonuniformEXT( hit.texture )], hit.uv, 0.0 ).rgb : vec3( 1.0, 0.0, 1.0 );
+
+		if( pc.mode == 2 )
+			color = hit.normal * 0.5 + 0.5;
+		else if( pc.mode == 3 )
+			color = Hash( uint( instance ) * 7919u + 13u );
+		else if( pc.mode == 4 )
+		{
+			// the raster's eye distance at this pixel, against the ray's
+			float d = texelFetch( raster_depth, pixel, 0 ).r;
+			float n = pc.eye.w, f = pc.forward.w;
+			float raster = d >= 1.0 ? 1e9 : n * f / ( f - d * ( f - n ));
+			float traced = t * dot( dir, pc.forward.xyz );
+
+			color = abs( raster - traced ) > 2.0 ? vec3( 1.0, 0.0, 0.0 ) : albedo * 0.5;
+		}
+		else color = albedo;
+	}
+	else if( pc.mode == 4 )
+	{
+		float d = texelFetch( raster_depth, pixel, 0 ).r;
+		color = d < 1.0 ? vec3( 1.0, 0.0, 0.0 ) : vec3( 0.0 );
+	}
+
+	imageStore( out_image, pixel, vec4( color, 1.0 ));
+}

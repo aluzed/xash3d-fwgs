@@ -51,6 +51,7 @@ static qboolean R_Init( void )
 	VK_RegisterProfileCvars();
 	VK_RegisterPostCvars();
 	VK_RegisterStreamCvars();
+	VK_RegisterRTCvars();
 	R_ClearDecals();
 
 	// the engine falls back to the next renderer when this fails
@@ -80,6 +81,7 @@ static qboolean R_Init( void )
 		gEngfuncs.Image_AddCmdFlags( IL_DDS_HARDWARE );
 
 	VK_InitProfile();
+	VK_InitRT();
 	VK_CreateInitialSwapchain();
 
 	return true;
@@ -93,6 +95,7 @@ static void R_Shutdown( void )
 	VK_ShutdownMaterials();
 	VK_ShutdownStream();
 	VK_ShutdownPost();
+	VK_ShutdownRT();
 	VK_ShutdownGraph();
 	VK_ShutdownTextures();
 	VK_ShutdownFog();
