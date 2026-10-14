@@ -159,7 +159,12 @@ GNU General Public License for more details.
 	X( vkDestroyPipeline ) \
 	X( vkCreatePipelineCache ) \
 	X( vkDestroyPipelineCache ) \
-	X( vkGetPipelineCacheData )
+	X( vkGetPipelineCacheData ) \
+	X( vkCreateComputePipelines ) \
+	X( vkCmdDispatch ) \
+	X( vkResetDescriptorPool ) \
+	X( vkCmdCopyImage ) \
+	X( vkCmdFillBuffer )
 
 #define VK_DECLARE_FUNC( name ) extern PFN_##name name;
 VK_GLOBAL_FUNCS( VK_DECLARE_FUNC )
@@ -323,6 +328,16 @@ typedef struct vk_world_push_s
 } vk_world_push_t;
 
 #define VK_PUSH_CONSTANTS_SIZE 128
+#define VK_HDR_COLOR_FORMAT VK_FORMAT_R16G16B16A16_SFLOAT
+
+// the colour targets the scene can be drawn into, each with its own
+// pipelines: the main RGBA8 one, and the HDR scene of vk_post.c
+typedef enum
+{
+	VK_TARGET_LDR = 0,
+	VK_TARGET_HDR,
+	VK_TARGET_COUNT
+} vk_target_t;
 
 typedef struct vk_pipelines_s
 {
@@ -334,8 +349,9 @@ typedef struct vk_pipelines_s
 	VkDescriptorSet fog_sets[VK_FRAMES_IN_FLIGHT];
 	VkPipelineLayout layout;
 	VkPipelineCache cache;
-	VkPipeline imm[VK_TOPOLOGY_COUNT][VK_BLEND_ALL];
-	VkPipeline world[VK_BLEND_ALL][2][2]; // blend, depth write, depth GL_EQUAL
+	VkPipeline imm[VK_TARGET_COUNT][VK_TOPOLOGY_COUNT][VK_BLEND_ALL];
+	VkPipeline world[VK_TARGET_COUNT][VK_BLEND_ALL][2][2]; // blend, depth write, depth GL_EQUAL
+	qboolean hdr_ready; // the VK_TARGET_HDR pipelines exist, built on first use
 } vk_pipelines_t;
 
 extern vk_pipelines_t vk_pipe;
@@ -346,6 +362,9 @@ void VK_WriteTextureDescriptor( int texnum, VkImageView view, VkSampler sampler 
 void VK_WriteFogDescriptor( int frame, VkBuffer buffer, VkDeviceSize offset, VkDeviceSize range );
 void VK_BindDescriptorSets( VkCommandBuffer cmd );
 VkPipeline VK_WorldPipeline( vk_blend_t blend, qboolean depth_write, qboolean depth_equal );
+VkPipeline VK_ImmPipeline( vk_topology_t topology, vk_blend_t blend );
+qboolean VK_CreateHDRPipelines( void );
+VkShaderModule VK_CreateShader( const uint32_t *code, size_t size, const char *name );
 
 //
 // vk_swapchain.c
@@ -363,6 +382,13 @@ void VK_CreateInitialSwapchain( void );
 void VK_ResetViewport( void );
 void VK_ClearMainDepth( void );
 qboolean VK_ReadPixels( int x, int y, int w, int h, byte *rgba );
+VkCommandBuffer VK_FrameCommands( void );
+vk_image_t *VK_MainColorImage( void );
+vk_image_t *VK_MainDepthImage( void );
+VkImageView VK_MainDepthSampleView( void );
+void VK_SetColorTarget( vk_image_t *img, vk_target_t kind );
+vk_target_t VK_ColorTarget( void );
+void VK_GetClearColor( vec3_t out );
 
 //
 // vk_profile.c: GPU time of each part of the frame (r_vk_gpu_profile)
@@ -376,6 +402,10 @@ typedef enum
 	VK_PROF_TRANSLUCENT,
 	VK_PROF_VIEWMODEL,
 	VK_PROF_WATER,
+	VK_PROF_POST_SSAO,       // post-processing of the HDR scene (vk_post.c)
+	VK_PROF_POST_BLOOM,
+	VK_PROF_POST_EXPOSURE,
+	VK_PROF_POST_TONEMAP,    // tonemap, FXAA, sharpen, copy to the main target
 	VK_PROF_2D,
 	VK_PROF_PRESENT_COPY,
 	VK_PROF_COUNT
@@ -397,6 +427,16 @@ void VK_MainExtent( int *width, int *height );
 VkFormat VK_MainColorFormat( void );
 VkFormat VK_MainDepthFormat( void );
 qboolean VK_FormatHasStencil( VkFormat format );
+
+//
+// vk_post.c: HDR scene and post-processing (r_vk_quality)
+//
+void VK_RegisterPostCvars( void );
+qboolean VK_InitPost( void );
+void VK_ShutdownPost( void );
+void VK_PostBeginFrame( void );
+qboolean VK_PostBeginScene( void );
+void VK_PostEndScene( int x, int y, int w, int h );
 
 //
 // RI and tr of ref_gl: the view being drawn and the renderer globals, shared

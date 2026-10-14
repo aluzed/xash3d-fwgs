@@ -5,6 +5,7 @@
 
 #include "imm_common.glsl"
 #include "fog.glsl"
+#include "output_common.glsl"
 
 layout( set = VK_SET_TEXTURES, binding = VK_BINDING_TEXTURES ) uniform sampler2D textures[VK_MAX_TEXTURES];
 
@@ -26,5 +27,5 @@ void main()
 		discard;
 
 	color.rgb = ApplyFog( color.rgb, pc.fog, in_fogdist );
-	out_color = color;
+	out_color = TargetColor( color );
 }

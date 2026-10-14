@@ -8,6 +8,7 @@
 
 #include "world_common.glsl"
 #include "fog.glsl"
+#include "output_common.glsl"
 
 layout( set = VK_SET_TEXTURES, binding = VK_BINDING_TEXTURES ) uniform sampler2D textures[VK_MAX_TEXTURES];
 
@@ -21,7 +22,7 @@ void main()
 {
 	if( pc.mode == VK_WORLD_MODE_LIGHTMAP )
 	{
-		out_color = vec4( ApplyFog( texture( textures[pc.lightmap], in_lightcoord ).rgb * pc.scale, pc.fog, in_fogdist ), 1.0 );
+		out_color = TargetColor( vec4( ApplyFog( texture( textures[pc.lightmap], in_lightcoord ).rgb * pc.scale, pc.fog, in_fogdist ), 1.0 ));
 		return;
 	}
 
@@ -34,5 +35,5 @@ void main()
 		discard;
 
 	color.rgb = ApplyFog( color.rgb, pc.fog, in_fogdist );
-	out_color = color;
+	out_color = TargetColor( color );
 }

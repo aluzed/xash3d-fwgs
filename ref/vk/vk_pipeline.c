@@ -266,7 +266,7 @@ static void VK_SavePipelineCache( void )
 Immediate mode pipelines (2D, TriAPI)
 =================
 */
-static VkShaderModule VK_CreateShader( const uint32_t *code, size_t size, const char *name )
+VkShaderModule VK_CreateShader( const uint32_t *code, size_t size, const char *name )
 {
 	VkShaderModule module;
 
@@ -351,16 +351,58 @@ typedef struct vk_pipeline_desc_s
 	qboolean depth_bias;  // glPolygonOffset, set with vkCmdSetDepthBias
 	qboolean dynamic_gl;  // cull mode and depth test, write and function set per draw
 	VkCullModeFlags cull;
+	vk_target_t target;   // colour target format, and how the fragment shader writes to it
 } vk_pipeline_desc_t;
+
+/*
+=================
+VK_TargetSpecialization
+
+the fragment shaders' constants (output_common.glsl): an HDR target gets
+linear colours. GL blends in gamma space, a gamma 2.2 power is a product
+of powers, so GL_DST_COLOR, GL_SRC_COLOR blending (twice the product)
+needs its source scaled by 2^1.2 to stay what GL gives, unclamped.
+=================
+*/
+typedef struct
+{
+	VkBool32 linear_output;
+	float output_scale;
+} vk_output_constants_t;
+
+static const VkSpecializationMapEntry vk_output_entries[2] =
+{
+	{ 0, offsetof( vk_output_constants_t, linear_output ), sizeof( VkBool32 ) },
+	{ 1, offsetof( vk_output_constants_t, output_scale ), sizeof( float ) },
+};
+
+static VkFormat VK_TargetFormat( vk_target_t target )
+{
+	return target == VK_TARGET_HDR ? VK_HDR_COLOR_FORMAT : VK_MainColorFormat();
+}
 
 static VkPipeline VK_CreateGraphicsPipeline( const vk_pipeline_desc_t *desc )
 {
 	VkPipelineColorBlendAttachmentState attachment;
 	VkPipeline pipeline;
 
+	vk_output_constants_t constants = {
+		.linear_output = desc->target == VK_TARGET_HDR,
+		.output_scale = desc->target == VK_TARGET_HDR && desc->blend == VK_BLEND_OVERBRIGHT ? 2.29739671f : 1.0f,
+	};
+
+	VkSpecializationInfo specialization = {
+		.mapEntryCount = ARRAYSIZE( vk_output_entries ),
+		.pMapEntries = vk_output_entries,
+		.dataSize = sizeof( constants ),
+		.pData = &constants,
+	};
+
+	// the LDR pipelines keep the shaders' defaults
 	VkPipelineShaderStageCreateInfo stages[2] = {
 		{ .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = desc->vert, .pName = "main" },
-		{ .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = desc->frag, .pName = "main" },
+		{ .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = desc->frag, .pName = "main",
+			.pSpecializationInfo = desc->target == VK_TARGET_HDR ? &specialization : NULL },
 	};
 
 	VkPipelineVertexInputStateCreateInfo vertex_input = {
@@ -435,7 +477,7 @@ static VkPipeline VK_CreateGraphicsPipeline( const vk_pipeline_desc_t *desc )
 		dynamic_states[dynamic.dynamicStateCount++] = VK_DYNAMIC_STATE_STENCIL_REFERENCE;
 	}
 
-	VkFormat color_format = VK_MainColorFormat();
+	VkFormat color_format = VK_TargetFormat( desc->target );
 	VkFormat depth_format = VK_MainDepthFormat();
 	VkPipelineRenderingCreateInfo rendering = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
@@ -468,7 +510,7 @@ static VkPipeline VK_CreateGraphicsPipeline( const vk_pipeline_desc_t *desc )
 	return pipeline;
 }
 
-static qboolean VK_CreateImmPipelines( void )
+static qboolean VK_CreateImmPipelines( vk_target_t target )
 {
 	static const VkPrimitiveTopology topologies[VK_TOPOLOGY_COUNT] = {
 		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
@@ -501,11 +543,12 @@ static qboolean VK_CreateImmPipelines( void )
 				.depth_bias = true,
 				.dynamic_gl = true,
 				.cull = VK_CULL_MODE_NONE,
+				.target = target,
 			};
 
-			Q_snprintf( name, sizeof( name ), "imm topology %d blend %d", topology, blend );
-			vk_pipe.imm[topology][blend] = VK_CreateGraphicsPipeline( &desc );
-			ok = vk_pipe.imm[topology][blend] != VK_NULL_HANDLE;
+			Q_snprintf( name, sizeof( name ), "imm target %d topology %d blend %d", target, topology, blend );
+			vk_pipe.imm[target][topology][blend] = VK_CreateGraphicsPipeline( &desc );
+			ok = vk_pipe.imm[target][topology][blend] != VK_NULL_HANDLE;
 		}
 	}
 
@@ -517,7 +560,7 @@ static qboolean VK_CreateImmPipelines( void )
 	return ok;
 }
 
-static qboolean VK_CreateWorldPipelines( void )
+static qboolean VK_CreateWorldPipelines( vk_target_t target )
 {
 	// glpoly2_t vertices: position, texture st, lightmap st
 	static const VkVertexInputBindingDescription binding = { 0, VERTEXSIZE * sizeof( float ), VK_VERTEX_INPUT_RATE_VERTEX };
@@ -550,11 +593,12 @@ static qboolean VK_CreateWorldPipelines( void )
 					.depth_equal = equal,
 					.depth_bias = true,
 					.cull = VK_CULL_MODE_FRONT_BIT,
+					.target = target,
 				};
 
-				Q_snprintf( name, sizeof( name ), "world blend %d write %d equal %d", blend, write, equal );
-				vk_pipe.world[blend][write][equal] = VK_CreateGraphicsPipeline( &desc );
-				ok = vk_pipe.world[blend][write][equal] != VK_NULL_HANDLE;
+				Q_snprintf( name, sizeof( name ), "world target %d blend %d write %d equal %d", target, blend, write, equal );
+				vk_pipe.world[target][blend][write][equal] = VK_CreateGraphicsPipeline( &desc );
+				ok = vk_pipe.world[target][blend][write][equal] != VK_NULL_HANDLE;
 			}
 		}
 	}
@@ -567,9 +611,36 @@ static qboolean VK_CreateWorldPipelines( void )
 	return ok;
 }
 
+// for the colour target being drawn into
 VkPipeline VK_WorldPipeline( vk_blend_t blend, qboolean depth_write, qboolean depth_equal )
 {
-	return vk_pipe.world[blend][depth_write ? 1 : 0][depth_equal ? 1 : 0];
+	return vk_pipe.world[VK_ColorTarget()][blend][depth_write ? 1 : 0][depth_equal ? 1 : 0];
+}
+
+VkPipeline VK_ImmPipeline( vk_topology_t topology, vk_blend_t blend )
+{
+	return vk_pipe.imm[VK_ColorTarget()][topology][blend];
+}
+
+/*
+=================
+VK_CreateHDRPipelines
+
+the classic look never needs them: built the first time the HDR scene is
+turned on, outside any frame
+=================
+*/
+qboolean VK_CreateHDRPipelines( void )
+{
+	if( vk_pipe.hdr_ready )
+		return true;
+
+	vk_pipe.hdr_ready = VK_CreateImmPipelines( VK_TARGET_HDR ) && VK_CreateWorldPipelines( VK_TARGET_HDR );
+
+	if( !vk_pipe.hdr_ready )
+		gEngfuncs.Con_Printf( S_ERROR "ref_vk: can't create the HDR pipelines\n" );
+
+	return vk_pipe.hdr_ready;
 }
 
 qboolean VK_InitPipelines( void )
@@ -609,7 +680,7 @@ qboolean VK_InitPipelines( void )
 	VK_LoadPipelineCache();
 
 	// every variant is built here: no pipeline is ever created during gameplay
-	if( !VK_CreateImmPipelines( ) || !VK_CreateWorldPipelines( ))
+	if( !VK_CreateImmPipelines( VK_TARGET_LDR ) || !VK_CreateWorldPipelines( VK_TARGET_LDR ))
 	{
 		gEngfuncs.Con_Printf( S_ERROR "ref_vk: can't create the pipelines\n" );
 		return false;
@@ -625,21 +696,24 @@ void VK_ShutdownPipelines( void )
 
 	VK_SavePipelineCache();
 
-	for( int topology = 0; topology < VK_TOPOLOGY_COUNT; topology++ )
+	for( int target = 0; target < VK_TARGET_COUNT; target++ )
 	{
-		for( int blend = 0; blend < VK_BLEND_ALL; blend++ )
+		for( int topology = 0; topology < VK_TOPOLOGY_COUNT; topology++ )
 		{
-			if( vk_pipe.imm[topology][blend] )
-				vkDestroyPipeline( vk.device, vk_pipe.imm[topology][blend], NULL );
+			for( int blend = 0; blend < VK_BLEND_ALL; blend++ )
+			{
+				if( vk_pipe.imm[target][topology][blend] )
+					vkDestroyPipeline( vk.device, vk_pipe.imm[target][topology][blend], NULL );
+			}
 		}
-	}
 
-	for( int i = 0; i < VK_BLEND_ALL; i++ )
-	{
-		for( int j = 0; j < 4; j++ )
+		for( int i = 0; i < VK_BLEND_ALL; i++ )
 		{
-			if( vk_pipe.world[i][j >> 1][j & 1] )
-				vkDestroyPipeline( vk.device, vk_pipe.world[i][j >> 1][j & 1], NULL );
+			for( int j = 0; j < 4; j++ )
+			{
+				if( vk_pipe.world[target][i][j >> 1][j & 1] )
+					vkDestroyPipeline( vk.device, vk_pipe.world[target][i][j >> 1][j & 1], NULL );
+			}
 		}
 	}
 	if( vk_pipe.cache )

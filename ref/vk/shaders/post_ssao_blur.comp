@@ -1,0 +1,39 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// 4x4 average of the raw occlusion, the size of its rotation pattern,
+// leaving out what is far in depth: no occlusion bleeding across edges
+//
+// inputs: raw occlusion, eye distance (post_ssao_depth.comp)
+
+layout( local_size_x = 8, local_size_y = 8 ) in;
+
+#include "post_common.glsl"
+
+layout( set = 0, binding = 1, r32f ) uniform writeonly image2D out_ao;
+
+void main()
+{
+	ivec2 pixel;
+
+	if( !PostPixel( pixel ))
+		return;
+
+	float z = texelFetch( inputs[1], pixel, 0 ).r;
+	float sum = 0.0, weight = 0.0;
+
+	for( int y = -2; y < 2; y++ )
+	{
+		for( int x = -2; x < 2; x++ )
+		{
+			ivec2 p = clamp( pixel + ivec2( x, y ), pc.rect.xy, pc.rect.xy + pc.rect.zw - 1 );
+			float zs = texelFetch( inputs[1], p, 0 ).r;
+			float w = 1.0 / ( 1.0 + abs( zs - z ) * 0.25 );
+
+			sum += texelFetch( inputs[0], p, 0 ).r * w;
+			weight += w;
+		}
+	}
+
+	imageStore( out_ao, pixel, vec4( sum / weight ));
+}

@@ -94,6 +94,10 @@ RENDER_DEFAULTS = ["gl_overbright 1", "gl_anisotropy 8", "gl_texture_lodbias 0",
                    "gl_texture_nearest 0", "gl_lightmap_nearest 0", "gl_keeptjunctions 1",
                    "r_detailtextures 1", "gl_litwater_force 0"]
 
+# ref_vk settings that are not ref_gl's, set before every ref_vk capture
+# for the same reason: the classic look is the one compared with ref_gl.
+VK_DEFAULTS = ["r_vk_quality classic"]
+
 # Static scenes: menus, console and HUD rendered without a demo. They run
 # with -fixedfps (every clock steps by 1/60 s per frame) and -fixedseed;
 # "shot <name>" lines take a screenshot. r_norefresh 1 skips the 3D view so
@@ -101,6 +105,23 @@ RENDER_DEFAULTS = ["gl_overbright 1", "gl_anisotropy 8", "gl_texture_lodbias 0",
 SHOT_FIXED_FPS = "60"
 CONSOLE_TEXT = ["clear", "echo regression console test", "echo 0123456789 abcdefghijklmnopqrstuvwxyz",
                 "echo ABCDEFGHIJKLMNOPQRSTUVWXYZ !@#$%^&*()"]
+
+# every effect off but the HDR scene, then one at a time, then all of them
+HDR_NONE = ["r_vk_tonemap 0", "r_vk_autoexposure 0", "r_vk_exposure 0", "r_vk_bloom 0",
+            "r_vk_ssao 0", "r_vk_fxaa 0", "r_vk_sharpen 0"]
+HDR_SHOTS = (["r_vk_quality enhanced"] + HDR_NONE + ["wait 10", "shot linear",
+             "r_vk_tonemap 1", "wait 10", "shot aces",
+             "r_vk_tonemap 2", "wait 10", "shot agx",
+             "r_vk_tonemap 3", "wait 10", "shot neutral",
+             "r_vk_tonemap 0", "r_vk_ssao 1", "wait 10", "shot ssao",
+             "r_vk_ssao 0", "r_vk_bloom 0.5", "wait 10", "shot bloom",
+             "r_vk_bloom 0", "r_vk_fxaa 1", "wait 10", "shot fxaa",
+             "r_vk_fxaa 0", "r_vk_sharpen 0.3", "wait 10", "shot sharpen",
+             "r_vk_sharpen 0", "r_vk_autoexposure 1", "wait 180", "shot autoexposure",
+             # the defaults of r_vk_quality enhanced
+             "r_vk_tonemap 3", "r_vk_bloom 0.5", "r_vk_ssao 1", "r_vk_fxaa 1", "r_vk_sharpen 0.3",
+             "wait 60", "shot enhanced",
+             "r_vk_quality classic", "wait 10", "shot classic_again"])
 
 SHOT_SCENES = [
     {"name": "ui_valve", "game": "valve", "map": None, "server": [],
@@ -235,6 +256,13 @@ SHOT_SCENES = [
                                          # r_speeds counters, compared by eye: the timings differ
                                          "r_speeds 1", "wait 10", "shot speeds1", "r_speeds 3", "wait 10", "shot speeds3",
                                          "r_speeds 5", "wait 10", "shot speeds5", "r_speeds 0"]},
+    # r_vk_quality enhanced (story 021), each effect alone then together,
+    # compared by eye: ref_gl has no counterpart. The "classic" shot must
+    # stay identical to the same view of ref_gl.
+    {"name": "hdr_valve", "game": "valve", "map": "c2a5", "server": [],
+     "lines": ["wait 200"] + HL_SETUP + ["hud_draw 0", "wait 60", "shot classic"] + HDR_SHOTS},
+    {"name": "hdr_cstrike", "game": "cstrike", "map": "de_dust2", "server": CS_SERVER,
+     "lines": ["wait 250"] + CS_SETUP + ["hud_draw 0", "wait 150", "shot classic"] + HDR_SHOTS},
     {"name": "hud_cstrike", "game": "cstrike", "map": "de_dust2", "server": CS_SERVER,
      "lines": ["gl_clear 1", "r_norefresh 1", "wait 250"] + CS_SETUP
               + ["wait 150", "shot hud", "+showscores", "wait 30", "shot scores", "-showscores",
@@ -574,7 +602,8 @@ def cmd_capture(args):
         shot_dir = os.path.join(engine.gamedir(scene["game"]),
                                 "regress_shots")
         shutil.rmtree(shot_dir, ignore_errors=True)
-        engine.write_cfg(scene["game"], "regress_capture.cfg", RENDER_DEFAULTS + [
+        engine.write_cfg(scene["game"], "regress_capture.cfg", RENDER_DEFAULTS
+                         + (VK_DEFAULTS if args.ref == "vk" else []) + [
             "developer 0",
             f"demo_capture_frames \"{' '.join(map(str, frames))}\"",
             "demo_capture_dir regress_shots",
@@ -603,7 +632,8 @@ def capture_shots(engine, args, out_dir, label):
         shot_dir = os.path.join(engine.gamedir(scene["game"]), "regress_shots")
         shutil.rmtree(shot_dir, ignore_errors=True)
         # the game window takes the focus: a mouse moved meanwhile turns the view
-        lines = RENDER_DEFAULTS + ["developer 0", "m_ignore 1"] + (args.set or [])
+        lines = RENDER_DEFAULTS + (VK_DEFAULTS if args.ref == "vk" else []) \
+            + ["developer 0", "m_ignore 1"] + (args.set or [])
         expected = 0
         for line in scene["lines"]:
             if line.startswith("shot "):
@@ -639,11 +669,17 @@ def cmd_bench(args):
             continue
         engine.install_demo(scene)
         fps, lows = [], []
+        label = args.label or args.ref
+        # "--set 'r_vk_quality enhanced'" becomes "+r_vk_quality enhanced"
+        sets = []
+        for line in args.set or []:
+            name, _, value = line.partition(" ")
+            sets += ["+" + name] + ([value] if value else [])
         for run in range(args.runs):
             output = engine.run(scene["game"], args.ref,
-                                ["+gl_vsync", "0", "+fps_max", "0",
-                                 "-timedemo", "regress_" + scene["name"]],
-                                f"bench_{args.ref}_{scene['name']}_{run}")
+                                ["+gl_vsync", "0", "+fps_max", "0"] + sets
+                                + ["-timedemo", "regress_" + scene["name"]],
+                                f"bench_{label}_{scene['name']}_{run}")
             m = re.search(r"timedemo result: (\d+) frames ([\d.]+) seconds "
                           r"([\d.]+) fps", output)
             if m:
@@ -666,7 +702,7 @@ def cmd_bench(args):
             print(line + f"  (runs: {', '.join(f'{v:.1f}' for v in fps)})")
         else:
             print(f"{scene['name']:16} FAILED")
-    out = os.path.join(engine.data, f"bench_{args.ref}.json")
+    out = os.path.join(engine.data, f"bench_{args.label or args.ref}.json")
     with open(out, "w") as f:
         json.dump(results, f, indent=2, sort_keys=True)
     print(f"results in {out}")
@@ -786,6 +822,10 @@ def main():
     p = sub.add_parser("bench", help="timedemo frame rate")
     p.add_argument("--ref", default="gl", help="renderer (gl, vk, ...)")
     p.add_argument("--runs", type=int, default=3, help="runs per scene")
+    p.add_argument("--label", help="result name (default: --ref)")
+    p.add_argument("--set", action="append", metavar="COMMAND",
+                   help="console variable set on the command line, "
+                        "e.g. --set 'r_vk_quality enhanced' (repeatable)")
     p.add_argument("scenes", nargs="*", help="scene names (default: all)")
     p.set_defaults(func=cmd_bench)
 

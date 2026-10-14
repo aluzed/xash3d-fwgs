@@ -1,0 +1,45 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// the exposure that brings the average luminance to the key, within the
+// range, reached progressively like an eye adapting
+//
+// iparams: number of tiles, reset; params: key, lowest EV, highest EV,
+// frame time; params2.x: speed
+
+layout( local_size_x = 64 ) in;
+
+#include "post_common.glsl"
+#include "post_exposure_common.glsl"
+
+shared vec2 partial[64];
+
+void main()
+{
+	vec2 sum = vec2( 0.0 );
+
+	for( int i = int( gl_LocalInvocationIndex ); i < pc.iparams.x; i += 64 )
+		sum += exposure.sums[i];
+
+	partial[gl_LocalInvocationIndex] = sum;
+	barrier();
+
+	for( uint step = 32; step > 0; step >>= 1 )
+	{
+		if( gl_LocalInvocationIndex < step )
+			partial[gl_LocalInvocationIndex] += partial[gl_LocalInvocationIndex + step];
+		barrier();
+	}
+
+	if( gl_LocalInvocationIndex != 0 )
+		return;
+
+	float average = partial[0].x / max( partial[0].y, 1.0 );
+	float target = clamp( log2( pc.params.x ) - average, pc.params.y, pc.params.z );
+
+	if( pc.iparams.y != 0 )
+		exposure.ev = target;
+	else exposure.ev += ( target - exposure.ev ) * ( 1.0 - exp( -pc.params.w * pc.params2.x ));
+
+	exposure.average = average;
+}

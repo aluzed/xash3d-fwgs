@@ -1,0 +1,28 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// the half size eye distance the occlusion works from: the nearest of each
+// 2x2 pixels of the depth, 0 for the sky (nothing drawn)
+//
+// params: near, far
+
+layout( local_size_x = 8, local_size_y = 8 ) in;
+
+#include "post_common.glsl"
+
+layout( set = 0, binding = 1, r32f ) uniform writeonly image2D out_depth;
+
+void main()
+{
+	ivec2 pixel;
+
+	if( !PostPixel( pixel ))
+		return;
+
+	// the depth is twice the size, its texel centres at 2p + 0.5 and 2p + 1.5
+	vec4 d = textureGather( inputs[0], vec2( pixel * 2 + 1 ) * pc.texel.xy, 0 );
+	float depth = min( min( d.x, d.y ), min( d.z, d.w ));
+	float n = pc.params.x, f = pc.params.y;
+
+	imageStore( out_depth, pixel, vec4( depth >= 1.0 ? 0.0 : n * f / ( f - depth * ( f - n ))));
+}

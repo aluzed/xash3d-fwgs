@@ -119,7 +119,7 @@ void VK_ImmFlush( void )
 	{
 		memcpy( dst, imm.vertices, imm.num_vertices * sizeof( vk_imm_vertex_t ));
 
-		vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipe.imm[imm.batch_topology][imm.batch_blend] );
+		vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, VK_ImmPipeline( imm.batch_topology, imm.batch_blend ) );
 		vkCmdSetCullMode( cmd, imm.batch_raster.cull );
 		vkCmdSetDepthTestEnable( cmd, imm.batch_raster.depth_test );
 		vkCmdSetDepthWriteEnable( cmd, imm.batch_raster.depth_write );

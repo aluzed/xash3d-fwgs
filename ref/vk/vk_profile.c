@@ -42,6 +42,10 @@ static const char *vk_profile_names[VK_PROF_COUNT] =
 	"translucent",
 	"view model",
 	"water",
+	"post SSAO",
+	"post bloom",
+	"post exposure",
+	"post tonemap",
 	"2D",
 	"present copy",
 };

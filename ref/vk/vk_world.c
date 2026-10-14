@@ -2951,11 +2951,13 @@ static void R_DrawEntitiesOnList( VkCommandBuffer cmd )
 static void R_RenderScene( void )
 {
 	VkCommandBuffer cmd;
+	qboolean post;
 	int x, y, w, h;
 
 	if( !WORLDMODEL && FBitSet( RI.rvp.flags, RF_DRAW_WORLD ))
 		gEngfuncs.Host_Error( "%s: NULL worldmodel\n", __func__ );
 
+	post = VK_PostBeginScene(); // into the HDR scene with r_vk_quality enhanced
 	cmd = VK_BeginMainPass();
 	if( !cmd )
 		return;
@@ -3021,6 +3023,10 @@ static void R_RenderScene( void )
 
 	VK_ImmSet3D( false );
 	VK_ResetViewport();
+
+	if( post )
+		VK_PostEndScene( x, y, w, h );
+
 	VK_ProfileMark( cmd, VK_PROF_2D ); // until the next view, if any
 }
 

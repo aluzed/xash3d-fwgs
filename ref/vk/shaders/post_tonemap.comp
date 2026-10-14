@@ -1,0 +1,128 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// HDR scene to display colours: occlusion, bloom, exposure, tonemapper,
+// then the gamma 2.2 the scene was decoded with (output_common.glsl)
+//
+// inputs: scene, bloom level 0, occlusion
+// iparams: tonemapper (0 clamp, 1 ACES, 2 AgX, 3 neutral), VK_POST_USE_* flags, bloom levels
+// params: exposure compensation (EV), bloom intensity, highest total EV
+
+layout( local_size_x = 8, local_size_y = 8 ) in;
+
+#include "post_common.glsl"
+#include "post_exposure_common.glsl"
+
+layout( set = 0, binding = 1, rgba8 ) uniform writeonly image2D out_ldr;
+
+#define USE_BLOOM    1
+#define USE_AO       2
+#define USE_EXPOSURE 4
+
+// ACES filmic fit by Stephen Hill (BakingLab), sRGB / Rec.709 in and out
+vec3 TonemapACES( vec3 color )
+{
+	const mat3 aces_in = mat3(
+		0.59719, 0.07600, 0.02840,
+		0.35458, 0.90834, 0.13383,
+		0.04823, 0.01566, 0.83777 );
+	const mat3 aces_out = mat3(
+		1.60475, -0.10208, -0.00327,
+		-0.53108, 1.10813, -0.07276,
+		-0.07367, -0.00605, 1.07602 );
+
+	color = aces_in * color;
+	vec3 a = color * ( color + 0.0245786 ) - 0.000090537;
+	vec3 b = color * ( 0.983729 * color + 0.4329510 ) + 0.238081;
+	return clamp( aces_out * ( a / b ), 0.0, 1.0 );
+}
+
+// AgX, the minimal version by Benjamin Wrensch (polynomial fit of the
+// default sigmoid), Rec.709 in, linear out
+vec3 AgXContrast( vec3 x )
+{
+	vec3 x2 = x * x;
+	vec3 x4 = x2 * x2;
+
+	return 15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4 - 6.868 * x2 * x + 0.4298 * x2 + 0.1191 * x - 0.00232;
+}
+
+vec3 TonemapAgX( vec3 color )
+{
+	const mat3 agx_in = mat3(
+		0.842479062253094, 0.0423282422610123, 0.0423756549057051,
+		0.0784335999999992, 0.878468636469772, 0.0784336,
+		0.0792237451477643, 0.0791661274605434, 0.879142973793104 );
+	const mat3 agx_out = mat3(
+		1.19687900512017, -0.0528968517574562, -0.0529716355144438,
+		-0.0980208811401368, 1.15190312990417, -0.0980434501171241,
+		-0.0990297440797205, -0.0989611768448433, 1.15107367264116 );
+	const float min_ev = -12.47393, max_ev = 4.026069;
+
+	color = agx_in * max( color, vec3( 1e-10 ));
+	color = clamp(( log2( color ) - min_ev ) / ( max_ev - min_ev ), 0.0, 1.0 );
+	color = AgXContrast( color );
+	color = agx_out * color;
+
+	// the curve gives display values with a 2.2 power baked in
+	return pow( clamp( color, 0.0, 1.0 ), vec3( 2.2 ));
+}
+
+// the highlight compression of Khronos PBR Neutral: the colours as they
+// are up to 0.76, only what goes beyond (GL's overbright lighting, additive
+// effects) is compressed. Its toe is left out: it takes up to 0.04 off the
+// darkest colours, which are most of what HL and CS show.
+vec3 TonemapNeutral( vec3 color )
+{
+	const float start_compression = 0.8 - 0.04;
+	const float desaturation = 0.15;
+
+	float peak = max( color.r, max( color.g, color.b ));
+	if( peak < start_compression )
+		return color;
+
+	const float d = 1.0 - start_compression;
+	float new_peak = 1.0 - d * d / ( peak + d - start_compression );
+	color *= new_peak / peak;
+
+	float g = 1.0 - 1.0 / ( desaturation * ( peak - new_peak ) + 1.0 );
+	return mix( color, vec3( new_peak ), g );
+}
+
+// the exposure that keeps the dark middle tones of HL and CS views (log
+// average luminance around 0.05) where the classic look has them
+const float calibration_ev[4] = float[]( 0.0, 1.15, -0.25, 0.0 );
+
+void main()
+{
+	ivec2 pixel;
+
+	if( !PostPixel( pixel ))
+		return;
+
+	vec3 color = texelFetch( inputs[0], pixel, 0 ).rgb;
+
+	// occlusion and bloom level 0 are half the size: bilinear upsampling
+	vec2 uv = ( vec2( pixel ) + 0.5 ) * pc.texel.zw;
+
+	if(( pc.iparams.y & USE_AO ) != 0 )
+		color *= textureLod( inputs[2], uv, 0.0 ).r;
+
+	if(( pc.iparams.y & USE_BLOOM ) != 0 )
+		color += textureLod( inputs[1], uv, 0.0 ).rgb * ( pc.params.y / float( max( pc.iparams.z, 1 )));
+
+	float ev = pc.params.x;
+	if(( pc.iparams.y & USE_EXPOSURE ) != 0 )
+		ev += exposure.ev;
+	color *= exp2( min( ev, pc.params.z ) + calibration_ev[pc.iparams.x] );
+
+	if( pc.iparams.x == 1 )
+		color = TonemapACES( color );
+	else if( pc.iparams.x == 2 )
+		color = TonemapAgX( color );
+	else if( pc.iparams.x == 3 )
+		color = TonemapNeutral( color );
+	else color = clamp( color, 0.0, 1.0 );
+
+	imageStore( out_ldr, pixel, vec4( pow( color, vec3( 1.0 / 2.2 )), 1.0 ));
+}

@@ -66,10 +66,64 @@ Commands: `r_vk_meminfo` (GPU memory usage), `texturelist`,
 `r_vk_gpu_profile_print` and `r_vk_gpu_profile_reset`. With
 `r_vk_gpu_profile 1`, the frame writes a timestamp when it enters each
 part (frame start, world, solid entities, effects, translucent, view
-model, water, 2D, present copy); the profile prints the average and
+model, water, the post-processing stages of `r_vk_quality enhanced`
+(SSAO, bloom, exposure, tonemap with FXAA and sharpening), 2D, present
+copy); the profile prints the average and
 maximum of each part for the slow frames and for the others, also at
 renderer shutdown, e.g. after `-timedemo`. Off, it costs nothing and
 doesn't change a pixel; on, it only splits the draw batches at the marks.
+
+## Enhanced look (`r_vk_quality`)
+
+`r_vk_quality classic`, the default, draws what `ref_gl` draws. With
+`enhanced`, the 3D view goes into an HDR target (16-bit float) and its
+colours are linear: everything the game draws is decoded with a gamma 2.2
+power, under which the GL blending stays what it was, except that nothing
+is clamped any more. The overbright lighting of `gl_overbright` (twice the
+texture in gamma space, up to 4.6 times in linear) and additive effects
+keep their brightness above white. Compute passes then make the view's
+final pixels; the HUD, menus and console are drawn over them as usual.
+`rt` is reserved for the ray tracing stories and renders as `enhanced` for
+now. Everything changes at once at runtime, no restart.
+
+| Variable                   | Default | Meaning                                                        |
+|----------------------------|---------|----------------------------------------------------------------|
+| `r_vk_quality`             | `classic` | `classic`, `enhanced` or `rt`                                |
+| `r_vk_tonemap`             | `3`     | 0 clamp, 1 ACES (Hill's fit), 2 AgX, 3 neutral                 |
+| `r_vk_exposure`            | `0`     | exposure compensation, in EV                                   |
+| `r_vk_autoexposure`        | `1`     | adapt the exposure to the view like an eye                     |
+| `r_vk_autoexposure_range`  | `1`     | how far it may go, in EV either way                            |
+| `r_vk_autoexposure_speed`  | `1.5`   | how fast it adapts                                             |
+| `r_vk_bloom`               | `0.5`   | bloom intensity, 0 off                                         |
+| `r_vk_bloom_threshold`     | `1`     | linear brightness above which pixels bloom                     |
+| `r_vk_ssao`                | `1`     | ambient occlusion strength, 0 off                              |
+| `r_vk_ssao_radius`         | `24`    | ambient occlusion radius in world units                        |
+| `r_vk_fxaa`                | `1`     | FXAA antialiasing                                              |
+| `r_vk_sharpen`             | `0.3`   | contrast adaptive sharpening, 0 off                            |
+
+- Tonemappers: "neutral" is the highlight compression of Khronos PBR
+  Neutral without its toe, so colours below 0.76 are exactly the classic
+  ones; only what the classic look clamps is compressed. ACES and AgX get
+  an exposure offset (+1.15 and -0.25 EV) that keeps the dark middle tones
+  of HL and CS (log average luminance around 0.05) where the classic look
+  has them. 0 clamps like the classic look: with every effect off, the
+  only differences left are the linear blending and the 8-bit rounding.
+- The automatic exposure brings the log average luminance of the view to
+  0.05, which is where most HL and CS views are, within
+  `r_vk_autoexposure_range`. In multiplayer (more than one client slot)
+  the exposure never goes above the classic one: it may darken a bright
+  view, never brighten a dark corner.
+- Bloom: 13-tap downsamples of what is over the threshold (soft knee) to
+  a few pixels, tent filtered upsamples added level by level.
+- SSAO works from the depth alone, for GPUs without ray tracing, at half
+  size: 12 samples in the normal's hemisphere, a 4x4 depth aware blur,
+  bilinear upsampling. The view model is drawn with a compressed depth
+  range, so its occlusion is approximate.
+- No SMAA yet; FXAA is the quality preset of FXAA 3.11.
+- Cost on the RTX 2080 Ti at 1280x720, `long_de_dust2`: 2175 fps classic,
+  1067 fps enhanced, about 0.46 ms of GPU time a frame (SSAO 0.19, bloom
+  0.11, exposure 0.02, tonemap with FXAA, sharpening and the copy 0.14).
+  Each effect has its own switch for slower GPUs.
 
 ## Performance
 
@@ -109,6 +163,9 @@ some 1500 frames per second; the 1 % low of 650-730 fps it leaves is
 - `r_ripple` water simulation isn't supported (off by default in `ref_gl`).
 - Quake-only features: alias models, the Quake sky sphere and clouds.
 - Studio skinning and lighting run on the CPU like `ref_gl`.
+- `r_vk_quality enhanced` doesn't apply to custom renderers that replace
+  the whole frame (client `GL_RenderFrame`), nor to `envshot` / `skyshot`
+  and the overview, which stay classic.
 - Bullet holes and sprays on alpha tested brush entities (grates) didn't
   show in the harness scene with either renderer; the decal code is
   `ref_gl`'s, but this case has no capture.

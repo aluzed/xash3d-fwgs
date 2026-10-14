@@ -1,0 +1,30 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// bloom upsample: adds the level below, tent filtered, to this level
+
+layout( local_size_x = 8, local_size_y = 8 ) in;
+
+#include "post_common.glsl"
+
+layout( set = 0, binding = 1, rgba16f ) uniform image2D io_bloom;
+
+void main()
+{
+	ivec2 pixel;
+
+	if( !PostPixel( pixel ))
+		return;
+
+	vec2 uv = ( vec2( pixel ) + 0.5 ) * pc.texel.zw;
+	vec2 d = pc.texel.xy;
+
+	vec3 sum = textureLod( inputs[0], uv, 0.0 ).rgb * 4.0;
+	sum += ( textureLod( inputs[0], uv + vec2( -d.x, 0.0 ), 0.0 ).rgb + textureLod( inputs[0], uv + vec2( d.x, 0.0 ), 0.0 ).rgb
+		+ textureLod( inputs[0], uv + vec2( 0.0, -d.y ), 0.0 ).rgb + textureLod( inputs[0], uv + vec2( 0.0, d.y ), 0.0 ).rgb ) * 2.0;
+	sum += textureLod( inputs[0], uv - d, 0.0 ).rgb + textureLod( inputs[0], uv + d, 0.0 ).rgb
+		+ textureLod( inputs[0], uv + vec2( d.x, -d.y ), 0.0 ).rgb + textureLod( inputs[0], uv + vec2( -d.x, d.y ), 0.0 ).rgb;
+
+	vec3 color = imageLoad( io_bloom, pixel ).rgb + sum / 16.0;
+	imageStore( io_bloom, pixel, vec4( color, 1.0 ));
+}

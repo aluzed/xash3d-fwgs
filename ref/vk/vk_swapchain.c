@@ -20,6 +20,10 @@ GNU General Public License for more details.
  * offscreen colour + depth pair, copied to the swapchain image at the end
  * of the frame. Screenshots and later post-processing read the offscreen
  * image, whatever the swapchain format or state.
+ *
+ * The scene may be drawn into another colour target (the HDR scene of
+ * vk_post.c, VK_SetColorTarget) sharing the main depth: vk_post.c turns it
+ * into the main target's pixels before the 2D is drawn.
  */
 
 #define VK_MAIN_COLOR_FORMAT VK_FORMAT_R8G8B8A8_UNORM
@@ -55,7 +59,11 @@ static struct
 
 	vk_image_t color; // main render target
 	vk_image_t depth;
+	VkImageView depth_sample_view; // depth aspect only, for sampling
 	VkFormat depth_format;
+
+	vk_image_t *target;      // colour target of the pass, &color unless the scene goes elsewhere
+	vk_target_t target_kind; // its pipelines
 
 	qboolean recording; // between a successful VK_BeginFrame and VK_EndFrame
 	qboolean in_pass;   // main colour + depth dynamic rendering is open
@@ -89,6 +97,52 @@ uint64_t VK_CurrentFrame( void )
 	return vk_frame.frame_count;
 }
 
+VkCommandBuffer VK_FrameCommands( void )
+{
+	return vk_frame.recording ? vk_frame.frames[vk_frame.frame_index].cmd : VK_NULL_HANDLE;
+}
+
+vk_image_t *VK_MainColorImage( void )
+{
+	return &vk_frame.color;
+}
+
+vk_image_t *VK_MainDepthImage( void )
+{
+	return &vk_frame.depth;
+}
+
+VkImageView VK_MainDepthSampleView( void )
+{
+	return vk_frame.depth_sample_view;
+}
+
+void VK_GetClearColor( vec3_t out )
+{
+	VectorCopy( vk_frame.clear_color, out );
+}
+
+/*
+=================
+VK_SetColorTarget
+
+the colour target the next passes draw into, the same size as the main
+one; NULL goes back to the main target
+=================
+*/
+void VK_SetColorTarget( vk_image_t *img, vk_target_t kind )
+{
+	VK_EndMainPass();
+
+	vk_frame.target = img ? img : &vk_frame.color;
+	vk_frame.target_kind = img ? kind : VK_TARGET_LDR;
+}
+
+vk_target_t VK_ColorTarget( void )
+{
+	return vk_frame.target_kind;
+}
+
 void VK_MainExtent( int *width, int *height )
 {
 	*width = vk_frame.color.width;
@@ -115,12 +169,12 @@ VkCommandBuffer VK_BeginMainPass( void )
 	if( vk_frame.in_pass )
 		return cmd;
 
-	VK_ImageBarrier( cmd, &vk_frame.color, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL );
+	VK_ImageBarrier( cmd, vk_frame.target, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL );
 	VK_ImageBarrier( cmd, &vk_frame.depth, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL );
 
 	VkRenderingAttachmentInfo color = {
 		.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-		.imageView = vk_frame.color.view,
+		.imageView = vk_frame.target->view,
 		.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 		.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
 		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
@@ -279,6 +333,10 @@ static VkFormat VK_PickDepthFormat( void )
 
 static void VK_DestroyRenderTargets( void )
 {
+	if( vk_frame.depth_sample_view )
+		vkDestroyImageView( vk.device, vk_frame.depth_sample_view, NULL );
+	vk_frame.depth_sample_view = VK_NULL_HANDLE;
+
 	VK_DestroyImage( &vk_frame.color );
 	VK_DestroyImage( &vk_frame.depth );
 }
@@ -295,13 +353,29 @@ static qboolean VK_CreateRenderTargets( uint32_t width, uint32_t height )
 		| VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT ))
 		return false;
 
+	// sampled by the post-processing (SSAO)
 	if( !VK_CreateImage( &vk_frame.depth, "main depth", width, height, vk_frame.depth_format,
-		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, depth_aspect ))
+		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, depth_aspect ))
 	{
 		VK_DestroyImage( &vk_frame.color );
 		return false;
 	}
 
+	VkImageViewCreateInfo view = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		.image = vk_frame.depth.image,
+		.viewType = VK_IMAGE_VIEW_TYPE_2D,
+		.format = vk_frame.depth_format,
+		.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 },
+	};
+
+	if( vkCreateImageView( vk.device, &view, NULL, &vk_frame.depth_sample_view ) != VK_SUCCESS )
+	{
+		VK_DestroyRenderTargets();
+		return false;
+	}
+
+	VK_SetObjectName( VK_OBJECT_TYPE_IMAGE_VIEW, (uint64_t)vk_frame.depth_sample_view, "main depth sample view" );
 	return true;
 }
 
@@ -530,6 +604,7 @@ qboolean VK_InitFrames( void )
 	VK_SetClearColor( 0.5f, 0.5f, 0.5f ); // GL_SetDefaultState
 
 	vk_frame.depth_format = VK_PickDepthFormat();
+	vk_frame.target = &vk_frame.color;
 
 	if( vk_frame.depth_format == VK_FORMAT_UNDEFINED )
 	{
@@ -688,10 +763,13 @@ void VK_BeginFrame( qboolean clear_scene )
 	VK_FogBeginFrame( vk_frame.frame_index );
 	VK_CheckTextureParams();
 	VK_FlushUploads(); // textures loaded since the last frame
+	VK_PostBeginFrame(); // may wait for the GPU to rebuild its targets
 
 	VK_BeginCommands( frame );
 	vk_frame.recording = true;
 	vk_frame.in_pass = false;
+	vk_frame.target = &vk_frame.color;
+	vk_frame.target_kind = VK_TARGET_LDR;
 
 	VK_BeginLabel( frame->cmd, "frame" );
 	VK_ProfileBeginFrame( frame->cmd, vk_frame.frame_index );
@@ -739,7 +817,7 @@ void VK_EndFrame( void )
 		return;
 
 	VK_ImmEndFrame();
-	VK_EndMainPass();
+	VK_SetColorTarget( NULL, VK_TARGET_LDR ); // ends the pass
 	VK_FlushUploads(); // the frame may sample textures updated while it was recorded
 	VK_ProfileMark( frame->cmd, VK_PROF_PRESENT_COPY );
 

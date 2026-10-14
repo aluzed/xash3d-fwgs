@@ -47,6 +47,7 @@ static qboolean R_Init( void )
 	R_DecalInit();
 	VK_RegisterFogCvars();
 	VK_RegisterProfileCvars();
+	VK_RegisterPostCvars();
 	R_ClearDecals();
 
 	// the engine falls back to the next renderer when this fails
@@ -57,9 +58,10 @@ static qboolean R_Init( void )
 		return false;
 	}
 
-	if( !VK_InitCore( ) || !VK_InitMemory( ) || !VK_InitFrames( ) || !VK_InitPipelines( ) || !VK_InitFog( ))
+	if( !VK_InitCore( ) || !VK_InitMemory( ) || !VK_InitFrames( ) || !VK_InitPipelines( ) || !VK_InitFog( ) || !VK_InitPost( ))
 	{
 		VK_ShutdownTextures();
+		VK_ShutdownPost();
 		VK_ShutdownFog();
 		VK_ShutdownPipelines();
 		VK_ShutdownFrames();
@@ -80,6 +82,7 @@ static void R_Shutdown( void )
 {
 	VK_ShutdownProfile();
 	VK_ShutdownWorld();
+	VK_ShutdownPost();
 	VK_ShutdownTextures();
 	VK_ShutdownFog();
 	VK_ShutdownPipelines();
