@@ -20,6 +20,7 @@ threads).
 |------|-------|-----------|
 | Light directions of the lightmaps (normal maps) | `ref/vk/vk_deluxe.c` | Reads the world model, writes pages allocated before; the lightmap rebuild and the map change wait for it |
 | Mip levels of streamed material maps | `ref/vk/vk_stream.c` | Seeks and reads its own open file into its own staging buffer; the entry it fills is checked by generation in `done` |
+| Vertices of studio models (skinning, lighting) | `ref/vk/vk_studio.c` | Reads copies of the bones and lighting and the model data, writes the dynamic ring ranges the main thread reserved; the frame runs or waits for them before it is submitted |
 
 Files are opened and closed on the main thread: the file system's search
 paths aren't thread safe, a `file_t` read by one thread at a time is.
@@ -48,4 +49,4 @@ and SDL already feeds the device from its own thread.
 | `CL_Move` and user commands | Their timing and order are part of the protocol |
 | Delta decoding, message parsing, net channel | Sequence numbers, acknowledgements and the order of side effects define the protocol |
 | Game DLL entry points (`cdll_int`, `eiface`, studio and TriAPI callbacks) | Neither Valve's nor the SDK's libraries are thread safe |
-| Renderer command recording | Done in the engine's call order; 028 splits it inside the renderer |
+| Renderer command recording | Done in the engine's call order, as cheap as the draws it records; only the vertices behind them moved (028) |

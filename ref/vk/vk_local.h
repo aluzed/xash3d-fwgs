@@ -329,6 +329,11 @@ typedef struct vk_imm_vertex_s
 	vec4_t color; // float like glColor, quantized only by the framebuffer
 } vk_imm_vertex_t;
 
+// vk_imm.c: where reserved vertices go in the dynamic ring (VK_ImmReserveTriangles)
+typedef void (*vk_imm_placed_t)( void *owner, int index, vk_imm_vertex_t *dst );
+qboolean VK_ImmReserveTriangles( int count, vk_imm_placed_t placed, void *owner, int index );
+void VK_ImmVertexState( qboolean *white, qboolean *flat, vec4_t color );
+
 // mirrors imm_common.glsl
 typedef struct vk_imm_push_s
 {
@@ -447,9 +452,12 @@ void VK_RegisterRTCvars( void );
 void VK_InitRT( void );
 void VK_ShutdownRT( void );
 qboolean VK_RTAvailable( void );
+qboolean VK_RTCapturing( void );
 VkDeviceAddress VK_BufferAddress( VkBuffer buffer );
 void VK_RTNewMap( const uint32_t *indices, uint32_t total_indices, const uint32_t *first_index, const uint32_t *num_indices, VkBuffer vertices, uint32_t num_verts );
 void VK_RTBeginScene( void );
+void VK_StudioJoin( void );
+void VK_StudioShutdownJobs( void );
 void VK_RTBeginStudio( const cl_entity_t *e, const model_t *model, qboolean viewmodel, float ambient, float shade );
 void VK_RTEndStudio( void );
 void VK_RTCaptureTriangles( const vk_imm_vertex_t *verts, int count, int texture, qboolean alpha_test );

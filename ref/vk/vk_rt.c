@@ -284,6 +284,12 @@ qboolean VK_RTAvailable( void )
 	return vk_rt.available;
 }
 
+// studio models drawn now are captured as they are drawn (vk_studio.c)
+qboolean VK_RTCapturing( void )
+{
+	return vk_rt.active;
+}
+
 // the acceleration structures are wanted: r_vk_rt, or the effects of r_vk_quality rt
 static qboolean VK_RTWanted( void )
 {

@@ -124,6 +124,7 @@ typedef struct
 // studio-related cvars
 CVAR_DEFINE_AUTO( r_studio_sort_textures, "0", FCVAR_GLCONFIG, "change draw order for additive meshes" );
 CVAR_DEFINE_AUTO( r_studio_drawelements, "1", FCVAR_GLCONFIG, "use glDrawElements for studiomodels" );
+CVAR_DEFINE_AUTO( r_vk_threads, "1", FCVAR_GLCONFIG, "make the vertices of studio models on the engine's worker threads, 0 on the main thread" );
 CVAR_DEFINE_AUTO( r_studio_builtin_renderer, "0", 0, "use built-in studio model renderer instead of the one provided by client library (debugging)" );
 static cvar_t			*cl_righthand = NULL;
 
@@ -150,6 +151,7 @@ void R_StudioInit( void )
 {
 	gEngfuncs.Cvar_RegisterVariable( &r_studio_sort_textures );
 	gEngfuncs.Cvar_RegisterVariable( &r_studio_drawelements );
+	gEngfuncs.Cvar_RegisterVariable( &r_vk_threads );
 	gEngfuncs.Cvar_RegisterVariable( &r_studio_builtin_renderer );
 	gEngfuncs.Cvar_RegisterVariable( &r_shadows );
 
@@ -258,7 +260,7 @@ static qboolean R_StudioComputeBBox( vec3_t bbox[8] )
 	return true; // visible
 }
 
-static void R_StudioComputeSkinMatrix( mstudioboneweight_t *boneweights, matrix3x4 result )
+static void R_StudioComputeSkinMatrix( const matrix3x4 *world, const mstudioboneweight_t *boneweights, matrix3x4 result )
 {
 	int	numbones = 0;
 
@@ -270,10 +272,10 @@ static void R_StudioComputeSkinMatrix( mstudioboneweight_t *boneweights, matrix3
 
 	if( numbones == 4 )
 	{
-		vec4_t *boneMat0 = (vec4_t *)g_studio.worldtransform[boneweights->bone[0]];
-		vec4_t *boneMat1 = (vec4_t *)g_studio.worldtransform[boneweights->bone[1]];
-		vec4_t *boneMat2 = (vec4_t *)g_studio.worldtransform[boneweights->bone[2]];
-		vec4_t *boneMat3 = (vec4_t *)g_studio.worldtransform[boneweights->bone[3]];
+		vec4_t *boneMat0 = (vec4_t *)world[boneweights->bone[0]];
+		vec4_t *boneMat1 = (vec4_t *)world[boneweights->bone[1]];
+		vec4_t *boneMat2 = (vec4_t *)world[boneweights->bone[2]];
+		vec4_t *boneMat3 = (vec4_t *)world[boneweights->bone[3]];
 		float flWeight0 = boneweights->weight[0] / 255.0f;
 		float flWeight1 = boneweights->weight[1] / 255.0f;
 		float flWeight2 = boneweights->weight[2] / 255.0f;
@@ -297,9 +299,9 @@ static void R_StudioComputeSkinMatrix( mstudioboneweight_t *boneweights, matrix3
 	}
 	else if( numbones == 3 )
 	{
-		vec4_t *boneMat0 = (vec4_t *)g_studio.worldtransform[boneweights->bone[0]];
-		vec4_t *boneMat1 = (vec4_t *)g_studio.worldtransform[boneweights->bone[1]];
-		vec4_t *boneMat2 = (vec4_t *)g_studio.worldtransform[boneweights->bone[2]];
+		vec4_t *boneMat0 = (vec4_t *)world[boneweights->bone[0]];
+		vec4_t *boneMat1 = (vec4_t *)world[boneweights->bone[1]];
+		vec4_t *boneMat2 = (vec4_t *)world[boneweights->bone[2]];
 		float flWeight0 = boneweights->weight[0] / 255.0f;
 		float flWeight1 = boneweights->weight[1] / 255.0f;
 		float flWeight2 = boneweights->weight[2] / 255.0f;
@@ -322,8 +324,8 @@ static void R_StudioComputeSkinMatrix( mstudioboneweight_t *boneweights, matrix3
 	}
 	else if( numbones == 2 )
 	{
-		vec4_t *boneMat0 = (vec4_t *)g_studio.worldtransform[boneweights->bone[0]];
-		vec4_t *boneMat1 = (vec4_t *)g_studio.worldtransform[boneweights->bone[1]];
+		vec4_t *boneMat0 = (vec4_t *)world[boneweights->bone[0]];
+		vec4_t *boneMat1 = (vec4_t *)world[boneweights->bone[1]];
 		float flWeight0 = boneweights->weight[0] / 255.0f;
 		float flWeight1 = boneweights->weight[1] / 255.0f;
 		float flTotal = flWeight0 + flWeight1;
@@ -345,7 +347,7 @@ static void R_StudioComputeSkinMatrix( mstudioboneweight_t *boneweights, matrix3
 	}
 	else
 	{
-		Matrix3x4_Copy( result, g_studio.worldtransform[boneweights->bone[0]] );
+		Matrix3x4_Copy( result, world[boneweights->bone[0]] );
 	}
 }
 
@@ -1114,6 +1116,37 @@ static void R_StudioGenerateNormals( void )
 
 /*
 ====================
+Lighting parameters
+
+what the vertex lighting reads, from g_studio on the main thread or from
+the copy a deferred job made of it (028)
+====================
+*/
+typedef struct
+{
+	float ambient, shade;
+	const float *lightvec;
+	const vec3_t *blightvec;  // per bone
+	int numlocallights;
+	const int (*localcolor)[3];
+	const float *localR2;
+	qboolean flip;            // tr.fFlipViewModel
+} vk_studio_light_t;
+
+static void R_StudioLightParams( vk_studio_light_t *L )
+{
+	L->ambient = g_studio.ambientlight;
+	L->shade = g_studio.shadelight;
+	L->lightvec = g_studio.lightvec;
+	L->blightvec = (const vec3_t *)g_studio.blightvec;
+	L->numlocallights = g_studio.numlocallights;
+	L->localcolor = (const int (*)[3])g_studio.locallightcolor;
+	L->localR2 = g_studio.locallightR2;
+	L->flip = tr.fFlipViewModel;
+}
+
+/*
+====================
 StudioSetupChrome
 
 ====================
@@ -1322,7 +1355,7 @@ R_StudioLighting
 
 ===============
 */
-static void R_StudioLighting( float *lv, int bone, int flags, vec3_t normal )
+static void R_StudioLightingEx( const vk_studio_light_t *L, float *lv, int bone, int flags, const vec3_t normal )
 {
 	if( FBitSet( flags, STUDIO_NF_FULLBRIGHT ))
 	{
@@ -1330,20 +1363,20 @@ static void R_StudioLighting( float *lv, int bone, int flags, vec3_t normal )
 		return;
 	}
 
-	float illum = g_studio.ambientlight;
+	float illum = L->ambient;
 
 	if( FBitSet( flags, STUDIO_NF_FLATSHADE ))
 	{
-		illum += g_studio.shadelight * 0.8f;
+		illum += L->shade * 0.8f;
 	}
 	else
 	{
 		float lightcos;
-		if( bone != -1 ) lightcos = DotProduct( normal, g_studio.blightvec[bone] );
-		else lightcos = DotProduct( normal, g_studio.lightvec ); // -1 colinear, 1 opposite
+		if( bone != -1 ) lightcos = DotProduct( normal, L->blightvec[bone] );
+		else lightcos = DotProduct( normal, L->lightvec ); // -1 colinear, 1 opposite
 		if( lightcos > 1.0f ) lightcos = 1.0f;
 
-		illum += g_studio.shadelight;
+		illum += L->shade;
 
 		float r = SHADE_LAMBERT;
 
@@ -1353,13 +1386,13 @@ static void R_StudioLighting( float *lv, int bone, int flags, vec3_t normal )
 			r += 1.0f;
 			lightcos = (( r - 1.0f ) - lightcos) / r;
 			if( lightcos > 0.0f )
-				illum += g_studio.shadelight * lightcos;
+				illum += L->shade * lightcos;
 		}
 		else
 		{
 			lightcos = (lightcos + ( r - 1.0f )) / r;
 			if( lightcos > 0.0f )
-				illum -= g_studio.shadelight * lightcos;
+				illum -= L->shade * lightcos;
 		}
 
 		illum = Q_max( illum, 0.0f );
@@ -1370,15 +1403,24 @@ static void R_StudioLighting( float *lv, int bone, int flags, vec3_t normal )
 	*lv = LightToTexGamma( illum * 4 ) / 1023.0f;
 }
 
+
+static void R_StudioLighting( float *lv, int bone, int flags, vec3_t normal )
+{
+	vk_studio_light_t L;
+
+	R_StudioLightParams( &L );
+	R_StudioLightingEx( &L, lv, bone, flags, normal );
+}
+
 /*
 ====================
 R_LightLambert
 
 ====================
 */
-static void R_LightLambert( vec4_t light[MAX_LOCALLIGHTS], const vec3_t normal, const vec3_t color, byte *out )
+static void R_LightLambertEx( const vk_studio_light_t *L, vec4_t light[MAX_LOCALLIGHTS], const vec3_t normal, const vec3_t color, byte *out )
 {
-	if( !g_studio.numlocallights )
+	if( !L->numlocallights )
 	{
 		VectorScale( color, 255.0f, out );
 		return;
@@ -1386,10 +1428,10 @@ static void R_LightLambert( vec4_t light[MAX_LOCALLIGHTS], const vec3_t normal, 
 
 	vec3_t finalLight = { 0, 0, 0 };
 
-	for( int i = 0; i < g_studio.numlocallights; i++ )
+	for( int i = 0; i < L->numlocallights; i++ )
 	{
 		float r = DotProduct( normal, light[i] );
-		if( likely( !tr.fFlipViewModel ))
+		if( likely( !L->flip ))
 			r = -r;
 
 		if( r > 0.0f )
@@ -1399,14 +1441,14 @@ static void R_LightLambert( vec4_t light[MAX_LOCALLIGHTS], const vec3_t normal, 
 				float r2 = DotProduct( light[i], light[i] );
 
 				if( r2 > 0.0f )
-					light[i][3] = g_studio.locallightR2[i] / ( r2 * sqrt( r2 ));
+					light[i][3] = L->localR2[i] / ( r2 * sqrt( r2 ));
 				else light[i][3] = 0.0001f;
 			}
 
 			float temp = r * light[i][3];
 
 			vec3_t localLight;
-			VectorAddScalar( g_studio.locallightcolor[i], temp, localLight );
+			VectorAddScalar( L->localcolor[i], temp, localLight );
 			VectorAdd( finalLight, localLight, finalLight );
 		}
 	}
@@ -1427,6 +1469,15 @@ static void R_LightLambert( vec4_t light[MAX_LOCALLIGHTS], const vec3_t normal, 
 	{
 		VectorScale( color, 255.0f, out );
 	}
+}
+
+
+static void R_LightLambert( vec4_t light[MAX_LOCALLIGHTS], const vec3_t normal, const vec3_t color, byte *out )
+{
+	vk_studio_light_t L;
+
+	R_StudioLightParams( &L );
+	R_LightLambertEx( &L, light, normal, color, out );
 }
 
 static void R_StudioSetColorArray( short *ptricmds, vec3_t *pstudionorms, byte *color )
@@ -1955,6 +2006,720 @@ R_StudioDrawPoints
 
 ===============
 */
+/*
+=================
+Deferred vertices (028)
+
+With r_vk_threads, the vertices of a studio model part are made on the
+engine's worker threads. The main thread keeps everything the game sees
+and every draw in its order: R_StudioDeferPoints does what
+R_StudioDrawPoints_ does to the draw state, mesh by mesh, but reserves the
+vertices of each draw in the immediate mode batch (VK_ImmReserveTriangles)
+instead of making them, and copies what making them needs (bones,
+lighting) into a job. When the batch flushes, the reserved ranges get their
+place in the dynamic ring; once they all have one the job is queued, and
+a worker skins, lights and writes them there. VK_StudioJoin, before the
+frame is submitted, runs the jobs no worker took and waits for the others.
+
+The jobs compute what R_StudioDrawPoints_ computes, with the same code
+(R_StudioLightingEx, R_LightLambertEx, R_StudioComputeSkinMatrix):
+r_vk_threads 0 and 1 draw the same pixels. Glow shells, the per vertex
+draw path (r_studio_drawelements 0) and frames capturing the ray traced
+scene, which reads the vertices as they are drawn, stay on the main thread.
+=================
+*/
+#define VK_STUDIO_MAX_CHUNKS  512
+#define VK_STUDIO_MAX_SCRATCH 6   // threads making vertices at once: 4 workers, the main thread
+
+typedef enum
+{
+	VK_SJOB_FREE = 0,
+	VK_SJOB_RESERVING,  // vertices still being reserved or placed
+	VK_SJOB_QUEUED,     // placed: for the first thread that takes it
+	VK_SJOB_RUNNING,
+	VK_SJOB_DONE,
+} vk_studio_job_state_t;
+
+typedef struct
+{
+	int mesh;               // in draw[]
+	int first, count;       // elements of the mesh this draw takes
+	vk_imm_vertex_t *dst;   // in the dynamic ring, NULL: drawn nowhere
+} vk_studio_chunk_t;
+
+typedef struct
+{
+	const mstudiomesh_t *mesh;
+	const short *tricmds;
+	int flags;              // g_nFaceFlags
+	float s, t;
+	float blend;            // tr.blend when drawn
+	qboolean white, flat;   // VK_ImmVertexState
+	vec4_t color;
+} vk_studio_draw_t;
+
+typedef struct vk_studio_job_s
+{
+	volatile long state;    // vk_studio_job_state_t
+	int unplaced;           // reserved ranges without a place, one more while reserving
+	int reserved;           // ranges drawn
+
+	const studiohdr_t *hdr;
+	const mstudiomodel_t *submodel;
+	int numbones;
+	qboolean weights;
+	matrix3x4 bones[MAXSTUDIOBONES];  // bonestransform
+	matrix3x4 lights[MAXSTUDIOBONES]; // lighttransform
+	matrix3x4 world[MAXSTUDIOBONES];  // worldtransform, with bone weights
+
+	float ambient, shade;
+	vec3_t lightvec, lightcolor;
+	vec3_t blightvec[MAXSTUDIOBONES];
+	int numlocallights;
+	vec3_t localorigin[MAX_LOCALLIGHTS];
+	int localcolor[MAX_LOCALLIGHTS][3];
+	float localR2[MAX_LOCALLIGHTS];
+	qboolean flip;
+	vec3_t chrome_origin, vright;
+	float blend;            // tr.blend when lit
+	qboolean transadd;      // kRenderTransAdd
+	int meshflags[MAXSTUDIOMESHES]; // in the model's order
+
+	vk_studio_draw_t draw[MAXSTUDIOMESHES];
+	int numdraws;
+	vk_studio_chunk_t chunks[VK_STUDIO_MAX_CHUNKS];
+	int numchunks;
+} vk_studio_job_t;
+
+// what a thread makes vertices in
+typedef struct
+{
+	volatile long busy;
+	int stamp;              // of the job using it: the bone caches below are its
+	vec3_t verts[MAXSTUDIOVERTS];
+	vec3_t norms[MAXSTUDIOVERTS];
+	vec4_t lightpos[MAXSTUDIOVERTS][MAX_LOCALLIGHTS];
+	vec3_t lightvalues[MAXSTUDIOVERTS];
+	vec2_t chrome[MAXSTUDIOVERTS];
+	vec3_t lightbonepos[MAXSTUDIOBONES][MAX_LOCALLIGHTS];
+	int lightage[MAXSTUDIOBONES];
+	vec3_t chromeup[MAXSTUDIOBONES], chromeright[MAXSTUDIOBONES];
+	int chromeage[MAXSTUDIOBONES];
+	vec3_t arrayverts[MAXSTUDIOVERTS];
+	vec2_t arraycoord[MAXSTUDIOVERTS];
+	byte arraycolor[MAXSTUDIOVERTS][4];
+	unsigned short arrayelems[MAXSTUDIOVERTS * 6];
+} vk_studio_scratch_t;
+
+static struct
+{
+	vk_studio_job_t **jobs;   // this frame's, in order
+	int num_jobs, max_jobs;
+	vk_studio_scratch_t *scratch[VK_STUDIO_MAX_SCRATCH];
+	volatile long stamp;
+} vk_sjobs;
+
+#if defined( _MSC_VER )
+#include <intrin.h>
+static qboolean VK_AtomicSwap( volatile long *p, long from, long to ) { return _InterlockedCompareExchange( p, to, from ) == from; }
+static long VK_AtomicGet( volatile long *p ) { return _InterlockedOr( p, 0 ); }
+static void VK_AtomicSet( volatile long *p, long v ) { _InterlockedExchange( p, v ); }
+static long VK_AtomicAdd( volatile long *p, long v ) { return _InterlockedExchangeAdd( p, v ) + v; }
+#else
+static qboolean VK_AtomicSwap( volatile long *p, long from, long to ) { return __atomic_compare_exchange_n( p, &from, to, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE ); }
+static long VK_AtomicGet( volatile long *p ) { return __atomic_load_n( p, __ATOMIC_ACQUIRE ); }
+static void VK_AtomicSet( volatile long *p, long v ) { __atomic_store_n( p, v, __ATOMIC_RELEASE ); }
+static long VK_AtomicAdd( volatile long *p, long v ) { return __atomic_add_fetch( p, v, __ATOMIC_ACQ_REL ); }
+#endif
+
+// a scratch area no other thread uses
+static vk_studio_scratch_t *VK_StudioTakeScratch( void )
+{
+	for( ;; )
+	{
+		for( int i = 0; i < VK_STUDIO_MAX_SCRATCH; i++ )
+		{
+			vk_studio_scratch_t *sc = vk_sjobs.scratch[i];
+
+			if( sc && VK_AtomicSwap( &sc->busy, 0, 1 ))
+				return sc;
+		}
+	}
+}
+
+/*
+=================
+The job: R_StudioDrawPoints_'s vertices
+=================
+*/
+static void VK_StudioJobLightStrength( const vk_studio_job_t *job, vk_studio_scratch_t *sc, int bone, const vec3_t localpos, vec4_t light[MAX_LOCALLIGHTS] )
+{
+	if( sc->lightage[bone] != sc->stamp )
+	{
+		for( int i = 0; i < job->numlocallights; i++ )
+			Matrix3x4_VectorITransform( job->lights[bone], job->localorigin[i], sc->lightbonepos[bone][i] );
+
+		sc->lightage[bone] = sc->stamp;
+	}
+
+	for( int i = 0; i < job->numlocallights; i++ )
+	{
+		VectorSubtract( localpos, sc->lightbonepos[bone][i], light[i] );
+		light[i][3] = 0.0f;
+	}
+}
+
+static void VK_StudioJobChrome( const vk_studio_job_t *job, vk_studio_scratch_t *sc, float *pchrome, int bone, const vec3_t normal )
+{
+	if( sc->chromeage[bone] != sc->stamp )
+	{
+		vec3_t chromeupvec, chromerightvec, tmp;
+
+		VectorNegate( job->chrome_origin, tmp );
+		tmp[0] += job->lights[bone][0][3];
+		tmp[1] += job->lights[bone][1][3];
+		tmp[2] += job->lights[bone][2][3];
+
+		VectorNormalize( tmp );
+		CrossProduct( tmp, job->vright, chromeupvec );
+		VectorNormalize( chromeupvec );
+		CrossProduct( chromeupvec, tmp, chromerightvec );
+		VectorNormalize( chromerightvec );
+
+		Matrix3x4_VectorIRotate( job->lights[bone], chromeupvec, sc->chromeup[bone] );
+		Matrix3x4_VectorIRotate( job->lights[bone], chromerightvec, sc->chromeright[bone] );
+
+		sc->chromeage[bone] = sc->stamp;
+	}
+
+	float n = DotProduct( normal, sc->chromeright[bone] );
+	pchrome[0] = ( n + 1.0f ) * 32.0f;
+
+	n = DotProduct( normal, sc->chromeup[bone] );
+	pchrome[1] = ( n + 1.0f ) * 32.0f;
+}
+
+// R_StudioBuildIndices, into the scratch area
+static int VK_StudioJobIndices( vk_studio_scratch_t *sc, uint *numverts, uint *numelems, qboolean tri_strip, int vertexState )
+{
+	if( vertexState++ < 3 )
+		sc->arrayelems[( *numelems )++] = *numverts;
+	else if( tri_strip )
+	{
+		if( vertexState & 1 )
+		{
+			sc->arrayelems[( *numelems )++] = *numverts - 2;
+			sc->arrayelems[( *numelems )++] = *numverts - 1;
+			sc->arrayelems[( *numelems )++] = *numverts;
+		}
+		else
+		{
+			sc->arrayelems[( *numelems )++] = *numverts - 1;
+			sc->arrayelems[( *numelems )++] = *numverts - 2;
+			sc->arrayelems[( *numelems )++] = *numverts;
+		}
+	}
+	else
+	{
+		sc->arrayelems[( *numelems )++] = *numverts - ( vertexState - 1 );
+		sc->arrayelems[( *numelems )++] = *numverts - 1;
+		sc->arrayelems[( *numelems )++] = *numverts;
+	}
+
+	return vertexState;
+}
+
+// R_StudioBuildArray*Mesh of a mesh, numbered from 0
+static void VK_StudioJobArrays( const vk_studio_job_t *job, vk_studio_scratch_t *sc, const vk_studio_light_t *L,
+	const vk_studio_draw_t *d, vec3_t *pstudionorms )
+{
+	const short *ptricmds = d->tricmds;
+	const qboolean chrome = FBitSet( d->flags, STUDIO_NF_CHROME ), half = FBitSet( d->flags, STUDIO_NF_UV_COORDS );
+	uint numverts = 0, numelems = 0;
+	int i;
+
+	while(( i = *( ptricmds++ )))
+	{
+		int vertexState = 0;
+		qboolean tri_strip = true;
+
+		if( i < 0 )
+		{
+			tri_strip = false;
+			i = -i;
+		}
+
+		for( ; i > 0; i--, ptricmds += 4 )
+		{
+			byte *cl = sc->arraycolor[numverts];
+
+			vertexState = VK_StudioJobIndices( sc, &numverts, &numelems, tri_strip, vertexState );
+
+			// R_StudioSetColorArray
+			cl[3] = d->blend * 255;
+			R_LightLambertEx( L, sc->lightpos[ptricmds[0]], pstudionorms[ptricmds[1]], sc->lightvalues[ptricmds[1]], cl );
+
+			if( chrome )
+			{
+				sc->arraycoord[numverts][0] = sc->chrome[ptricmds[1]][0] * d->s;
+				sc->arraycoord[numverts][1] = sc->chrome[ptricmds[1]][1] * d->t;
+			}
+			else if( half )
+			{
+				sc->arraycoord[numverts][0] = HalfToFloat( ptricmds[2] );
+				sc->arraycoord[numverts][1] = HalfToFloat( ptricmds[3] );
+			}
+			else
+			{
+				sc->arraycoord[numverts][0] = ptricmds[2] * d->s;
+				sc->arraycoord[numverts][1] = ptricmds[3] * d->t;
+			}
+
+			VectorCopy( sc->verts[ptricmds[0]], sc->arrayverts[numverts] );
+			numverts++;
+		}
+	}
+}
+
+static void VK_StudioRunJob( vk_studio_job_t *job )
+{
+	vk_studio_scratch_t *sc = VK_StudioTakeScratch();
+	const studiohdr_t *hdr = job->hdr;
+	const mstudiomodel_t *sub = job->submodel;
+	const byte *pvertbone = (const byte *)hdr + sub->vertinfoindex;
+	const byte *pnormbone = (const byte *)hdr + sub->norminfoindex;
+	const mstudiomesh_t *pmesh = (const mstudiomesh_t *)((const byte *)hdr + sub->meshindex);
+	vec3_t *pstudioverts = (vec3_t *)((const byte *)hdr + sub->vertindex);
+	vec3_t *pstudionorms = (vec3_t *)((const byte *)hdr + sub->normindex);
+	vec3_t *normbase = pstudionorms;
+	const vk_studio_light_t L = {
+		.ambient = job->ambient, .shade = job->shade, .lightvec = job->lightvec,
+		.blightvec = (const vec3_t *)job->blightvec, .numlocallights = job->numlocallights,
+		.localcolor = (const int (*)[3])job->localcolor, .localR2 = job->localR2, .flip = job->flip,
+	};
+	int built = -1;
+
+	sc->stamp = (int)VK_AtomicAdd( &vk_sjobs.stamp, 1 );
+
+	// skinned vertices and their light positions
+	if( job->weights )
+	{
+		const mstudioboneweight_t *pvertweight = (const mstudioboneweight_t *)((const byte *)hdr + sub->blendvertinfoindex);
+		const mstudioboneweight_t *pnormweight = (const mstudioboneweight_t *)((const byte *)hdr + sub->blendnorminfoindex);
+		matrix3x4 skinMat;
+
+		for( int i = 0; i < sub->numverts; i++ )
+		{
+			R_StudioComputeSkinMatrix( (const matrix3x4 *)job->world, &pvertweight[i], skinMat );
+			Matrix3x4_VectorTransform( skinMat, pstudioverts[i], sc->verts[i] );
+			VK_StudioJobLightStrength( job, sc, pvertbone[i], pstudioverts[i], sc->lightpos[i] );
+		}
+
+		for( int i = 0; i < sub->numnorms; i++ )
+		{
+			R_StudioComputeSkinMatrix( (const matrix3x4 *)job->world, &pnormweight[i], skinMat );
+			Matrix3x4_VectorRotate( skinMat, pstudionorms[i], sc->norms[i] );
+		}
+	}
+	else
+	{
+		for( int i = 0; i < sub->numverts; i++ )
+			Matrix3x4_VectorTransform( job->bones[pvertbone[i]], pstudioverts[i], sc->verts[i] );
+
+		for( int i = 0; i < sub->numverts; i++ )
+			VK_StudioJobLightStrength( job, sc, pvertbone[i], pstudioverts[i], sc->lightpos[i] );
+	}
+
+	// the light of each normal, mesh by mesh in the model's order
+	for( int j = 0, k = 0; j < sub->nummesh; j++ )
+	{
+		const int flags = job->meshflags[j];
+
+		for( int i = 0; i < pmesh[j].numnorms; i++, k++, pstudionorms++, pnormbone++ )
+		{
+			if( job->transadd )
+			{
+				if( FBitSet( flags, STUDIO_NF_CHROME ))
+					VK_StudioJobChrome( job, sc, sc->chrome[k], *pnormbone, (float *)pstudionorms );
+				VectorSet( sc->lightvalues[k], job->blend, job->blend, job->blend );
+			}
+			else
+			{
+				float lv_tmp;
+
+				if( job->weights )
+					R_StudioLightingEx( &L, &lv_tmp, -1, flags, sc->norms[k] );
+				else R_StudioLightingEx( &L, &lv_tmp, *pnormbone, flags, (float *)pstudionorms );
+
+				if( FBitSet( flags, STUDIO_NF_CHROME ))
+					VK_StudioJobChrome( job, sc, sc->chrome[k], *pnormbone, (float *)pstudionorms );
+				VectorScale( job->lightcolor, lv_tmp, sc->lightvalues[k] );
+			}
+		}
+	}
+
+	// the draws, as VK_ImmVertex and VK_ImmAssemble make them
+	for( int c = 0; c < job->numchunks; c++ )
+	{
+		const vk_studio_chunk_t *chunk = &job->chunks[c];
+		const vk_studio_draw_t *d = &job->draw[chunk->mesh];
+		vk_imm_vertex_t *out = chunk->dst;
+
+		if( !out )
+			continue;
+
+		if( built != chunk->mesh )
+		{
+			VK_StudioJobArrays( job, sc, &L, d, normbase );
+			built = chunk->mesh;
+		}
+
+		for( int e = 0; e < chunk->count; e++ )
+		{
+			const uint v = sc->arrayelems[chunk->first + e];
+			vk_imm_vertex_t *vert = &out[e];
+
+			VectorCopy( sc->arrayverts[v], vert->position );
+			Vector2Set( vert->texcoord, sc->arraycoord[v][0], sc->arraycoord[v][1] );
+
+			if( d->white )
+				Vector4Set( vert->color, 1.0f, 1.0f, 1.0f, 1.0f );
+			else Vector4Set( vert->color, sc->arraycolor[v][0] * ( 1.0f / 255.0f ), sc->arraycolor[v][1] * ( 1.0f / 255.0f ),
+				sc->arraycolor[v][2] * ( 1.0f / 255.0f ), sc->arraycolor[v][3] * ( 1.0f / 255.0f ));
+		}
+
+		if( d->flat )
+		{
+			for( int e = 0; e + 2 < chunk->count; e += 3 )
+			{
+				Vector4Copy( out[e + 2].color, out[e + 0].color );
+				Vector4Copy( out[e + 2].color, out[e + 1].color );
+			}
+		}
+	}
+
+	VK_AtomicSet( &sc->busy, 0 );
+}
+
+// a worker, or the main thread, takes the job if nobody did
+static void VK_StudioJobWorker( void *data )
+{
+	vk_studio_job_t *job = data;
+
+	if( VK_AtomicSwap( &job->state, VK_SJOB_QUEUED, VK_SJOB_RUNNING ))
+	{
+		VK_StudioRunJob( job );
+		VK_AtomicSet( &job->state, VK_SJOB_DONE );
+	}
+}
+
+static void VK_StudioJobPlacedAll( vk_studio_job_t *job )
+{
+	VK_AtomicSet( &job->state, VK_SJOB_QUEUED );
+
+	// the queue is full: the join runs it
+	gEngfuncs.Job_Submit( VK_StudioJobWorker, NULL, job );
+}
+
+// a reserved range has its place in the ring (vk_imm.c, main thread)
+static void VK_StudioPlaced( void *owner, int index, vk_imm_vertex_t *dst )
+{
+	vk_studio_job_t *job = owner;
+
+	job->chunks[index].dst = dst;
+	if( --job->unplaced == 0 )
+		VK_StudioJobPlacedAll( job );
+}
+
+/*
+=================
+Main thread
+=================
+*/
+static vk_studio_job_t *VK_StudioNewJob( void )
+{
+	vk_studio_job_t *job;
+
+	// the scratch areas: one per thread that may run jobs
+	if( !vk_sjobs.scratch[0] )
+	{
+		for( int i = 0; i < VK_STUDIO_MAX_SCRATCH; i++ )
+			vk_sjobs.scratch[i] = Mem_Calloc( r_temppool, sizeof( vk_studio_scratch_t ));
+	}
+
+	if( vk_sjobs.num_jobs >= vk_sjobs.max_jobs )
+	{
+		const int max = Q_max( 64, vk_sjobs.max_jobs * 2 );
+
+		vk_sjobs.jobs = Mem_Realloc( r_temppool, vk_sjobs.jobs, max * sizeof( *vk_sjobs.jobs ));
+		for( int i = vk_sjobs.max_jobs; i < max; i++ )
+			vk_sjobs.jobs[i] = NULL;
+		vk_sjobs.max_jobs = max;
+	}
+
+	if( !vk_sjobs.jobs[vk_sjobs.num_jobs] )
+		vk_sjobs.jobs[vk_sjobs.num_jobs] = Mem_Malloc( r_temppool, sizeof( vk_studio_job_t ));
+
+	job = vk_sjobs.jobs[vk_sjobs.num_jobs++];
+	job->state = VK_SJOB_RESERVING;
+	job->unplaced = 1; // until every range is reserved
+	job->numdraws = job->numchunks = job->reserved = 0;
+	return job;
+}
+
+// the elements R_StudioBuildIndices makes of a mesh
+static int VK_StudioMeshElements( const short *ptricmds )
+{
+	int n = 0, i;
+
+	while(( i = *( ptricmds++ )))
+	{
+		if( i < 0 )
+			i = -i;
+
+		n += i >= 3 ? 3 * ( i - 2 ) : i;
+		ptricmds += 4 * i;
+	}
+
+	return n;
+}
+
+// R_StudioDrawArrays of a mesh: its draws, reserved
+static void VK_StudioReserveMesh( vk_studio_job_t *job, const short *ptricmds, float s, float t )
+{
+	const int total = VK_StudioMeshElements( ptricmds );
+	const int maxelems = VK_IMM_MAX_PRIMITIVE - VK_IMM_MAX_PRIMITIVE % 3;
+	vk_studio_draw_t *d;
+
+	if( job->numdraws >= MAXSTUDIOMESHES )
+		return;
+
+	d = &job->draw[job->numdraws];
+	d->tricmds = ptricmds;
+	d->flags = g_nFaceFlags;
+	d->s = s;
+	d->t = t;
+	d->blend = tr.blend;
+	VK_ImmVertexState( &d->white, &d->flat, d->color );
+
+	for( int first = 0; first < total && job->numchunks < VK_STUDIO_MAX_CHUNKS; first += maxelems )
+	{
+		const int len = Q_min( maxelems, total - first );
+		vk_studio_chunk_t *chunk = &job->chunks[job->numchunks];
+
+		// TRI_TRIANGLES: the elements past the last whole triangle are dropped
+		chunk->mesh = job->numdraws;
+		chunk->first = first;
+		chunk->count = len - len % 3;
+		chunk->dst = NULL;
+
+		if( VK_ImmReserveTriangles( chunk->count, VK_StudioPlaced, job, job->numchunks ))
+		{
+			job->unplaced++;
+			job->reserved++;
+		}
+
+		job->numchunks++;
+	}
+
+	job->numdraws++;
+}
+
+/*
+=================
+R_StudioDeferPoints
+
+R_StudioDrawPoints_ with the vertices made by a job
+=================
+*/
+static void R_StudioDeferPoints( void )
+{
+	qboolean need_sort = false;
+	vk_studio_job_t *job;
+
+	if( !m_pStudioHeader )
+		return;
+
+	job = VK_StudioNewJob();
+
+	int m_skinnum = RI.currententity->curstate.skin;
+	mstudiotexture_t *ptexture = (mstudiotexture_t *)((byte *)m_pStudioHeader + m_pStudioHeader->textureindex);
+	mstudiomesh_t *pmesh = (mstudiomesh_t *)((byte *)m_pStudioHeader + m_pSubModel->meshindex);
+	short *pskinref = (short *)((byte *)m_pStudioHeader + m_pStudioHeader->skinindex);
+
+	if( m_skinnum > 0 && m_skinnum < m_pStudioHeader->numskinfamilies )
+		pskinref += (m_skinnum * m_pStudioHeader->numskinref);
+
+	// what the vertices are made from
+	job->hdr = m_pStudioHeader;
+	job->submodel = m_pSubModel;
+	job->numbones = bound( 0, m_pStudioHeader->numbones, MAXSTUDIOBONES );
+	job->weights = FBitSet( m_pStudioHeader->flags, STUDIO_HAS_BONEWEIGHTS ) && m_pSubModel->blendvertinfoindex != 0 && m_pSubModel->blendnorminfoindex != 0;
+	memcpy( job->bones, g_studio.bonestransform, job->numbones * sizeof( matrix3x4 ));
+	memcpy( job->lights, g_studio.lighttransform, job->numbones * sizeof( matrix3x4 ));
+	if( job->weights )
+		memcpy( job->world, g_studio.worldtransform, job->numbones * sizeof( matrix3x4 ));
+
+	job->ambient = g_studio.ambientlight;
+	job->shade = g_studio.shadelight;
+	VectorCopy( g_studio.lightvec, job->lightvec );
+	VectorCopy( g_studio.lightcolor, job->lightcolor );
+	memcpy( job->blightvec, g_studio.blightvec, job->numbones * sizeof( vec3_t ));
+	job->numlocallights = g_studio.numlocallights;
+	for( int i = 0; i < g_studio.numlocallights; i++ )
+	{
+		VectorCopy( g_studio.locallight[i]->origin, job->localorigin[i] );
+		job->localcolor[i][0] = g_studio.locallightcolor[i][0];
+		job->localcolor[i][1] = g_studio.locallightcolor[i][1];
+		job->localcolor[i][2] = g_studio.locallightcolor[i][2];
+		job->localR2[i] = g_studio.locallightR2[i];
+	}
+	VectorCopy( g_studio.chrome_origin, job->chrome_origin );
+	VectorCopy( RI.vright, job->vright );
+	job->blend = tr.blend;
+	job->transadd = RI.currententity->curstate.rendermode == kRenderTransAdd;
+
+	for( int j = 0; j < m_pSubModel->nummesh; j++ )
+	{
+		g_nFaceFlags = ptexture[pskinref[pmesh[j].skinref]].flags | g_nForceFaceFlags;
+		job->meshflags[j] = g_nFaceFlags;
+
+		g_studio.meshes[j].flags = g_nFaceFlags;
+		g_studio.meshes[j].mesh = &pmesh[j];
+
+		if( FBitSet( g_nFaceFlags, STUDIO_NF_MASKED|STUDIO_NF_ADDITIVE ))
+			need_sort = true;
+	}
+
+	if( r_studio_sort_textures.value && need_sort )
+		qsort( g_studio.meshes, m_pSubModel->nummesh, sizeof( sortedmesh_t ), R_StudioMeshCompare );
+
+	// the same culling as R_StudioDrawPoints_, and the light of the flip
+	if( VK_ImmGetCull( ) != VK_CULL_MODE_NONE )
+	{
+		if( R_AllowFlipViewModel( RI.currententity ))
+		{
+			tr.fFlipViewModel = true;
+			VK_ImmCull( VK_CULL_MODE_NONE );
+		}
+		else
+		{
+			tr.fFlipViewModel = false;
+			VK_ImmCull( VK_CULL_MODE_FRONT_BIT );
+		}
+	}
+	job->flip = tr.fFlipViewModel;
+
+	for( int j = 0; j < m_pSubModel->nummesh; j++ )
+	{
+		float oldblend = tr.blend;
+
+		pmesh = g_studio.meshes[j].mesh;
+		short *ptricmds = (short *)((byte *)m_pStudioHeader + pmesh->triindex);
+
+		g_nFaceFlags = ptexture[pskinref[pmesh->skinref]].flags | g_nForceFaceFlags;
+
+		float s = 1.0f / (float)ptexture[pskinref[pmesh->skinref]].width;
+		float t = 1.0f / (float)ptexture[pskinref[pmesh->skinref]].height;
+
+		if( FBitSet( g_nFaceFlags, STUDIO_NF_MASKED ))
+		{
+			VK_ImmAlphaTestEnable( true );
+			VK_ImmAlphaFunc( 0.5f );
+			VK_ImmDepthMask( true );
+			if( R_ModelOpaque( RI.currententity->curstate.rendermode ))
+				tr.blend = 1.0f;
+		}
+		else if( FBitSet( g_nFaceFlags, STUDIO_NF_ADDITIVE ))
+		{
+			if( R_ModelOpaque( RI.currententity->curstate.rendermode ))
+			{
+				VK_ImmBlendFunc( VK_BLEND_ONE_ONE );
+				VK_ImmDepthMask( false );
+				VK_ImmBlendEnable( true );
+				R_AllowFog( false );
+			}
+			else VK_ImmBlendFunc( VK_BLEND_ADD );
+		}
+
+		R_StudioSetupSkin( m_pStudioHeader, pskinref[pmesh->skinref] );
+		VK_StudioReserveMesh( job, ptricmds, s, t );
+
+		if( FBitSet( g_nFaceFlags, STUDIO_NF_MASKED ))
+		{
+			VK_ImmAlphaFunc( DEFAULT_ALPHATEST );
+			VK_ImmAlphaTestEnable( false );
+		}
+		else if( FBitSet( g_nFaceFlags, STUDIO_NF_ADDITIVE ) && R_ModelOpaque( RI.currententity->curstate.rendermode ))
+		{
+			VK_ImmDepthMask( true );
+			VK_ImmBlendEnable( false );
+			R_AllowFog( true );
+		}
+
+		r_stats.c_studio_polys += pmesh->numtris;
+		tr.blend = oldblend;
+	}
+
+	// every range reserved: the job waits for the ones still in the batch
+	if( !job->reserved )
+		job->state = VK_SJOB_DONE; // nothing drawn
+	else if( --job->unplaced == 0 )
+		VK_StudioJobPlacedAll( job );
+}
+
+/*
+=================
+VK_StudioJoin
+
+the vertices of the frame are all made: before it is submitted
+=================
+*/
+void VK_StudioJoin( void )
+{
+	VK_ImmFlush(); // the last ranges get their place
+
+	for( int i = 0; i < vk_sjobs.num_jobs; i++ )
+	{
+		vk_studio_job_t *job = vk_sjobs.jobs[i];
+
+		VK_StudioJobWorker( job );
+
+		while( VK_AtomicGet( &job->state ) != VK_SJOB_DONE )
+			; // a worker is on it: microseconds
+	}
+
+	vk_sjobs.num_jobs = 0;
+}
+
+// r_vk_threads and what the deferred path can draw
+static qboolean R_StudioCanDefer( void )
+{
+	return r_vk_threads.value && r_studio_drawelements.value && !VK_RTCapturing( )
+		&& RI.currententity->curstate.renderfx != kRenderFxGlowShell && !FBitSet( g_nForceFaceFlags, STUDIO_NF_CHROME );
+}
+
+void VK_StudioShutdownJobs( void )
+{
+	VK_StudioJoin();
+
+	for( int i = 0; i < vk_sjobs.max_jobs; i++ )
+	{
+		if( vk_sjobs.jobs[i] )
+			Mem_Free( vk_sjobs.jobs[i] );
+	}
+
+	for( int i = 0; i < VK_STUDIO_MAX_SCRATCH; i++ )
+	{
+		if( vk_sjobs.scratch[i] )
+			Mem_Free( vk_sjobs.scratch[i] );
+	}
+
+	if( vk_sjobs.jobs )
+		Mem_Free( vk_sjobs.jobs );
+	memset( &vk_sjobs, 0, sizeof( vk_sjobs ));
+}
+
 static void R_StudioDrawPoints_( void );
 
 // the triangles drawn are captured for the ray traced scene, glow shells
@@ -1964,7 +2729,9 @@ static void R_StudioDrawPoints( void )
 	if( !FBitSet( g_nForceFaceFlags, STUDIO_NF_CHROME ))
 		VK_RTBeginStudio( RI.currententity, RI.currententity->model, RI.currententity == tr.viewent, g_studio.ambientlight, g_studio.shadelight );
 
-	R_StudioDrawPoints_();
+	if( R_StudioCanDefer( ))
+		R_StudioDeferPoints();
+	else R_StudioDrawPoints_();
 	VK_RTEndStudio();
 }
 
@@ -2002,14 +2769,14 @@ static void R_StudioDrawPoints_( void )
 
 		for( int i = 0; i < numverts; i++ )
 		{
-			R_StudioComputeSkinMatrix( &pvertweight[i], skinMat );
+			R_StudioComputeSkinMatrix( g_studio.worldtransform, &pvertweight[i], skinMat );
 			Matrix3x4_VectorTransform( skinMat, pstudioverts[i], g_studio.verts[i] );
 			R_LightStrength( pvertbone[i], pstudioverts[i], g_studio.lightpos[i] );
 		}
 
 		for( int i = 0; i < numnorms; i++ )
 		{
-			R_StudioComputeSkinMatrix( &pnormweight[i], skinMat );
+			R_StudioComputeSkinMatrix( g_studio.worldtransform, &pnormweight[i], skinMat );
 			Matrix3x4_VectorRotate( skinMat, pstudionorms[i], g_studio.norms[i] );
 		}
 	}

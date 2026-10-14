@@ -793,6 +793,7 @@ void VK_EndFrame( void )
 		return;
 
 	VK_ImmEndFrame();
+	VK_StudioJoin(); // the studio vertices the workers make (028)
 	VK_SetColorTarget( NULL, VK_TARGET_LDR ); // ends the pass
 	VK_FlushUploads(); // the frame may sample textures updated while it was recorded
 	VK_ProfileMark( frame->cmd, VK_PROF_PRESENT_COPY );

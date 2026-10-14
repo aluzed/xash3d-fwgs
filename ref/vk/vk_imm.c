@@ -26,6 +26,17 @@ GNU General Public License for more details.
  */
 
 #define VK_IMM_MAX_VERTICES 65536
+#define VK_IMM_MAX_PENDING  1024
+
+// a range of the batch whose vertices are written later, by a job of
+// vk_studio.c: told where they go in the dynamic ring when the batch flushes
+typedef struct
+{
+	int start, count;
+	vk_imm_placed_t placed;
+	void *owner;
+	int index;
+} vk_imm_pending_t;
 
 typedef struct
 {
@@ -88,6 +99,8 @@ static struct
 	vk_blend_t batch_blend;
 	vk_imm_push_t batch_push;
 	vk_imm_raster_t batch_raster;
+	vk_imm_pending_t pending[VK_IMM_MAX_PENDING];
+	int num_pending;
 } imm;
 
 /*
@@ -106,14 +119,21 @@ void VK_ImmFlush( void )
 		return;
 
 	cmd = VK_BeginMainPass();
+	dst = cmd ? VK_DynamicAlloc( imm.num_vertices * sizeof( vk_imm_vertex_t ), 16, &buffer, &offset ) : NULL;
+
+	// the ranges written later: where they go, or nowhere
+	for( int i = 0; i < imm.num_pending; i++ )
+	{
+		const vk_imm_pending_t *p = &imm.pending[i];
+		p->placed( p->owner, p->index, dst ? (vk_imm_vertex_t *)dst + p->start : NULL );
+	}
+	imm.num_pending = 0;
 
 	if( cmd == VK_NULL_HANDLE )
 	{
 		imm.num_vertices = 0;
 		return;
 	}
-
-	dst = VK_DynamicAlloc( imm.num_vertices * sizeof( vk_imm_vertex_t ), 16, &buffer, &offset );
 
 	if( dst )
 	{
@@ -149,15 +169,16 @@ static vk_blend_t VK_ImmBatchBlend( void )
 	return imm.blend ? imm.blend_func : VK_BLEND_NONE;
 }
 
-// queue count vertices of topology with the current state
-static void VK_ImmEmit( vk_topology_t topology, const vk_imm_vertex_t *verts, int count )
+// the batch takes count more vertices of topology with the current state,
+// flushed first when they can't join it; false when nothing is drawn
+static qboolean VK_ImmBatch( vk_topology_t topology, int count, vk_imm_push_t *out_push )
 {
 	vk_imm_push_t push = imm.push;
 	vk_blend_t blend = VK_ImmBatchBlend();
 	const vk_imm_raster_t *raster = imm.in2d ? &imm_raster_2d : &imm.raster;
 
 	if( count <= 0 || !VK_FrameRecording( ))
-		return;
+		return false;
 
 	push.texture = imm.texture_2d ? VK_TextureForDraw( imm.texture ) : VK_IMM_TEXTURE_NONE;
 	push.alpha_test = imm.alpha_test;
@@ -170,10 +191,24 @@ static void VK_ImmEmit( vk_topology_t topology, const vk_imm_vertex_t *verts, in
 		|| imm.num_vertices + count > VK_IMM_MAX_VERTICES ))
 		VK_ImmFlush();
 
+	if( imm.num_pending >= VK_IMM_MAX_PENDING )
+		VK_ImmFlush();
+
 	imm.batch_topology = topology;
 	imm.batch_blend = blend;
 	imm.batch_push = push;
 	imm.batch_raster = *raster;
+	*out_push = push;
+	return true;
+}
+
+// queue count vertices of topology with the current state
+static void VK_ImmEmit( vk_topology_t topology, const vk_imm_vertex_t *verts, int count )
+{
+	vk_imm_push_t push;
+
+	if( !VK_ImmBatch( topology, count, &push ))
+		return;
 
 	memcpy( &imm.vertices[imm.num_vertices], verts, count * sizeof( *verts ));
 	imm.num_vertices += count;
@@ -181,6 +216,36 @@ static void VK_ImmEmit( vk_topology_t topology, const vk_imm_vertex_t *verts, in
 	// studio models drawn now are part of the ray traced scene (vk_rt.c)
 	if( topology == VK_TOPOLOGY_TRIANGLES && !imm.in2d )
 		VK_RTCaptureTriangles( verts, count, push.texture, imm.alpha_test );
+}
+
+/*
+=================
+VK_ImmReserveTriangles
+
+count vertices of triangles drawn with the current state, as VK_ImmEmit
+would draw them, whose vertices are written later: placed( owner, index,
+dst ) tells where when the batch flushes (NULL: drawn nowhere). False
+when nothing is drawn, as VK_ImmEmit draws nothing.
+=================
+*/
+qboolean VK_ImmReserveTriangles( int count, vk_imm_placed_t placed, void *owner, int index )
+{
+	vk_imm_push_t push;
+
+	if( !VK_ImmBatch( VK_TOPOLOGY_TRIANGLES, count, &push ))
+		return false;
+
+	imm.pending[imm.num_pending++] = (vk_imm_pending_t){ imm.num_vertices, count, placed, owner, index };
+	imm.num_vertices += count;
+	return true;
+}
+
+// what a vertex of the current state is made of (VK_ImmVertex)
+void VK_ImmVertexState( qboolean *white, qboolean *flat, vec4_t color )
+{
+	*white = imm.tex_replace && imm.texture_2d && !imm.in2d;
+	*flat = imm.flat_shade;
+	Vector4Copy( imm.color, color );
 }
 
 /*

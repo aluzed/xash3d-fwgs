@@ -376,6 +376,13 @@ SHOT_SCENES = [
      "lines": ["wait 250"] + CS_SETUP + ["hud_draw 0", "r_drawviewmodel 0", "sv_novis 1",
                                          'r_vk_debug_view "-638 -300 -420 20 90"', "wait 150"] + RTFX_SHOTS
               + ['r_vk_debug_view ""']},
+    # the CPU time of a crowded frame (028): 31 YaPB bots at the T spawn,
+    # in view, classic look, then r_vk_threads 0 against the default
+    {"name": "cpu_bots_cstrike", "game": "cstrike", "map": "de_dust2",
+     "server": CS_SERVER + ["+maxplayers", "32", "+mp_freezetime", "60"],
+     "lines": ["wait 250"] + CS_SETUP + ["yb_quota 31", "sv_novis 1", 'r_vk_debug_view "-520 -780 250 18 185"', "wait 900",
+                                         "r_vk_gpu_profile 1", "r_vk_gpu_profile_reset", "wait 600", "r_vk_gpu_profile_print",
+                                         "shot crowd", "r_vk_gpu_profile 0", 'r_vk_debug_view ""']},
     # online (maxplayers 32), YaPB bots at the CT spawn: their shadows
     {"name": "rtfx_bots_cstrike", "game": "cstrike", "map": "de_dust2",
      "server": CS_SERVER + ["+maxplayers", "32", "+mp_freezetime", "60"],

@@ -56,6 +56,7 @@ static const char *vk_profile_names[VK_PROF_COUNT] =
 typedef struct
 {
 	byte marks[VK_PROFILE_MAX_MARKS];
+	double cpu[VK_PROFILE_MAX_MARKS]; // when the main thread recorded each mark
 	int num_marks;
 	qboolean recorded; // marks were written by this slot's last commands
 } vk_profile_frame_t;
@@ -74,6 +75,7 @@ static struct
 	vk_profile_frame_t frames[VK_FRAMES_IN_FLIGHT];
 	int current; // slot being recorded, -1 outside a profiled frame
 	vk_profile_stats_t fast, slow;
+	vk_profile_stats_t cpu; // the main thread's time between the marks
 	double max_total;
 } vk_prof = { .current = -1 };
 
@@ -81,6 +83,7 @@ static void VK_ProfileReset_f( void )
 {
 	memset( &vk_prof.fast, 0, sizeof( vk_prof.fast ));
 	memset( &vk_prof.slow, 0, sizeof( vk_prof.slow ));
+	memset( &vk_prof.cpu, 0, sizeof( vk_prof.cpu ));
 	vk_prof.max_total = 0.0;
 }
 
@@ -103,6 +106,7 @@ static void VK_ProfilePrint_f( void )
 	gEngfuncs.Con_Printf( "GPU profile, slow frames over %.2f ms, slowest %.3f ms\n", r_vk_gpu_profile_slow.value, vk_prof.max_total );
 	VK_ProfilePrintStats( "other frames", &vk_prof.fast );
 	VK_ProfilePrintStats( "slow frames", &vk_prof.slow );
+	VK_ProfilePrintStats( "CPU, main thread from mark to mark (the game's code included)", &vk_prof.cpu );
 }
 
 // before R_Init_Video, which executes vulkan.cfg
@@ -220,12 +224,26 @@ void VK_ProfileMark( VkCommandBuffer cmd, vk_profile_part_t part )
 
 	vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, vk_prof.pool,
 		vk_prof.current * VK_PROFILE_MAX_MARKS + frame->num_marks );
+	frame->cpu[frame->num_marks] = gEngfuncs.pfnTime();
 	frame->marks[frame->num_marks++] = part;
 }
 
 void VK_ProfileEndFrame( VkCommandBuffer cmd )
 {
+	vk_profile_frame_t *frame;
+
 	// closes the present copy; the part of the last mark never counts
 	VK_ProfileMark( cmd, VK_PROF_PRESENT_COPY );
+
+	if( vk_prof.current >= 0 && ( frame = &vk_prof.frames[vk_prof.current] )->num_marks >= 2 )
+	{
+		double parts[VK_PROF_COUNT] = { 0 };
+
+		for( int i = 0; i < frame->num_marks - 1; i++ )
+			parts[frame->marks[i]] += ( frame->cpu[i + 1] - frame->cpu[i] ) * 1000.0;
+
+		VK_ProfileAccumulate( &vk_prof.cpu, parts, ( frame->cpu[frame->num_marks - 1] - frame->cpu[0] ) * 1000.0 );
+	}
+
 	vk_prof.current = -1;
 }

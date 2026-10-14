@@ -65,6 +65,7 @@ Vulkan specific:
 | `r_vk_texture_budget` | `1024` | megabytes of GPU memory for streamed material maps |
 | `r_vk_texture_stream` | `1` | stream the mip levels of KTX2 material maps, 0 loads them whole |
 | `r_vk_texture_upload` | `512` | megabytes a second of streamed maps sent to the GPU |
+| `r_vk_threads` | `1` | make the vertices of studio models on the engine's worker threads, 0 on the main thread |
 | `r_vk_rt` | `0` | build acceleration structures of the scene every frame (ray tracing GPUs, no restart) |
 | `r_vk_rt_debug` | `0` | cheat: the scene traced from the camera, 1 albedo, 2 normals, 3 instances, 4 depth against the raster view (red where they differ), 5 albedo with the view model, 6 studio models only, red when online the rays leave them out |
 | `r_vk_debug_view` | `""` | cheat: `"x y z pitch yaw"`, the main view drawn from there (regression captures) |
@@ -80,6 +81,29 @@ copy); the profile prints the average and
 maximum of each part for the slow frames and for the others, also at
 renderer shutdown, e.g. after `-timedemo`. Off, it costs nothing and
 doesn't change a pixel; on, it only splits the draw batches at the marks.
+
+## Threads (`r_vk_threads`)
+
+The engine calls the renderer from its main thread, and the game's client
+library calls the studio and TriAPI functions in the middle of the frame:
+what it observes, and every draw in its order, stays there. The CPU work
+behind a studio model's draw goes to the engine's worker threads
+(`engine/common/jobs.c`): the main thread sets the draw state of each mesh
+and reserves its vertices in the immediate mode batch, copies the bones
+and lighting, and a job skins, lights and writes the vertices in the
+dynamic ring once the batch has given them a place. The frame waits for
+the jobs before it is submitted, running those no worker took: no frame
+of latency added.
+
+`r_vk_threads 0` makes them on the main thread, with the code of `ref_gl`;
+both draw the same pixels (the captures are identical). Glow shells,
+`r_studio_drawelements 0` and frames building the ray traced scene, which
+captures the vertices as they are drawn, stay on the main thread.
+
+With 31 bots in view (de_dust2, classic look), the main thread's time in
+the renderer goes from 1.55 to 1.00 ms a frame, the models' from 1.32 to
+0.81 ms (`r_vk_gpu_profile` prints the main thread's time between its
+marks too).
 
 ## Render graph
 
