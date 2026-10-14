@@ -331,3 +331,106 @@ void Job_WaitIdle( void )
 		Job_RunCompletions(); // may queue more
 	}
 }
+
+#if XASH_ENGINE_TESTS
+#include "tests.h"
+
+/*
+every job runs once, every done once and on the main thread, a done may
+submit more, a full queue refuses instead of losing jobs; run under
+ThreadSanitizer to check the locking
+*/
+#define TEST_JOBS 2000
+
+static struct
+{
+	int ran[TEST_JOBS * 2];  // written by the workers, each job its own slot
+	int done[TEST_JOBS * 2]; // main thread only
+	int done_count;
+	int resubmitted;
+	qboolean wrong_thread;
+	unsigned long main_thread;
+} job_test;
+
+static unsigned long Job_TestThreadId( void )
+{
+#if XASH_SDL == 2
+	return SDL_ThreadID();
+#elif !XASH_WIN32
+	return (unsigned long)pthread_self();
+#else
+	return GetCurrentThreadId();
+#endif
+}
+
+static void Job_TestRun( void *data )
+{
+	const int i = (int)(intptr_t)data;
+	volatile int sum = 0;
+
+	for( int k = 0; k < 1000; k++ )
+		sum += k * i;
+
+	job_test.ran[i]++;
+}
+
+static void Job_TestDone( void *data )
+{
+	const int i = (int)(intptr_t)data;
+
+	if( Job_TestThreadId() != job_test.main_thread )
+		job_test.wrong_thread = true;
+
+	job_test.done[i]++;
+	job_test.done_count++;
+
+	// some done functions queue more work
+	if( i < TEST_JOBS && ( i % 10 ) == 0 )
+	{
+		while( !Job_Submit( Job_TestRun, Job_TestDone, (void *)(intptr_t)( i + TEST_JOBS )))
+			Job_RunCompletions();
+		job_test.resubmitted++;
+	}
+}
+
+void Test_RunJobs( void )
+{
+	const qboolean was_initialized = jobs.initialized;
+	int refused = 0;
+
+	if( !was_initialized )
+		Job_Init();
+
+	memset( &job_test, 0, sizeof( job_test ));
+	job_test.main_thread = Job_TestThreadId();
+
+	for( int i = 0; i < TEST_JOBS; i++ )
+	{
+		// more jobs than the queue holds: refused, then room is made
+		while( !Job_Submit( Job_TestRun, Job_TestDone, (void *)(intptr_t)i ))
+		{
+			refused++;
+			Job_RunCompletions();
+		}
+	}
+
+	Job_WaitIdle();
+
+	TASSERT( job_test.done_count == TEST_JOBS + job_test.resubmitted );
+	TASSERT( job_test.resubmitted == TEST_JOBS / 10 );
+	TASSERT( !job_test.wrong_thread );
+
+	for( int i = 0; i < TEST_JOBS * 2; i++ )
+	{
+		const int expected = i < TEST_JOBS || ( i - TEST_JOBS ) % 10 == 0 ? 1 : 0;
+
+		TASSERT( job_test.ran[i] == expected );
+		TASSERT( job_test.done[i] == expected );
+	}
+
+	TASSERT( jobs.num_threads == 0 || refused > 0 ); // the queue filled up at least once
+
+	if( !was_initialized )
+		Job_Shutdown();
+}
+#endif // XASH_ENGINE_TESTS

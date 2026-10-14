@@ -315,7 +315,10 @@ int VK_MaterialAlbedo( int texnum )
 {
 	const vk_material_t *mat = VK_MaterialForTexture( texnum );
 
-	return mat && mat->albedo ? VK_MapTexture( mat->albedo ) : texnum;
+	const int albedo = mat ? VK_MapTexture( mat->albedo ) : 0;
+
+	// none, or a streamed one not read yet: the game texture
+	return albedo ? albedo : texnum;
 }
 
 // a stream changed texture: the materials buffer follows

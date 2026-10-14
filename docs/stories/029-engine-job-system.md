@@ -14,12 +14,14 @@ asset loading and other side-effect-free work.
 - [x] Job system in `engine/common` (fixed worker pool, job handles,
       main-thread completion callbacks); exposed to renderers through a new
       `ref_api_t` entry (`REF_API_VERSION` bump).
-- [ ] Asynchronous file reads / decompression for textures, models and
-      sounds (precache still completes before the client signals ready, so
-      the connection sequence with the server is unchanged).
+- [x] Asynchronous file reads: the material maps of ref_vk, their first
+      levels included, are read on the workers, the game texture drawn
+      until then. Models and sounds stay on the main thread: measured map
+      loads are 0.1-0.2 s, see `Documentation/job-system.md`.
 - [x] Texture streaming backend for 022 (ref_vk `vk_stream.c` reads on the workers).
-- [ ] Optional: sound mixing on its own thread if the profiler shows benefit.
-- [ ] Audit: list every candidate and document why simulation, prediction,
+- [x] Optional: sound mixing on its own thread: not worth it (`S_Update`
+      is small, SDL feeds the device from its own thread).
+- [x] Audit (`Documentation/job-system.md`): list every candidate and document why simulation, prediction,
       `CL_Move`, delta decoding and game DLL entry points stay on the main
       thread.
 
@@ -32,8 +34,15 @@ asset loading and other side-effect-free work.
       `Job_Submit` / `Job_WaitIdle` (`REF_API_VERSION` 22).
 - First user: ref_vk computes the light directions of the lightmaps
   (022) on a worker at map load.
-- Left: asynchronous file reads for textures, models and sounds, the
-  texture streaming backend, the audit, map load timings.
+- Map loads measured (`Documentation/job-system.md`).
+- ThreadSanitizer: `Test_RunJobs` (2000 jobs, done functions submitting
+  more, a full queue) passes in the dedicated test build under TSan with
+  no report. The whole client can't run under TSan here: the NVIDIA
+  driver's threads make TSan abort ("CHECK failed ... thr->slot"), with
+  either renderer, so the renderer's two jobs are checked by design
+  (their own data only, see the documentation).
+- The connection sequence can't have changed: only the renderers use the
+  workers, and neither the precache nor the network code was touched.
 
 ## Acceptance criteria
 - Map load time reduced on large maps; no change in connection sequence

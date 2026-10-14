@@ -275,7 +275,8 @@ SHOT_SCENES = [
     # directory (cstrike/materials/maps/de_dust2.bsp/*.mat)
     {"name": "materials_cstrike", "game": "cstrike", "map": "de_dust2",
      "server": CS_SERVER + ["+host_allow_materials", "2"],
-     "lines": ["wait 250"] + CS_SETUP + ["hud_draw 0", "r_drawviewmodel 0", "con_notifytime 0", "wait 150",
+     # the streamed maps settle before the first shot
+     "lines": ["wait 250"] + CS_SETUP + ["hud_draw 0", "r_drawviewmodel 0", "con_notifytime 0", "wait 1500",
                                          "r_vk_streaminfo all", "shot classic",
                                          "r_vk_quality enhanced"] + HDR_NONE + ["wait 10", "shot linear",
                                          "r_vk_tonemap 3", "r_vk_ssao 1", "r_vk_aa 2", "wait 60", "shot enhanced",

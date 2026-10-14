@@ -19,8 +19,8 @@ has dozens of them: they can't all stay on the GPU, nor be read at load
 time. The KTX2 maps of materials are read by this file instead of the
 engine image loader:
 
-- at load, only the levels up to VK_STREAM_BASE_SIZE are read, so the
-  texture shows at once, blurred;
+- at load, only the header is read; the levels up to VK_STREAM_BASE_SIZE
+  follow within a few frames, the game texture being drawn until then;
 - every frame, the draws say how many screen pixels a game texel covers
   where the material is seen (VK_StreamNoteUse), which gives the level
   each map needs;
@@ -73,6 +73,7 @@ typedef struct
 
 	int slots[2];        // texture numbers, the active one is sampled
 	int active;
+	qboolean has_image;  // the active slot holds a complete image
 	uint64_t swap_frame; // when the active slot last changed
 	int resident;        // first level of the active image
 	size_t bytes;        // of the active image
@@ -242,6 +243,7 @@ static void VK_StreamSetActive( vk_stream_t *st, int slot, int resident, size_t 
 		VK_StreamSlotRelease( st->slots[st->active] );
 
 	vk_str.total += bytes - st->bytes;
+	st->has_image = true;
 	st->active = slot;
 	st->resident = resident;
 	st->bytes = bytes;
@@ -526,13 +528,13 @@ VK_StreamOpen
 
 a streamed map for a material, 0 when the file can't be streamed (the
 caller loads it the usual way). Shared between materials naming the file.
+It has no texture until its first levels are read (VK_StreamTexture 0).
 =================
 */
 int VK_StreamOpen( const char *path )
 {
 	vk_stream_t *st = NULL;
 	file_t *f;
-	byte *data;
 
 	if( !vk.caps.texture_compression_bc )
 		return 0;
@@ -581,19 +583,10 @@ int VK_StreamOpen( const char *path )
 			st->base++;
 	}
 
-	data = Mem_Malloc( r_temppool, VK_StreamLevelsSize( st, st->base ));
-	st->resident = st->levels;
-
-	if( !VK_StreamReadLevels( st->offset, st->size, f, st->base, st->levels, data ) || !VK_StreamBuild( st, st->base, st->levels, data ))
-	{
-		Mem_Free( data );
-		gEngfuncs.fsapi->Close( f );
-		st->path[0] = 0;
-		return 0;
-	}
-
-	Mem_Free( data );
+	// nothing on the GPU yet: the small levels come like the others, read by
+	// a worker, and the game texture is drawn until then
 	gEngfuncs.fsapi->Close( f );
+	st->resident = st->levels;
 	st->refs = 1;
 	st->last_used = gEngfuncs.pfnTime();
 	return ( st - vk_str.list ) + 1;
@@ -621,7 +614,8 @@ void VK_StreamRelease( int handle )
 
 int VK_StreamTexture( int handle )
 {
-	if( handle <= 0 || handle > vk_str.count || !vk_str.list[handle - 1].refs )
+	// not read yet: the first image is being made in the active slot
+	if( handle <= 0 || handle > vk_str.count || !vk_str.list[handle - 1].refs || !vk_str.list[handle - 1].has_image )
 		return 0;
 
 	return vk_str.list[handle - 1].slots[vk_str.list[handle - 1].active];
