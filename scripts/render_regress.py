@@ -81,6 +81,35 @@ SCENES = [
      "server": CS_SERVER, "setup": CS_SETUP, "moves": WALK + TURN},
 ]
 
+# Static scenes: menus, console and HUD rendered without a demo. They run
+# with -fixedfps (every clock steps by 1/60 s per frame) and -fixedseed;
+# "shot <name>" lines take a screenshot. r_norefresh 1 skips the 3D view so
+# 2D can be compared before the world renders.
+SHOT_FIXED_FPS = "60"
+CONSOLE_TEXT = ["clear", "echo regression console test", "echo 0123456789 abcdefghijklmnopqrstuvwxyz",
+                "echo ABCDEFGHIJKLMNOPQRSTUVWXYZ !@#$%^&*()"]
+
+SHOT_SCENES = [
+    {"name": "ui_valve", "game": "valve", "map": None, "server": [],
+     "lines": ["wait 200", "shot menu"] + CONSOLE_TEXT + ["toggleconsole", "wait 100", "shot console"]},
+    {"name": "ui_cstrike", "game": "cstrike", "map": None, "server": [],
+     "lines": ["wait 200", "shot menu"]},
+    {"name": "hud_valve", "game": "valve", "map": "c2a5", "server": [],
+     "lines": ["gl_clear 1", "r_norefresh 1", "wait 100"] + HL_SETUP + ["wait 200", "shot hud"]},
+    {"name": "hud_cstrike", "game": "cstrike", "map": "de_dust2", "server": CS_SERVER,
+     "lines": ["gl_clear 1", "r_norefresh 1", "wait 250"] + CS_SETUP
+              + ["wait 150", "shot hud", "+showscores", "wait 30", "shot scores", "-showscores",
+                 "buy", "wait 60", "shot buymenu"]},
+]
+
+# Regions (x, y, width, height in 1280x720 pixels) ignored by compare. The
+# Half-Life menu banner animates with libc rand(), which other threads and
+# renderer code also consume: it differs between two runs of the same
+# renderer.
+COMPARE_MASKS = {
+    "ui_valve_menu.png": [(0, 90, 1280, 210)],
+}
+
 LOAD_FRAMES = 250   # frames waited for the map load and the player spawn
 SETUP_FRAMES = 150  # recorded frames given to the setup commands to settle
 SETUP_FRAMES = 150  # recorded frames given to the setup commands to settle
@@ -166,13 +195,28 @@ def png_write(path, width, height, rgb):
         f.write(chunk(b"IEND", b""))
 
 
-def compare_images(path_a, path_b, heatmap_path):
+def apply_masks(width, height, data, masks):
+    """Black out the masked regions of an RGB buffer."""
+    if not masks:
+        return data
+    data = bytearray(data)
+    for x, y, w, h in masks:
+        for row in range(max(y, 0), min(y + h, height)):
+            start = (row * width + max(x, 0)) * 3
+            end = (row * width + min(x + w, width)) * 3
+            data[start:end] = bytes(end - start)
+    return bytes(data)
+
+
+def compare_images(path_a, path_b, heatmap_path, masks=None):
     """Return the PSNR in dB (inf when identical) and write a diff heatmap."""
     wa, ha, a = png_read(path_a)
     wb, hb, b = png_read(path_b)
     if (wa, ha) != (wb, hb):
         raise ValueError(f"size mismatch: {path_a} {wa}x{ha}, "
                          f"{path_b} {wb}x{hb}")
+    a = apply_masks(wa, ha, a, masks)
+    b = apply_masks(wb, hb, b, masks)
     if a == b:
         png_write(heatmap_path, wa, ha, bytes(len(a)))
         return math.inf
@@ -204,6 +248,7 @@ class Engine:
         self.steam = os.path.abspath(args.steam)
         self.data = os.path.abspath(args.data)
         self.exe = os.path.join(self.dev_root, "xash3d")
+        self.extra_args = getattr(args, "engine_arg", None) or []
         if not os.path.isfile(self.exe):
             sys.exit(f"engine not found: {self.exe} "
                      "(run scripts/dev/build-amd64.sh)")
@@ -211,8 +256,12 @@ class Engine:
     def gamedir(self, game):
         return os.path.join(self.dev_root, game)
 
-    def run(self, game, ref, engine_args, log_name):
-        """Run the engine, keep its output in data/logs, restore configs."""
+    def run(self, game, ref, engine_args, log_name, hide_logo=False):
+        """Run the engine, keep its output in data/logs, restore configs.
+
+        hide_logo puts an empty media/logo.avi in the writable game dir: the
+        animated menu logo is a video whose decoding isn't deterministic,
+        and failing to open it is the only way to turn it off."""
         # a missing renderer makes the engine wait on a modal error dialog
         lib = os.path.join(self.dev_root, f"libref_{ref}.so")
         if not os.path.isfile(lib):
@@ -224,9 +273,15 @@ class Engine:
             if name.endswith(".cfg") and os.path.isfile(path):
                 with open(path, "rb") as f:
                     saved[path] = f.read()
+        logo = os.path.join(gamedir, "media", "logo.avi")
+        logo_created = False
+        if hide_logo and not os.path.exists(logo):
+            os.makedirs(os.path.dirname(logo), exist_ok=True)
+            open(logo, "wb").close()
+            logo_created = True
         cmd = [self.exe, "-rodir", self.steam, "-game", game,
                "-windowed", "-width", str(WIDTH), "-height", str(HEIGHT),
-               "-ref", ref, "-dev", "1"] + engine_args
+               "-ref", ref, "-dev", "1"] + self.extra_args + engine_args
         env = dict(os.environ, XASH3D_BASEDIR=self.dev_root)
         os.makedirs(os.path.join(self.data, "logs"), exist_ok=True)
         log_path = os.path.join(self.data, "logs", log_name + ".log")
@@ -240,6 +295,8 @@ class Engine:
             output = (e.stdout or b"").decode("utf-8", "replace")
             output += f"\n*** killed after {RUN_TIMEOUT} s\n"
         finally:
+            if logo_created:
+                os.remove(logo)
             for path, content in saved.items():
                 with open(path, "wb") as f:
                     f.write(content)
@@ -366,7 +423,39 @@ def cmd_capture(args):
             written += 1
         shutil.rmtree(shot_dir, ignore_errors=True)
         print(f"  {written}/{len(frames)} images")
+    if not args.scenes:
+        capture_shots(engine, args, out_dir, label)
     print(f"captures in {out_dir}")
+
+
+def capture_shots(engine, args, out_dir, label):
+    for scene in SHOT_SCENES:
+        shot_dir = os.path.join(engine.gamedir(scene["game"]), "regress_shots")
+        shutil.rmtree(shot_dir, ignore_errors=True)
+        lines = ["developer 0"]
+        expected = 0
+        for line in scene["lines"]:
+            if line.startswith("shot "):
+                lines.append(f"screenshot regress_shots/{scene['name']}_{line[5:]}.png")
+                lines.append("wait 2")
+                expected += 1
+            else:
+                lines.append(line)
+        lines += (args.set or []) + ["quit"]
+        engine.write_cfg(scene["game"], "regress_shots.cfg", lines)
+        print(f"capturing {scene['name']} with ref_{args.ref} ...", flush=True)
+        run_args = ["-fixedfps", SHOT_FIXED_FPS, "-fixedseed"] + scene["server"]
+        if scene["map"]:
+            run_args += ["+map", scene["map"]]
+        engine.run(scene["game"], args.ref, run_args + ["+exec", "regress_shots.cfg"],
+                   f"shots_{label}_{scene['name']}", hide_logo=True)
+        written = 0
+        if os.path.isdir(shot_dir):
+            for name in sorted(os.listdir(shot_dir)):
+                shutil.move(os.path.join(shot_dir, name), os.path.join(out_dir, name))
+                written += 1
+        shutil.rmtree(shot_dir, ignore_errors=True)
+        print(f"  {written}/{expected} images")
 
 
 def cmd_bench(args):
@@ -421,7 +510,8 @@ def cmd_compare(args):
             failures += 1
             continue
         psnr = compare_images(path_a, path_b,
-                              os.path.join(report, "diff", name))
+                              os.path.join(report, "diff", name),
+                              COMPARE_MASKS.get(name))
         ok = psnr >= args.threshold
         failures += not ok
         rows.append((name, psnr, "ok" if ok else "DIFFERENT"))
@@ -495,6 +585,9 @@ def main():
     p = sub.add_parser("capture", help="capture frames with a renderer")
     p.add_argument("--ref", default="gl", help="renderer (gl, vk, ...)")
     p.add_argument("--label", help="capture set name (default: --ref)")
+    p.add_argument("--engine-arg", action="append", metavar="ARG",
+                   help="extra engine command line argument, e.g. "
+                        "--engine-arg=-vkvalidation (repeatable)")
     p.add_argument("--set", action="append", metavar="COMMAND",
                    help="extra console command run before the capture, "
                         "e.g. --set 'r_dynamic 0' (repeatable)")

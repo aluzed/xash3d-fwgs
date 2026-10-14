@@ -120,6 +120,12 @@ python3 -I scripts/render_regress.py compare gl vk       # PSNR + HTML report
 python3 -I scripts/render_regress.py bench --ref gl      # timedemo FPS
 ```
 
+Besides the demos, `capture` renders static scenes (menus, console, HUD
+with `r_norefresh 1`, CS scoreboard and buy menu) with `-fixedfps 60`,
+which makes every engine clock advance by a fixed step per frame.
+`--engine-arg=-vkvalidation` passes extra engine arguments, for example to
+run every capture under the validation layer.
+
 How it stays deterministic:
 
 - scenes are demos recorded from scripted camera moves (HL c1a0, c2a5,
