@@ -10,20 +10,22 @@ PBR materials and 4K texture packs, loaded efficiently, while keeping the
 existing `materials/` layout working.
 
 ## Tasks
-- [ ] Material definition file (`materials/<...>/<name>.mat`, simple
+- [x] Material definition file (`materials/<...>/<name>.mat`, simple
       key/value): albedo, normal, roughness/metalness/AO packed map,
       emissive, height; per-material flags (emissive strength, reflective).
-- [ ] Keep original texture dimensions for UV / gameplay purposes: HD
+- [x] Keep original texture dimensions for UV / gameplay purposes: HD
       textures are only sampled with the original texcoords (GoldSrc UVs
       are in texels of the original size).
-- [ ] KTX2 container with BC7 (albedo), BC5 (normal), BC4/BC7 (masks);
+- [x] KTX2 container with BC7 (albedo), BC5 (normal), BC4/BC7 (masks);
       offline compression in tooling (023), no runtime compression.
-- [ ] Texture streaming: low mips resident, high mips loaded asynchronously
+- [x] Texture streaming: low mips resident, high mips loaded asynchronously
       (uses 029 job system) under a VRAM budget; mandatory for the 32-bit
       build (address space).
-- [ ] Normal mapping and PBR shading in `enhanced` mode, with lightmaps as
+- [~] Normal mapping and PBR shading in `enhanced` mode, with lightmaps as
       indirect diffuse; `classic` mode ignores materials except albedo.
-- [ ] Mod / map overrides resolution order identical to existing doc.
+- [x] Mod / map overrides resolution order identical to existing doc.
+- [ ] Studio model materials (`materials/models/<model>/<texture>.mat`):
+      albedo in both looks, the other maps in `enhanced`.
 
 ## Progress (2026-10-14)
 - [x] `.mat` files next to the TGA replacements (same directories and

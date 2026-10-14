@@ -70,6 +70,7 @@ the regression harness shows no new diff outside the story's scope.
 | 030 | [Customizable crosshair: rendering (Counter-Strike)](030-crosshair-rendering.md) | 8 - Game UI |
 | 031 | [Customizable crosshair: options page with live preview](031-crosshair-options-menu.md) | 8 - Game UI |
 | 032 | [Customizable crosshair: presets and share codes](032-crosshair-presets-and-sharing.md) | 8 - Game UI |
+| 033 | [Valve's current Counter-Strike client library on Xash3D](033-original-cs-client.md) | 0 - Foundation |
 
 Phases 0 to 5 deliver a renderer that is a drop-in replacement for `ref_gl`.
 Phases 6 and 7 can be developed in parallel once phase 5 is signed off.

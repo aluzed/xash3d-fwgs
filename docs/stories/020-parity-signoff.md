@@ -1,8 +1,9 @@
 # 020 - Parity sign-off and making `ref_vk` selectable
 
 ## Tasks
-- [ ] Full regression harness pass with `ref_vk` vs `ref_gl`; triage every
-      diff (fixed, or accepted with justification).
+- [x] Full regression harness pass with `ref_vk` vs `ref_gl`; triage every
+      diff (fixed, or accepted with justification): 69/69 above 40 dB,
+      remaining gaps in `Documentation/ref-vk.md`.
 - [ ] Full HL campaign playthrough (save/load, changelevel) and CS session:
       listen server, Xash dedicated server, stock HLDS/ReHLDS server.
 - [~] Performance: `timedemo` at least equal to `ref_gl` on the reference
@@ -30,6 +31,10 @@
   above 40 dB before them.
 - Left to do with the user: HL campaign and CS sessions on real servers,
   2 h of online play, an integrated GPU.
+- [ ] With the user, by hand: the crosshair options and presets pages and
+      the video options "Rendering quality" with a real mouse; the
+      `r_vk_quality enhanced` exposure cap on a multiplayer server (it
+      may darken a view, never brighten it).
 
 ## Acceptance criteria
 - Zero validation errors over a full playthrough.

@@ -14,7 +14,7 @@ Correct and fast world rendering in motion.
       to lit surfaces as GoldSrc does. Option `r_vk_dlight_classic 1` to
       reproduce the lightmap-blocky look.
 - [x] `R_LightPoint` stays CPU-side (gameplay/visual compat, used by models).
-- [ ] `r_drawworld`, `r_novis`, `r_lockpvs`, `r_speeds` debug cvars.
+- [x] `r_drawworld`, `r_novis`, `r_lockpvs`, `r_speeds` debug cvars.
 
 ## Acceptance criteria
 - Walking through HL chapter 1 and `de_dust2`: no missing or flickering

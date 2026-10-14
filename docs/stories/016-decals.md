@@ -6,7 +6,8 @@
       clipped against surfaces), so save/restore and changelevel decal
       lists stay compatible.
 - [x] Decals on brush entities and studio models (`R_StudioDecalShoot`).
-- [ ] Player sprays (custom logos, `tempdecal.wad`) via texture updates.
+- [x] Player sprays (custom logos, `tempdecal.wad`) via texture updates
+      (harness scene `wateralpha_valve`).
 - [x] Depth bias instead of polygon offset; ring-limited count like GoldSrc
       (`r_decals`).
 

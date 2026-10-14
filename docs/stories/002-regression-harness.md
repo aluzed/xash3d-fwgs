@@ -28,9 +28,9 @@ Out: CI integration on GitHub (local only for now).
       an HTML report with per-image PSNR and diff heatmaps.
 - [x] Store reference images outside the repository (they contain Valve
       assets); the script takes their path as argument (`--data`).
-- [ ] `timedemo` performance report (avg / 1 % low FPS) for both renderers.
-      Average FPS done (`bench`); 1 % low needs per-frame times from the
-      engine, still to do.
+- [x] `timedemo` performance report (avg / 1 % low FPS) for both renderers:
+      `bench`, with the 1 % / 0.1 % lows and slowest frame the engine now
+      prints after `timedemo` (loading frames left out).
 
 ## Acceptance criteria
 - One command produces the reference set with `ref_gl`.

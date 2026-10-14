@@ -7,7 +7,7 @@ Screenshots, envshots, level shots and GoldSrc-accurate gamma.
 - [x] `VID_ScreenShot` (normal, snapshot, levelshot, minishot, envshot,
       skyshot) via copy from the main colour target to a host buffer.
       envshot / skyshot go through `VID_CubemapShot`.
-- [ ] `VID_CubemapShot` for `envmap` / `skyshot`.
+- [x] `VID_CubemapShot` for `envmap` / `skyshot` (harness scene `cubemap_valve`).
 - [x] Gamma pipeline: `gamma`, `brightness`, `lightgamma`, `texgamma`
       applied as GoldSrc does (lightmaps and textures), not as a swapchain
       gamma ramp, so screenshots match the screen. As in ref_gl: textures

@@ -19,7 +19,7 @@ honour every callback exactly; bone setup is driven by the client DLL.
 - [x] View model: separate depth range / FOV (`viewmodel_fov`-like
       behaviour as `ref_gl`), drawn after world.
 - [x] Glow shells (`kRenderFxGlowShell`), player shadows if `ref_gl` has them.
-- [ ] Studio decals.
+- [x] Studio decals (`R_StudioDecalShoot`, see 016).
 
 ## Acceptance criteria
 - HL scientists, barney, weapons; CS player models with team skins, hostages,

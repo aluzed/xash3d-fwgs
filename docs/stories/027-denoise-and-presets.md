@@ -7,6 +7,8 @@
       signal (shadows, AO, reflections, GI).
 - [ ] Temporal upscaling: built-in TAA-U; optional FSR / DLSS integration if
       licensing and SDKs allow (decision recorded here).
+- [ ] A light `enhanced` preset for integrated GPUs (half size bloom
+      start, SSAO off or quarter size, FXAA), measured there.
 - [ ] Presets `low / medium / high / ultra` and per-feature cvars exposed in
       the video options menu.
 

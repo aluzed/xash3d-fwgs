@@ -11,13 +11,13 @@ A small job system shared by engine and renderer, used for asynchronous
 asset loading and other side-effect-free work.
 
 ## Tasks
-- [ ] Job system in `engine/common` (fixed worker pool, job handles,
+- [x] Job system in `engine/common` (fixed worker pool, job handles,
       main-thread completion callbacks); exposed to renderers through a new
       `ref_api_t` entry (`REF_API_VERSION` bump).
 - [ ] Asynchronous file reads / decompression for textures, models and
       sounds (precache still completes before the client signals ready, so
       the connection sequence with the server is unchanged).
-- [ ] Texture streaming backend for 022.
+- [x] Texture streaming backend for 022 (ref_vk `vk_stream.c` reads on the workers).
 - [ ] Optional: sound mixing on its own thread if the profiler shows benefit.
 - [ ] Audit: list every candidate and document why simulation, prediction,
       `CL_Move`, delta decoding and game DLL entry points stay on the main
