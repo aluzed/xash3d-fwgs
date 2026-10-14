@@ -387,6 +387,7 @@ typedef struct
 	float viewplanedist;
 	matrix4x4 projectionMatrix;
 	matrix4x4 worldviewMatrix;
+	matrix4x4 worldviewProjectionMatrix;
 	matrix4x4 objectMatrix;
 	cl_entity_t *currententity;
 	model_t *currentmodel;
@@ -491,6 +492,9 @@ void VK_ShutdownWorld( void );
 void VK_WorldBeginFrame( void );
 void VK_ComputeMVP( float out[16], const matrix4x4 modelview );
 qboolean R_CullModel( const cl_entity_t *e, const vec3_t absmin, const vec3_t absmax );
+int R_WorldToScreen( const vec3_t point, vec3_t screen );
+void R_ScreenToWorld( const vec3_t screen, vec3_t point );
+int TriWorldToScreen( const float *world, float *screen );
 void R_AllowFog( qboolean allowed );
 int R_GetEntityRenderMode( cl_entity_t *ent );
 void R_NewMap( void );
@@ -508,6 +512,12 @@ void R_PopScene( void );
 void R_ClearScene( void );
 qboolean R_AddEntity( struct cl_entity_s *clent, int type );
 int CL_FxBlend( cl_entity_t *e );
+
+//
+// vk_sprite.c
+//
+void R_SpriteInit( void );
+void R_DrawSpriteModel( cl_entity_t *e );
 
 //
 // vk_studio.c

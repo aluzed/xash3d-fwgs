@@ -43,6 +43,7 @@ static qboolean R_Init( void )
 	VK_InitImm();
 	VK_InitWorld();
 	R_StudioInit();
+	R_SpriteInit();
 
 	// the engine falls back to the next renderer when this fails
 	if( !gEngfuncs.R_Init_Video( REF_VULKAN ))
@@ -169,13 +170,6 @@ static void R_EndFrame( void )
 static void R_ClearScreen( void )
 {
 	VK_ClearScreen();
-}
-
-static int WorldToScreen( const vec3_t world, vec3_t screen )
-{
-	VK_STUB();
-	VectorClear( screen );
-	return 0;
 }
 
 static qboolean VID_ScreenShot( const char *filename, int shot_type )
@@ -448,15 +442,27 @@ static void TriFog( float flFogColor[3], float flStart, float flEnd, int bOn )
 
 static void TriScreenToWorld( const float *screen, float *world )
 {
-	VK_STUB();
-	VectorClear( world );
+	R_ScreenToWorld( screen, world );
 }
 
+// glGetFloatv of the scene matrices, the ones the client sees from its
+// triangle callbacks
 static void TriGetMatrix( const int pname, float *matrix )
 {
-	VK_STUB();
-	memset( matrix, 0, 16 * sizeof( *matrix ));
-	matrix[0] = matrix[5] = matrix[10] = matrix[15] = 1.0f;
+	switch( pname )
+	{
+	case 0x0BA6: // GL_MODELVIEW_MATRIX
+		Matrix4x4_ToArrayFloatGL( RI.worldviewMatrix, matrix );
+		break;
+	case 0x0BA7: // GL_PROJECTION_MATRIX
+		Matrix4x4_ToArrayFloatGL( RI.projectionMatrix, matrix );
+		break;
+	default:
+		VK_STUB();
+		memset( matrix, 0, 16 * sizeof( *matrix ));
+		matrix[0] = matrix[5] = matrix[10] = matrix[15] = 1.0f;
+		break;
+	}
 }
 
 static void TriFogParams( float flDensity, int iFogSkybox )
@@ -511,7 +517,7 @@ const ref_interface_t gReffuncs =
 	.R_Set2DOffset    = R_Set2DOffset,
 	.R_DrawStretchPic = R_DrawStretchPic,
 	.FillRGBA         = FillRGBA,
-	.WorldToScreen    = WorldToScreen,
+	.WorldToScreen    = R_WorldToScreen,
 
 	.VID_ScreenShot  = VID_ScreenShot,
 	.VID_CubemapShot = VID_CubemapShot,

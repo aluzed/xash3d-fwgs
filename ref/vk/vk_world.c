@@ -241,6 +241,63 @@ qboolean R_CullModel( const cl_entity_t *e, const vec3_t absmin, const vec3_t ab
 	return VK_FrustumCullBox( &RI.frustum, absmin, absmax, 0 );
 }
 
+// gl_rmain.c: returns true when the point is behind the view
+int R_WorldToScreen( const vec3_t point, vec3_t screen )
+{
+	if( !point || !screen )
+		return true;
+
+	matrix4x4 worldToScreen;
+	Matrix4x4_Copy( worldToScreen, RI.worldviewProjectionMatrix );
+	screen[0] = worldToScreen[0][0] * point[0] + worldToScreen[0][1] * point[1] + worldToScreen[0][2] * point[2] + worldToScreen[0][3];
+	screen[1] = worldToScreen[1][0] * point[0] + worldToScreen[1][1] * point[1] + worldToScreen[1][2] * point[2] + worldToScreen[1][3];
+	float w = worldToScreen[3][0] * point[0] + worldToScreen[3][1] * point[1] + worldToScreen[3][2] * point[2] + worldToScreen[3][3];
+	screen[2] = 0.0f; // just so we have something valid here
+
+	qboolean behind;
+	if( w < 0.001f )
+	{
+		behind = true;
+	}
+	else
+	{
+		float invw = 1.0f / w;
+		screen[0] *= invw;
+		screen[1] *= invw;
+		behind = false;
+	}
+
+	return behind;
+}
+
+void R_ScreenToWorld( const vec3_t screen, vec3_t point )
+{
+	if( !point || !screen )
+		return;
+
+	matrix4x4 screenToWorld;
+	Matrix4x4_Invert_Full( screenToWorld, RI.worldviewProjectionMatrix );
+
+	point[0] = screen[0] * screenToWorld[0][0] + screen[1] * screenToWorld[0][1] + screen[2] * screenToWorld[0][2] + screenToWorld[0][3];
+	point[1] = screen[0] * screenToWorld[1][0] + screen[1] * screenToWorld[1][1] + screen[2] * screenToWorld[1][2] + screenToWorld[1][3];
+	point[2] = screen[0] * screenToWorld[2][0] + screen[1] * screenToWorld[2][1] + screen[2] * screenToWorld[2][2] + screenToWorld[2][3];
+	float w = screen[0] * screenToWorld[3][0] + screen[1] * screenToWorld[3][1] + screen[2] * screenToWorld[3][2] + screenToWorld[3][3];
+	if( w != 0.0f ) VectorScale( point, ( 1.0f / w ), point );
+}
+
+// gl_triapi.c: viewport pixels
+int TriWorldToScreen( const float *world, float *screen )
+{
+	int retval = R_WorldToScreen( world, screen );
+
+	screen[0] =  0.5f * screen[0] * (float)RI.rvp.viewport[2];
+	screen[1] = -0.5f * screen[1] * (float)RI.rvp.viewport[3];
+	screen[0] += 0.5f * (float)RI.rvp.viewport[2];
+	screen[1] += 0.5f * (float)RI.rvp.viewport[3];
+
+	return retval;
+}
+
 // fog comes with story 015
 void R_AllowFog( qboolean allowed )
 {
@@ -2038,6 +2095,8 @@ static void R_DrawWaterSurfaces( VkCommandBuffer cmd )
 	if( !FBitSet( RI.rvp.flags, RF_DRAW_WORLD ) || FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ) || !vk_num_alpha_water )
 		return;
 
+	VK_ImmFlush();
+
 	// restore worldmodel
 	RI.currententity = CL_GetEntityByIndex( 0 );
 	RI.currentmodel = RI.currententity->model;
@@ -2431,6 +2490,11 @@ static void R_DrawBrushModel( VkCommandBuffer cmd, cl_entity_t *e )
 	if( !FBitSet( RI.rvp.flags, RF_DRAW_WORLD ))
 		return;
 
+	// studio models and sprites drawn before stay before, and leave their
+	// own vertex buffer bound
+	VK_ImmFlush();
+	VK_BindBrushGeometry( cmd );
+
 	// models from another bsp aren't in the world buffers
 	if( clmodel->surfaces != WORLDMODEL->surfaces )
 	{
@@ -2560,7 +2624,15 @@ static void R_DrawEntitiesOnList( VkCommandBuffer cmd )
 		}
 	}
 
-	// sprites: story 018
+	// draw sprites seperately, because of alpha blending
+	for( uint i = 0; i < tr.draw_list->num_solid_entities && !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ); i++ )
+	{
+		RI.currententity = tr.draw_list->solid_entities[i];
+		RI.currentmodel = RI.currententity->model;
+
+		if( RI.currentmodel && RI.currentmodel->type == mod_sprite )
+			R_DrawSpriteModel( RI.currententity );
+	}
 
 	if( !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ))
 		gEngfuncs.CL_DrawEFX( frametime, false );
@@ -2592,8 +2664,10 @@ static void R_DrawEntitiesOnList( VkCommandBuffer cmd )
 			VK_ImmFlush(); // keep the draw order with the brush entities
 			VK_BindBrushGeometry( cmd );
 			break;
+		case mod_sprite:
+			R_DrawSpriteModel( RI.currententity );
+			break;
 		default:
-			VK_STUB(); // sprites: story 018
 			break;
 		}
 	}
@@ -2636,6 +2710,7 @@ static void R_RenderScene( void )
 
 	R_SetupModelviewMatrix( RI.worldviewMatrix );
 	R_SetupProjectionMatrix( RI.projectionMatrix );
+	Matrix4x4_Concat( RI.worldviewProjectionMatrix, RI.projectionMatrix, RI.worldviewMatrix );
 
 	// R_SetupGL: viewport in GL window coordinates, scaled to the target
 	{
