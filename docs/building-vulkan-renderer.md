@@ -121,8 +121,10 @@ python3 -I scripts/render_regress.py bench --ref gl      # timedemo FPS
 ```
 
 Besides the demos, `capture` renders static scenes (menus, console, HUD
-with `r_norefresh 1`, CS scoreboard and buy menu) with `-fixedfps 60`,
-which makes every engine clock advance by a fixed step per frame.
+with `r_norefresh 1`, CS scoreboard and buy menu, the c2a2a pool for the
+water warp) with `-fixedfps 60`, which makes every engine clock advance
+by a fixed step per frame. Scene names, demo or static, select what to
+capture: `capture --ref vk hl_c1a0 water_valve`.
 `--engine-arg=-vkvalidation` passes extra engine arguments, for example to
 run every capture under the validation layer.
 
@@ -143,6 +145,10 @@ Two `ref_gl` runs produce bit-identical images. `compare` exits non-zero
 when an image falls under the PSNR threshold (40 dB by default). The
 `--set 'cvar value'` option of `capture` adds console commands, which is
 handy to bisect a difference (for example `--set 'r_dynamic 0'`).
+
+A capture that changes between two runs of the same build points at
+uninitialized memory rather than at the renderer logic: compare a few
+runs of one scene before bisecting.
 
 The engine rewrites the game's `.cfg` files on exit; the harness restores
 them after every run, so it never changes the player's settings.

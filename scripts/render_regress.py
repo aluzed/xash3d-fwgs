@@ -103,6 +103,10 @@ SHOT_SCENES = [
      "lines": ["wait 200", "shot menu"]},
     {"name": "hud_valve", "game": "valve", "map": "c2a5", "server": [],
      "lines": ["gl_clear 1", "r_norefresh 1", "wait 100"] + HL_SETUP + ["wait 200", "shot hud"]},
+    # c2a2a starts at the edge of a pool: world water (turbulent warp)
+    {"name": "water_valve", "game": "valve", "map": "c2a2a", "server": [],
+     "lines": ["wait 200"] + HL_SETUP + ["r_drawviewmodel 0", "hud_draw 0", "+lookdown", "wait 25", "-lookdown",
+                                         "wait 60", "shot pool"]},
     {"name": "hud_cstrike", "game": "cstrike", "map": "de_dust2", "server": CS_SERVER,
      "lines": ["gl_clear 1", "r_norefresh 1", "wait 250"] + CS_SETUP
               + ["wait 150", "shot hud", "+showscores", "wait 30", "shot scores", "-showscores",
@@ -118,7 +122,6 @@ COMPARE_MASKS = {
 }
 
 LOAD_FRAMES = 250   # frames waited for the map load and the player spawn
-SETUP_FRAMES = 150  # recorded frames given to the setup commands to settle
 SETUP_FRAMES = 150  # recorded frames given to the setup commands to settle
 
 
@@ -330,15 +333,18 @@ class Engine:
                                       "regress_" + scene["name"] + ".dem"))
 
 
-def select_scenes(names):
+def select_scenes(names, shots=False):
+    """Demo scenes (or static shot scenes) named on the command line, all
+    of them when none is named."""
+    pool = SHOT_SCENES if shots else SCENES
     if not names:
-        return SCENES
-    by_name = {s["name"]: s for s in SCENES}
-    unknown = [n for n in names if n not in by_name]
+        return pool
+    known = {s["name"] for s in SCENES + SHOT_SCENES}
+    unknown = [n for n in names if n not in known]
     if unknown:
         sys.exit("unknown scene(s): " + ", ".join(unknown) +
-                 "\navailable: " + ", ".join(by_name))
-    return [by_name[n] for n in names]
+                 "\navailable: " + ", ".join(sorted(known)))
+    return [s for s in pool if s["name"] in names]
 
 
 def load_manifest(engine):
@@ -430,13 +436,12 @@ def cmd_capture(args):
             written += 1
         shutil.rmtree(shot_dir, ignore_errors=True)
         print(f"  {written}/{len(frames)} images")
-    if not args.scenes:
-        capture_shots(engine, args, out_dir, label)
+    capture_shots(engine, args, out_dir, label)
     print(f"captures in {out_dir}")
 
 
 def capture_shots(engine, args, out_dir, label):
-    for scene in SHOT_SCENES:
+    for scene in select_scenes(args.scenes, shots=True):
         shot_dir = os.path.join(engine.gamedir(scene["game"]), "regress_shots")
         shutil.rmtree(shot_dir, ignore_errors=True)
         lines = RENDER_DEFAULTS + ["developer 0"]
