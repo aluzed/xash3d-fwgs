@@ -103,7 +103,18 @@ SHOT_SCENES = [
      "lines": ["wait 200", "shot menu"]},
     {"name": "hud_valve", "game": "valve", "map": "c2a5", "server": [],
      "lines": ["gl_clear 1", "r_norefresh 1", "wait 100"] + HL_SETUP + ["wait 200", "shot hud"]},
-    # firing: muzzle flash sprites, shell and smoke effects
+    # customizable crosshair (cs16-client xhair_*), over a black screen
+    {"name": "crosshair_cstrike", "game": "cstrike", "map": "de_dust2", "server": CS_SERVER,
+     "lines": ["gl_clear 1", "r_norefresh 1", "wait 250"] + CS_SETUP
+              + ["wait 150", "cl_dynamiccrosshair 0", "shot classic",
+                 "xhair_enable 1", "xhair_gap 1.5", "xhair_size 4.25", "xhair_thick 0.75", "xhair_color \"0 255 0 255\"",
+                 "wait 30", "shot cross",
+                 "xhair_t 1", "xhair_dot 1", "xhair_dot_size 1.25", "wait 30", "shot tdot",
+                 "xhair_t 0", "xhair_dot 0", "xhair_style 1", "xhair_gap 3.5", "xhair_thick 0.6", "xhair_pad 1.5",
+                 "xhair_pad_color \"0 0 0 200\"", "wait 30", "shot circle",
+                 "xhair_style 0", "xhair_gap 2", "xhair_thick 1", "xhair_pad 1", "xhair_pad_color \"255 0 255\"",
+                 "xhair_aa 0", "wait 30", "shot outline"]},
+
     {"name": "fire_cstrike", "game": "cstrike", "map": "de_dust2", "server": CS_SERVER,
      "lines": ["wait 250"] + CS_SETUP + ["wait 150", "hud_draw 0", "+attack", "wait 3", "shot first",
                                           "wait 4", "shot burst", "-attack", "wait 20", "shot after"]},
