@@ -37,16 +37,19 @@ static qboolean R_Init( void )
 
 	r_temppool = Mem_AllocPool( "ref_vk temp" );
 
-	// the engine falls back to the next renderer when this fails
-	if( !gEngfuncs.R_Init_Video( REF_VULKAN ))
-	{
-		Mem_FreePool( &r_temppool );
-		return false;
-	}
-
+	// every cvar before R_Init_Video: it executes vulkan.cfg, which would
+	// otherwise create them as plain user cvars and break the registration
 	VK_InitTextures();
 	VK_InitImm();
 	VK_InitWorld();
+
+	// the engine falls back to the next renderer when this fails
+	if( !gEngfuncs.R_Init_Video( REF_VULKAN ))
+	{
+		VK_ShutdownTextures();
+		Mem_FreePool( &r_temppool );
+		return false;
+	}
 
 	if( !VK_InitCore( ) || !VK_InitMemory( ) || !VK_InitFrames( ) || !VK_InitPipelines( ))
 	{
@@ -103,10 +106,11 @@ static intptr_t RefGetParm( int parm, int arg )
 	case PARM_GL_CONTEXT_TYPE:
 		// no GL context: RenderAPI users must not issue GL calls
 		return CONTEXT_TYPE_SOFTWARE;
-	case PARM_TEX_GLFORMAT:
-	case PARM_TEX_TARGET:
 	case PARM_TEX_SKYBOX:
 	case PARM_TEX_SKYTEXNUM:
+		return VK_SkyParm( parm, arg );
+	case PARM_TEX_GLFORMAT:
+	case PARM_TEX_TARGET:
 	case PARM_TEX_LIGHTMAP:
 	case PARM_ACTIVE_TMU:
 	case PARM_REBUILD_GAMMA:
@@ -172,11 +176,6 @@ static qboolean R_AddEntity( struct cl_entity_s *clent, int type )
 	return true;
 }
 
-static void R_SetupSky( int *skytextures )
-{
-	VK_STUB();
-}
-
 static int WorldToScreen( const vec3_t world, vec3_t screen )
 {
 	VK_STUB();
@@ -236,11 +235,6 @@ static qboolean R_StudioFillAPI( struct engine_studio_api_s *api, struct r_studi
 }
 
 static void R_StudioSetDrawInterface( struct r_studio_interface_s *pDraw )
-{
-	VK_STUB();
-}
-
-static void R_SetSkyCloudsTextures( int solidskyTexture, int alphaskyTexture )
 {
 	VK_STUB();
 }
