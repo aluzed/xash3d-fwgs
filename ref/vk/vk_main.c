@@ -46,6 +46,7 @@ static qboolean R_Init( void )
 	R_SpriteInit();
 	R_DecalInit();
 	VK_RegisterFogCvars();
+	VK_RegisterProfileCvars();
 	R_ClearDecals();
 
 	// the engine falls back to the next renderer when this fails
@@ -69,6 +70,7 @@ static qboolean R_Init( void )
 		return false;
 	}
 
+	VK_InitProfile();
 	VK_CreateInitialSwapchain();
 
 	return true;
@@ -76,6 +78,7 @@ static qboolean R_Init( void )
 
 static void R_Shutdown( void )
 {
+	VK_ShutdownProfile();
 	VK_ShutdownWorld();
 	VK_ShutdownTextures();
 	VK_ShutdownFog();

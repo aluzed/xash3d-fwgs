@@ -2845,6 +2845,7 @@ static void R_DrawEntitiesOnList( VkCommandBuffer cmd )
 	const double frametime = tr.frametime;
 
 	tr.blend = 1.0f;
+	VK_ProfileMark( cmd, VK_PROF_SOLID );
 	VK_BindBrushGeometry( cmd );
 
 	for( uint i = 0; i < tr.draw_list->num_solid_entities && !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ); i++ )
@@ -2870,6 +2871,8 @@ static void R_DrawEntitiesOnList( VkCommandBuffer cmd )
 		}
 	}
 
+	VK_ProfileMark( cmd, VK_PROF_EFFECTS );
+
 	// draw sprites seperately, because of alpha blending
 	for( uint i = 0; i < tr.draw_list->num_solid_entities && !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ); i++ )
 	{
@@ -2891,6 +2894,7 @@ static void R_DrawEntitiesOnList( VkCommandBuffer cmd )
 	// entities and viewmodel drawn below.
 	R_DrawFog();
 
+	VK_ProfileMark( cmd, VK_PROF_TRANSLUCENT );
 	VK_BindBrushGeometry( cmd );
 
 	for( uint i = 0; i < tr.draw_list->num_trans_entities && !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ); i++ )
@@ -2938,6 +2942,7 @@ static void R_DrawEntitiesOnList( VkCommandBuffer cmd )
 
 	VK_ImmBlendEnable( false ); // Trinity Render issues
 
+	VK_ProfileMark( cmd, VK_PROF_VIEWMODEL );
 	if( !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ))
 		R_DrawViewModel();
 	gEngfuncs.CL_ExtraUpdate();
@@ -3006,14 +3011,17 @@ static void R_RenderScene( void )
 	{
 		R_MarkLeaves();
 		R_DrawFog();
+		VK_ProfileMark( cmd, VK_PROF_WORLD );
 		R_DrawWorld( cmd );
 		R_CheckFog();
 		R_DrawEntitiesOnList( cmd );
+		VK_ProfileMark( cmd, VK_PROF_WATER );
 		R_DrawWaterSurfaces( cmd );
 	}
 
 	VK_ImmSet3D( false );
 	VK_ResetViewport();
+	VK_ProfileMark( cmd, VK_PROF_2D ); // until the next view, if any
 }
 
 void GL_RenderFrame( const struct ref_viewpass_s *rvp )

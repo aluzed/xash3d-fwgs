@@ -694,6 +694,7 @@ void VK_BeginFrame( qboolean clear_scene )
 	vk_frame.in_pass = false;
 
 	VK_BeginLabel( frame->cmd, "frame" );
+	VK_ProfileBeginFrame( frame->cmd, vk_frame.frame_index );
 
 	// ref_gl only clears on request, the previous frame stays otherwise;
 	// a new target has no contents yet and is always cleared
@@ -740,6 +741,7 @@ void VK_EndFrame( void )
 	VK_ImmEndFrame();
 	VK_EndMainPass();
 	VK_FlushUploads(); // the frame may sample textures updated while it was recorded
+	VK_ProfileMark( frame->cmd, VK_PROF_PRESENT_COPY );
 
 	vk_frame.recording = false;
 	target = sc->images[vk_frame.image_index];
@@ -763,6 +765,7 @@ void VK_EndFrame( void )
 	VK_EndLabel( frame->cmd );
 
 	VK_EndLabel( frame->cmd ); // frame
+	VK_ProfileEndFrame( frame->cmd );
 	vkEndCommandBuffer( frame->cmd );
 
 	VkSemaphoreSubmitInfo wait = {

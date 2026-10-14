@@ -113,6 +113,11 @@ GNU General Public License for more details.
 	X( vkCmdClearColorImage ) \
 	X( vkCmdClearDepthStencilImage ) \
 	X( vkCmdBlitImage ) \
+	X( vkCreateQueryPool ) \
+	X( vkDestroyQueryPool ) \
+	X( vkGetQueryPoolResults ) \
+	X( vkCmdResetQueryPool ) \
+	X( vkCmdWriteTimestamp ) \
 	X( vkCmdCopyImageToBuffer ) \
 	X( vkCmdCopyBufferToImage ) \
 	X( vkCmdBeginRendering ) \
@@ -358,6 +363,30 @@ void VK_CreateInitialSwapchain( void );
 void VK_ResetViewport( void );
 void VK_ClearMainDepth( void );
 qboolean VK_ReadPixels( int x, int y, int w, int h, byte *rgba );
+
+//
+// vk_profile.c: GPU time of each part of the frame (r_vk_gpu_profile)
+//
+typedef enum
+{
+	VK_PROF_FRAME_START = 0, // clears and uploads before the scene
+	VK_PROF_WORLD,
+	VK_PROF_SOLID,
+	VK_PROF_EFFECTS,         // solid sprites, client effects, normal triangles
+	VK_PROF_TRANSLUCENT,
+	VK_PROF_VIEWMODEL,
+	VK_PROF_WATER,
+	VK_PROF_2D,
+	VK_PROF_PRESENT_COPY,
+	VK_PROF_COUNT
+} vk_profile_part_t;
+
+void VK_RegisterProfileCvars( void );
+void VK_InitProfile( void );
+void VK_ShutdownProfile( void );
+void VK_ProfileBeginFrame( VkCommandBuffer cmd, int slot );
+void VK_ProfileMark( VkCommandBuffer cmd, vk_profile_part_t part );
+void VK_ProfileEndFrame( VkCommandBuffer cmd );
 qboolean VK_CubemapShot( const char *base, uint size, const float *vieworg, qboolean skyshot );
 qboolean VK_ScreenShot( const char *filename, int shot_type );
 qboolean VK_FrameRecording( void );

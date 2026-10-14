@@ -59,8 +59,17 @@ Vulkan specific:
 | `r_vk_validation` | `0`     | enable the validation layer (restart); `-vkvalidation` as well |
 | `r_vk_dynamic_mb` | `8`     | size of each per-frame dynamic vertex ring, grows on overflow  |
 | `r_vk_log_stubs`  | `0`     | log every unimplemented call once                              |
+| `r_vk_gpu_profile` | `0`    | GPU time of each part of the frame (timestamps)                |
+| `r_vk_gpu_profile_slow` | `0.35` | GPU frame time (ms) above which the profile counts a frame as slow |
 
-Commands: `r_vk_meminfo` (GPU memory usage), `texturelist`.
+Commands: `r_vk_meminfo` (GPU memory usage), `texturelist`,
+`r_vk_gpu_profile_print` and `r_vk_gpu_profile_reset`. With
+`r_vk_gpu_profile 1`, the frame writes a timestamp when it enters each
+part (frame start, world, solid entities, effects, translucent, view
+model, water, 2D, present copy); the profile prints the average and
+maximum of each part for the slow frames and for the others, also at
+renderer shutdown, e.g. after `-timedemo`. Off, it costs nothing and
+doesn't change a pixel; on, it only splits the draw batches at the marks.
 
 ## Performance
 
@@ -83,20 +92,15 @@ changes, `long_de_dust2`, 3 runs):
 
 No frame of play takes more than 6.5 ms with either renderer. On
 de_dust2 the 1 % low of ref_vk is below ref_gl's although its average is
-higher. What is known (RTX 2080 Ti shared with a desktop, a terminal and
-CUDA services):
-
-- the slow frames wait on the frame fence; GPU timestamps show about one
-  frame in five taking 0.4-1.3 ms instead of under 0.2 ms, every ~2 ms
-  whatever the view, with no upload in those frames;
-- unchanged with 3, 4 or 5 frames in flight, with 2 more swapchain
-  images, with IMMEDIATE instead of MAILBOX;
-- with `r_norefresh 1` the GPU frames stay short, yet fence waits of
-  about 1 ms remain while the GPU work of the frame is under 0.25 ms: the
-  GPU is busy elsewhere or slow to pick the work up.
-
-A 1 % low of 700 fps is 1.4 ms frames, far from anything visible; the
-next step is the same measure on an otherwise idle GPU.
+higher. `r_vk_gpu_profile` shows where: about one frame in five, the copy
+of the frame into the swapchain image takes 0.3-1.2 ms instead of 0.04 ms,
+every ~2 ms whatever the view. The copy waits for the image the window
+system gives back: X11 takes the presented images at its own pace, under
+the 2000 frames per second of a timedemo. The same with no other program
+on the GPU, in borderless and fullscreen windows, with 3-5 frames in
+flight, 2 more swapchain images, IMMEDIATE or MAILBOX. It only shows above
+some 1500 frames per second; the 1 % low of 650-730 fps it leaves is
+1.5 ms frames.
 
 ## Differences with ref_gl and known issues
 
