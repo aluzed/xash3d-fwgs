@@ -107,6 +107,11 @@ SHOT_SCENES = [
     {"name": "fire_cstrike", "game": "cstrike", "map": "de_dust2", "server": CS_SERVER,
      "lines": ["wait 250"] + CS_SETUP + ["wait 150", "hud_draw 0", "+attack", "wait 3", "shot first",
                                           "wait 4", "shot burst", "-attack", "wait 20", "shot after"]},
+    # egon and gauss beams
+    {"name": "beams_valve", "game": "valve", "map": "c2a5", "server": [],
+     "lines": ["wait 200"] + HL_SETUP + ["wait 30", "hud_draw 0", "weapon_egon", "wait 60", "+attack", "wait 30",
+                                         "shot egon", "-attack", "wait 30", "weapon_gauss", "wait 60",
+                                         "+attack", "wait 5", "-attack", "wait 2", "shot gauss"]},
     # c2a2a starts at the edge of a pool: world water (turbulent warp)
     {"name": "water_valve", "game": "valve", "map": "c2a2a", "server": [],
      "lines": ["wait 200"] + HL_SETUP + ["r_drawviewmodel 0", "hud_draw 0", "+lookdown", "wait 25", "-lookdown",
