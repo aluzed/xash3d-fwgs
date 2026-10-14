@@ -1394,6 +1394,9 @@ int VK_DefaultTexture( void )
 
 int VK_TextureForDraw( int texnum )
 {
+	// a material's albedo replaces the game texture wherever it's drawn
+	texnum = VK_MaterialAlbedo( texnum );
+
 	if( texnum <= 0 || texnum >= VK_MAX_TEXTURES || !vk_textures[texnum].view )
 		texnum = vk_tex.defaultTexture;
 

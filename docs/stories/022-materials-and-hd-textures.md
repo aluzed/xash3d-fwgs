@@ -21,11 +21,13 @@ existing `materials/` layout working.
 - [x] Texture streaming: low mips resident, high mips loaded asynchronously
       (uses 029 job system) under a VRAM budget; mandatory for the 32-bit
       build (address space).
-- [~] Normal mapping and PBR shading in `enhanced` mode, with lightmaps as
+- [x] Normal mapping and PBR shading in `enhanced` mode, with lightmaps as
       indirect diffuse; `classic` mode ignores materials except albedo.
 - [x] Mod / map overrides resolution order identical to existing doc.
-- [ ] Studio model materials (`materials/models/<model>/<texture>.mat`):
-      albedo in both looks, the other maps in `enhanced`.
+- [x] Studio model materials (`materials/models/<model>/<texture>.mat`):
+      the albedo in both looks, streamed with the model's distance. Their
+      normal, rma and emissive maps need the vertex normals in the shader:
+      they come with GPU skinning (017).
 
 ## Progress (2026-10-14)
 - [x] `.mat` files next to the TGA replacements (same directories and

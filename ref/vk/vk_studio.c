@@ -1494,6 +1494,16 @@ static void R_StudioSetupSkin( studiohdr_t *ptexturehdr, int index )
 	if( r_lightmap->value && !r_fullbright->value )
 		GL_Bind( XASH_TEXTURE0, VK_WhiteTexture( ) );
 	else GL_Bind( XASH_TEXTURE0, ptexture[index].index );
+
+	// the streamed maps of its material grow with how close the model is,
+	// a model texel taken as a world unit
+	if( VK_MaterialIndex( ptexture[index].index ))
+	{
+		const float dist = Q_max( VectorDistance( RI.currententity->origin, RI.rvp.vieworigin ), 8.0f );
+		const float pixels_per_unit = RI.rvp.viewport[2] / ( 2.0f * dist * tanf( RI.rvp.fov_x * M_PI_F / 360.0f ));
+
+		VK_MaterialNoteUse( ptexture[index].index, pixels_per_unit, ptexture[index].width );
+	}
 }
 
 /*
@@ -3457,6 +3467,11 @@ static void R_StudioLoadTexture( model_t *mod, studiohdr_t *phdr, mstudiotexture
 		// duplicate texnum for easy acess
 		tx->gl_texturenum = ptexture->index;
 	}
+
+	// materials/models/<model>/<texture>.mat, next to the TGA replacements;
+	// colormaps (player colours) are recoloured from their pixels, they keep theirs
+	if( ptexture->index != VK_DefaultTexture( ) && !FBitSet( ptexture->flags, STUDIO_NF_COLORMAP ))
+		VK_FindMaterial( ptexture->index, mdlname, name, false, flags );
 }
 
 /*

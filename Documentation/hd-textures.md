@@ -63,8 +63,13 @@ engine reads works: TGA, PNG, DDS, and KTX2 holding BC4, BC5 (normal maps),
 BC6H or BC7 blocks with their mip levels. The maps are sampled with the
 original texture coordinates, so they can have any size.
 
-The albedo replaces the game texture in both looks. The other maps are
-only used with `r_vk_quality enhanced`, on world surfaces for now: the
+Studio models look for `materials/models/<model>/<texture>.mat` (the
+model name without `.mdl`, the texture name without extension), except
+the textures recoloured with the player colours.
+
+The albedo replaces the game texture in both looks, wherever it's drawn.
+The other maps are only used with `r_vk_quality enhanced`, on world
+surfaces for now: the
 normal map and the occlusion change the lightmap, the material adds the
 specular reflection of the main light and the emission. GoldSrc lightmaps
 don't say where the light comes from, so `ref_vk` works it out at map load

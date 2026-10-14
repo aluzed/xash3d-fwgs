@@ -10,7 +10,9 @@ honour every callback exactly; bone setup is driven by the client DLL.
       used by client DLLs (setup bones, draw points, lighting, chrome,
       remap colours, `StudioSetRenderamt`, `StudioSetupLighting` etc.).
 - [ ] GPU skinning: bone matrices to a per-frame storage buffer, vertex
-      shader skinning; CPU fallback path kept for debugging.
+      shader skinning; CPU fallback path kept for debugging. With it, the
+      normal, rma and emissive maps of model materials (022) in
+      `enhanced`, lit by the model's light vector.
 - [x] Studio flags: chrome, flatshade, fullbright, additive, masked,
       `STUDIO_NF_*`; player top/bottom colour remap; `r_fullbright`
       remains cheat-protected.
