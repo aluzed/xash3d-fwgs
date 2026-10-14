@@ -578,6 +578,7 @@ void V_PostRender( void )
 		S_ExtraUpdate();
 	}
 
+	CL_DemoCaptureFrame();
 	SCR_MakeScreenShot();
 	ref.dllFuncs.R_AllowFog( true );
 	Platform_SetTimer( 0.0f );

@@ -754,6 +754,7 @@ qboolean CL_IsIntermission( void );
 qboolean CL_DisableVisibility( void );
 qboolean CL_IsRecordDemo( void );
 qboolean CL_IsPlaybackDemo( void );
+double CL_DemoCaptureFrametime( void );
 qboolean UI_CreditsActive( void );
 void *UI_GetMenuFactory( void );
 int CL_GetMaxClients( void );
@@ -765,6 +766,7 @@ static inline qboolean CL_IsIntermission( void ) { return false; }
 static inline qboolean CL_DisableVisibility( void ) { return false; }
 static inline qboolean CL_IsRecordDemo( void ) { return false; }
 static inline qboolean CL_IsPlaybackDemo( void ) { return false; }
+static inline double CL_DemoCaptureFrametime( void ) { return 0.0; }
 static inline qboolean UI_CreditsActive( void ) { return false; }
 static inline void *UI_GetMenuFactory( void ) { return NULL; }
 static inline int CL_GetMaxClients( void ) { return SV_GetMaxClients(); }

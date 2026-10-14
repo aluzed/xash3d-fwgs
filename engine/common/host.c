@@ -647,6 +647,11 @@ static qboolean Host_FilterTime( double time )
 	else
 		host.frametime = bound( MIN_FRAMETIME, host.frametime, MAX_FRAMETIME );
 
+	// regression captures replay the demo with a fixed time step
+	double capture_frametime = CL_DemoCaptureFrametime();
+	if( capture_frametime > 0.0 )
+		host.frametime = capture_frametime;
+
 	return true;
 }
 

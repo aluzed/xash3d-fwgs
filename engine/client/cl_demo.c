@@ -520,6 +520,91 @@ static void CL_StopRecord( void )
 	cls.demotime = 0.0;
 }
 
+static CVAR_DEFINE_AUTO( demo_capture_frames, "", 0, "timedemo frame numbers to save as screenshots, e.g. \"100 250 400\"" );
+static CVAR_DEFINE_AUTO( demo_capture_dir, "regress", 0, "directory where demo_capture_frames screenshots are written" );
+
+/*
+=================
+CL_InitDemoCapture
+=================
+*/
+void CL_InitDemoCapture( void )
+{
+	Cvar_RegisterVariable( &demo_capture_frames );
+	Cvar_RegisterVariable( &demo_capture_dir );
+}
+
+/*
+=================
+CL_DemoCaptureIsActive
+=================
+*/
+qboolean CL_DemoCaptureIsActive( void )
+{
+	return cls.timedemo && cls.demoplayback && !COM_StringEmpty( demo_capture_frames.string );
+}
+
+/*
+=================
+CL_DemoCaptureFrametime
+
+fixed time step used while capturing, 0 otherwise. timedemo normally
+advances the client clock by the real frame time, which makes moving
+entities interpolate differently on every run
+=================
+*/
+double CL_DemoCaptureFrametime( void )
+{
+	if( !CL_DemoCaptureIsActive( ))
+		return 0.0;
+
+	return 1.0 / bound( MIN_FPS, demo.header.host_fps, MAX_FPS_HARD );
+}
+
+/*
+=================
+CL_DemoCaptureFrame
+
+timedemo plays exactly one demo message per rendered frame, so a frame
+number designates the same picture on every run and with every renderer.
+Called once per rendered frame, right before the screenshot is written
+=================
+*/
+void CL_DemoCaptureFrame( void )
+{
+	const char *list = demo_capture_frames.string;
+	int frame;
+
+	if( !CL_DemoCaptureIsActive( ) || cls.scrshot_action != scrshot_inactive )
+		return;
+
+	frame = host.framecount - cls.td_startframe;
+
+	while( *list )
+	{
+		char *end;
+		long value = strtol( list, &end, 10 );
+
+		if( end == list )
+		{
+			list++; // skip any separator
+			continue;
+		}
+
+		if( value == frame )
+		{
+			Q_snprintf( cls.shotname, sizeof( cls.shotname ), "%s/%s_%05d.png",
+				demo_capture_dir.string, COM_FileWithoutPath( cls.demoname ), frame );
+			cls.scrshot_action = scrshot_normal;
+			cls.envshot_vieworg = NULL;
+			cls.envshot_viewsize = 0;
+			return;
+		}
+
+		list = end;
+	}
+}
+
 /*
 =================
 CL_DrawDemoRecording
@@ -1609,6 +1694,10 @@ timedemo <demoname>
 void CL_TimeDemo_f( void )
 {
 	CL_PlayDemo_f ();
+
+	// random effects (particles, sparks) must match between capture runs
+	if( !COM_StringEmpty( demo_capture_frames.string ))
+		COM_SetRandomSeed( 1 );
 
 	// cls.td_starttime will be grabbed at the second frame of the demo, so
 	// all the loading time doesn't get counted

@@ -2097,6 +2097,10 @@ void Con_DrawVersion( void )
 			|| cls.scrshot_action == scrshot_snapshot
 			|| host.force_draw_version_time > host.realtime;
 
+		// regression captures must not change with the build number
+		if( CL_DemoCaptureIsActive( ))
+			draw_version = false;
+
 		if( !draw_version )
 			return;
 

@@ -3777,6 +3777,7 @@ static void CL_InitLocal( void )
 	Cvar_RegisterVariable( &ui_renderworld );
 	Cvar_RegisterVariable( &cl_maxframetime );
 	Cvar_RegisterVariable( &cl_fixmodelinterpolationartifacts );
+	CL_InitDemoCapture();
 
 	// server commands
 	Cmd_AddCommand ("noclip", NULL, "enable or disable no clipping mode" );

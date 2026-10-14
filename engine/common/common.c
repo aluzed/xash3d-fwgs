@@ -109,6 +109,8 @@ static float fran1( void )
 void GAME_EXPORT COM_SetRandomSeed( int lSeed )
 {
 	if( lSeed ) idum = lSeed;
+	else if( Sys_CheckParm( "-fixedseed" ))
+		idum = -1; // regression captures need the same sequence on every run
 	else idum = -time( NULL );
 
 	if( 1000 < idum )

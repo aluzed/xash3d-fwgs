@@ -809,6 +809,9 @@ void CL_Escape_f( void );
 //
 void CL_StartupDemoHeader( void );
 void CL_DrawDemoRecording( void );
+void CL_InitDemoCapture( void );
+void CL_DemoCaptureFrame( void );
+qboolean CL_DemoCaptureIsActive( void );
 void CL_WriteDemoUserCmd( int cmdnumber );
 void CL_WriteDemoMessage( qboolean startup, int start, sizebuf_t *msg );
 void CL_WriteDemoUserMessage( int size, byte *buffer );
