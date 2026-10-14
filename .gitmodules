@@ -52,3 +52,6 @@
 [submodule "3rdparty/Vulkan-Headers"]
 	path = 3rdparty/Vulkan-Headers
 	url = https://github.com/KhronosGroup/Vulkan-Headers.git
+[submodule "3rdparty/smaa"]
+	path = 3rdparty/smaa
+	url = https://github.com/iryoku/smaa.git

@@ -1,0 +1,25 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// SMAA first pass: colour edge detection on the tonemapped view
+
+layout( local_size_x = 8, local_size_y = 8 ) in;
+
+#include "post_common.glsl"
+#include "post_smaa_common.glsl"
+
+layout( set = 0, binding = 1, rgba8 ) uniform writeonly image2D out_edges;
+
+void main()
+{
+	ivec2 pixel;
+
+	if( !PostPixel( pixel ))
+		return;
+
+	vec2 uv = ( vec2( pixel ) + 0.5 ) * pc.texel.xy;
+	vec4 offset[3];
+
+	SMAAEdgeDetectionVS( uv, offset );
+	imageStore( out_edges, pixel, vec4( SMAAColorEdgeDetectionPS( uv, offset, inputs[0] ), 0.0, 0.0 ));
+}

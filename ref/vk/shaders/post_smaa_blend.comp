@@ -1,0 +1,27 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// SMAA third pass: each pixel blended with the neighbours the weights pick
+//
+// inputs: tonemapped view, blending weights
+
+layout( local_size_x = 8, local_size_y = 8 ) in;
+
+#include "post_common.glsl"
+#include "post_smaa_common.glsl"
+
+layout( set = 0, binding = 1, rgba8 ) uniform writeonly image2D out_ldr;
+
+void main()
+{
+	ivec2 pixel;
+
+	if( !PostPixel( pixel ))
+		return;
+
+	vec2 uv = ( vec2( pixel ) + 0.5 ) * pc.texel.xy;
+	vec4 offset;
+
+	SMAANeighborhoodBlendingVS( uv, offset );
+	imageStore( out_ldr, pixel, vec4( SMAANeighborhoodBlendingPS( uv, offset, inputs[0], inputs[1] ).rgb, 1.0 ));
+}

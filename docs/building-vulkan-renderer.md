@@ -88,7 +88,9 @@ Useful options: `-vkvalidation` enables `VK_LAYER_KHRONOS_validation` when
 it is installed (package `vulkan-validationlayers`, amd64 only), and
 `r_vk_log_stubs 1` logs every renderer call that isn't implemented yet. The
 Vulkan headers come from the `3rdparty/Vulkan-Headers` submodule; the loader
-is opened by the engine through SDL, `ref_vk` never links it.
+is opened by the engine through SDL, `ref_vk` never links it. SMAA's
+reference shader and precomputed textures come from the `3rdparty/smaa`
+submodule (MIT licence).
 
 If an explicitly requested renderer fails, the engine shows a warning dialog
 and then falls back to the next renderer.

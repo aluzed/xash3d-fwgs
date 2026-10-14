@@ -13,17 +13,22 @@ def configure(conf):
 	if not headers:
 		conf.fatal('3rdparty/Vulkan-Headers is missing, run: git submodule update --init 3rdparty/Vulkan-Headers')
 
+	# SMAA's reference shader and its precomputed textures
+	if not conf.path.find_node('../../3rdparty/smaa/SMAA.hlsl'):
+		conf.fatal('3rdparty/smaa is missing, run: git submodule update --init 3rdparty/smaa')
+
 	conf.find_program('glslc', var = 'GLSLC')
 
 def build(bld):
 	libs = [ 'ref_common', 'engine_includes', 'werror', 'yy_thunks', 'public', 'M' ]
 
 	# SPIR-V embedded as C arrays: shaders/<name>.<stage> -> shaders/<name>.<stage>.inc
-	includes = bld.path.ant_glob('shaders/*.h shaders/*.glsl')
+	smaa = bld.path.find_node('../../3rdparty/smaa')
+	includes = bld.path.ant_glob('shaders/*.h shaders/*.glsl') + [ smaa.find_node('SMAA.hlsl') ]
 	for stage in SHADER_STAGES:
 		for src in bld.path.ant_glob('shaders/*.' + stage):
 			tgt = bld.path.find_or_declare('shaders/' + src.name + '.inc')
-			bld(rule = '${GLSLC} --target-env=vulkan1.3 -O -mfmt=c ${SRC} -o ${TGT}',
+			bld(rule = '${GLSLC} --target-env=vulkan1.3 -O -mfmt=c -I %s ${SRC} -o ${TGT}' % smaa.abspath(),
 				source = src, target = tgt)
 			for inc in includes:
 				bld.add_manual_dependency(src, inc)
@@ -34,7 +39,7 @@ def build(bld):
 
 	bld.shlib(source = bld.path.ant_glob('*.c'),
 		target = 'ref_vk',
-		includes = [ '.', '../../3rdparty/Vulkan-Headers/include' ],
+		includes = [ '.', '../../3rdparty/Vulkan-Headers/include', '../../3rdparty/smaa/Textures' ],
 		features = 'format',
 		use = libs,
 		defines = [ 'REF_DLL=1' ],

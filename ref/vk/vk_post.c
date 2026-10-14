@@ -28,7 +28,7 @@ turn it into the main target's pixels, inside the view rectangle only:
              then back up, each level adding the tent filtered one below
   exposure   scene -> per group log luminance -> adapted exposure (buffer)
   tonemap    scene * ao + bloom, exposed, tonemapped, gamma encoded -> ldr
-  FXAA       ldr -> ldr
+  FXAA       ldr -> ldr, or SMAA: ldr -> edges -> weights -> ldr
   sharpen    ldr -> ldr (contrast adaptive)
   copy       ldr -> main target
 
@@ -43,6 +43,8 @@ compressed when read.
 */
 
 #include "vk_local.h"
+#include "AreaTex.h"   // 3rdparty/smaa/Textures
+#include "SearchTex.h"
 
 // SPIR-V compiled by glslc at build time (see wscript)
 static const uint32_t post_ssao_depth_spv[] =
@@ -72,6 +74,15 @@ static const uint32_t post_tonemap_spv[] =
 static const uint32_t post_fxaa_spv[] =
 #include "shaders/post_fxaa.comp.inc"
 ;
+static const uint32_t post_smaa_edges_spv[] =
+#include "shaders/post_smaa_edges.comp.inc"
+;
+static const uint32_t post_smaa_weights_spv[] =
+#include "shaders/post_smaa_weights.comp.inc"
+;
+static const uint32_t post_smaa_blend_spv[] =
+#include "shaders/post_smaa_blend.comp.inc"
+;
 static const uint32_t post_sharpen_spv[] =
 #include "shaders/post_sharpen.comp.inc"
 ;
@@ -86,7 +97,7 @@ CVAR_DEFINE_AUTO( r_vk_bloom, "0.5", FCVAR_GLCONFIG, "bloom intensity, 0 disable
 CVAR_DEFINE_AUTO( r_vk_bloom_threshold, "1", FCVAR_GLCONFIG, "linear brightness above which pixels bloom" );
 CVAR_DEFINE_AUTO( r_vk_ssao, "1", FCVAR_GLCONFIG, "screen space ambient occlusion strength, 0 disables it" );
 CVAR_DEFINE_AUTO( r_vk_ssao_radius, "24", FCVAR_GLCONFIG, "screen space ambient occlusion radius in world units" );
-CVAR_DEFINE_AUTO( r_vk_fxaa, "1", FCVAR_GLCONFIG, "FXAA antialiasing of the 3D view" );
+CVAR_DEFINE_AUTO( r_vk_aa, "2", FCVAR_GLCONFIG, "antialiasing of the 3D view: 0 none, 1 FXAA, 2 SMAA" );
 CVAR_DEFINE_AUTO( r_vk_sharpen, "0.3", FCVAR_GLCONFIG, "contrast adaptive sharpening of the 3D view, 0 disables it" );
 
 #define VK_POST_GROUP         8   // local size of every pass but the exposure one
@@ -125,9 +136,17 @@ typedef enum
 	VK_POST_EXPOSURE,
 	VK_POST_TONEMAP,
 	VK_POST_FXAA,
+	VK_POST_SMAA_EDGES,
+	VK_POST_SMAA_WEIGHTS,
+	VK_POST_SMAA_BLEND,
 	VK_POST_SHARPEN,
 	VK_POST_PIPELINES
 } vk_post_pipe_t;
+
+// r_vk_aa
+#define VK_POST_AA_NONE 0
+#define VK_POST_AA_FXAA 1
+#define VK_POST_AA_SMAA 2
 
 // what the tonemap pass mixes in (post_tonemap.comp)
 #define VK_POST_USE_BLOOM    1
@@ -171,7 +190,7 @@ typedef struct
 	float speed;
 	float bloom, bloom_threshold;
 	float ssao, ssao_radius;
-	qboolean fxaa;
+	int aa; // VK_POST_AA_*
 	float sharpen;
 } vk_post_settings_t;
 
@@ -189,6 +208,8 @@ static struct
 	vk_image_t bloom[VK_POST_MAX_BLOOM];
 	int num_bloom;
 	vk_image_t ldr[2];
+	vk_image_t smaa_edges, smaa_weights;
+	vk_image_t smaa_area, smaa_search; // precomputed, created with the renderer
 	vk_buffer_t exposure;
 	uint32_t max_lum_groups;
 	qboolean exposure_reset; // no adapted exposure to start from
@@ -223,7 +244,7 @@ void VK_RegisterPostCvars( void )
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_bloom_threshold );
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_ssao );
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_ssao_radius );
-	gEngfuncs.Cvar_RegisterVariable( &r_vk_fxaa );
+	gEngfuncs.Cvar_RegisterVariable( &r_vk_aa );
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_sharpen );
 }
 
@@ -279,6 +300,36 @@ static VkPipeline VK_PostCreatePipeline( const uint32_t *code, size_t size, cons
 
 	vkDestroyShaderModule( vk.device, module, NULL );
 	return pipeline;
+}
+
+// an image with its pixels, through the texture upload commands
+static qboolean VK_PostCreateTexture( vk_image_t *img, const char *name, uint32_t width, uint32_t height,
+	VkFormat format, const byte *data, size_t size )
+{
+	VkBuffer staging;
+	VkDeviceSize offset;
+	VkCommandBuffer cmd;
+	byte *dst;
+
+	if( !VK_CreateImage( img, name, width, height, format, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT ))
+		return false;
+
+	dst = VK_UploadStaging( size, &staging, &offset, &cmd );
+	if( !dst )
+		return false;
+
+	memcpy( dst, data, size );
+
+	VkBufferImageCopy copy = {
+		.bufferOffset = offset,
+		.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+		.imageExtent = { width, height, 1 },
+	};
+
+	VK_ImageBarrier( cmd, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
+	vkCmdCopyBufferToImage( cmd, staging, img->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy );
+	VK_ImageBarrier( cmd, img, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL );
+	return true;
 }
 
 qboolean VK_InitPost( void )
@@ -358,6 +409,9 @@ qboolean VK_InitPost( void )
 	POST_PIPE( VK_POST_EXPOSURE, post_exposure_spv );
 	POST_PIPE( VK_POST_TONEMAP, post_tonemap_spv );
 	POST_PIPE( VK_POST_FXAA, post_fxaa_spv );
+	POST_PIPE( VK_POST_SMAA_EDGES, post_smaa_edges_spv );
+	POST_PIPE( VK_POST_SMAA_WEIGHTS, post_smaa_weights_spv );
+	POST_PIPE( VK_POST_SMAA_BLEND, post_smaa_blend_spv );
 	POST_PIPE( VK_POST_SHARPEN, post_sharpen_spv );
 #undef POST_PIPE
 
@@ -368,6 +422,14 @@ qboolean VK_InitPost( void )
 			gEngfuncs.Con_Printf( S_ERROR "ref_vk: can't create the post-processing pipelines\n" );
 			return false;
 		}
+	}
+
+	// rows top down, as SMAA's Direct3D 10 version loads them
+	if( !VK_PostCreateTexture( &post.smaa_area, "SMAA area", AREATEX_WIDTH, AREATEX_HEIGHT, VK_FORMAT_R8G8_UNORM, areaTexBytes, AREATEX_SIZE )
+		|| !VK_PostCreateTexture( &post.smaa_search, "SMAA search", SEARCHTEX_WIDTH, SEARCHTEX_HEIGHT, VK_FORMAT_R8_UNORM, searchTexBytes, SEARCHTEX_SIZE ))
+	{
+		gEngfuncs.Con_Printf( S_ERROR "ref_vk: can't create the SMAA textures\n" );
+		return false;
 	}
 
 	return true;
@@ -386,6 +448,8 @@ static void VK_PostDestroyTargets( void )
 	VK_DestroyImage( &post.ao );
 	VK_DestroyImage( &post.ldr[0] );
 	VK_DestroyImage( &post.ldr[1] );
+	VK_DestroyImage( &post.smaa_edges );
+	VK_DestroyImage( &post.smaa_weights );
 	for( int i = 0; i < VK_POST_MAX_BLOOM; i++ )
 		VK_DestroyImage( &post.bloom[i] );
 	VK_DestroyBuffer( &post.exposure );
@@ -412,7 +476,12 @@ static qboolean VK_PostCreateTargets( uint32_t width, uint32_t height )
 		&& VK_CreateImage( &post.ldr[0], "post LDR 0", width, height, VK_POST_LDR_FORMAT,
 			storage | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT )
 		&& VK_CreateImage( &post.ldr[1], "post LDR 1", width, height, VK_POST_LDR_FORMAT,
-			storage | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT );
+			storage | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT )
+		// cleared on first use: outside the view nothing writes them
+		&& VK_CreateImage( &post.smaa_edges, "SMAA edges", width, height, VK_POST_LDR_FORMAT,
+			storage | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT )
+		&& VK_CreateImage( &post.smaa_weights, "SMAA weights", width, height, VK_POST_LDR_FORMAT,
+			storage | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT );
 
 	// half size first, down to a few pixels
 	uint32_t w = width, h = height;
@@ -463,6 +532,8 @@ void VK_ShutdownPost( void )
 
 	vkDeviceWaitIdle( vk.device );
 	VK_PostDestroyTargets();
+	VK_DestroyImage( &post.smaa_area );
+	VK_DestroyImage( &post.smaa_search );
 
 	for( int i = 0; i < VK_POST_PIPELINES; i++ )
 	{
@@ -504,7 +575,7 @@ static void VK_PostReadSettings( vk_post_settings_t *s )
 	s->bloom_threshold = Q_max( r_vk_bloom_threshold.value, 0.0f );
 	s->ssao = bound( 0.0f, r_vk_ssao.value, 4.0f );
 	s->ssao_radius = bound( 1.0f, r_vk_ssao_radius.value, 256.0f );
-	s->fxaa = r_vk_fxaa.value != 0.0f;
+	s->aa = bound( VK_POST_AA_NONE, (int)r_vk_aa.value, VK_POST_AA_SMAA );
 	s->sharpen = bound( 0.0f, r_vk_sharpen.value, 1.0f );
 
 	// no seeing better in the dark than the others: online, the
@@ -1026,6 +1097,63 @@ static void VK_PostExposure( VkCommandBuffer cmd, int x, int y, int w, int h )
 
 /*
 =================
+VK_PostSMAA
+
+the three passes of SMAA 1x, from src into dst
+=================
+*/
+static void VK_PostClear( VkCommandBuffer cmd, vk_image_t *img )
+{
+	VkClearColorValue zero = { 0 };
+	VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+	VK_ImageBarrier( cmd, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
+	vkCmdClearColorImage( cmd, img->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1, &range );
+}
+
+static void VK_PostSMAA( VkCommandBuffer cmd, vk_image_t *src, vk_image_t *dst, int x, int y, int w, int h )
+{
+	vk_post_pass_t pass;
+
+	// the searches read past the view: no edge there
+	if( post.smaa_edges.layout == VK_IMAGE_LAYOUT_UNDEFINED )
+		VK_PostClear( cmd, &post.smaa_edges );
+	if( post.smaa_weights.layout == VK_IMAGE_LAYOUT_UNDEFINED )
+		VK_PostClear( cmd, &post.smaa_weights );
+
+	memset( &pass, 0, sizeof( pass ));
+	pass.name = "SMAA edges";
+	pass.pipe = VK_POST_SMAA_EDGES;
+	pass.inputs[0] = (vk_post_input_t){ src, VK_NULL_HANDLE, post.linear };
+	pass.output = &post.smaa_edges;
+	VK_PostSetRect( &pass, x, y, w, h );
+	VK_PostSetTexel( &pass, src, &post.smaa_edges );
+	VK_PostRun( cmd, &pass );
+
+	memset( &pass, 0, sizeof( pass ));
+	pass.name = "SMAA weights";
+	pass.pipe = VK_POST_SMAA_WEIGHTS;
+	pass.inputs[0] = (vk_post_input_t){ &post.smaa_edges, VK_NULL_HANDLE, post.linear };
+	pass.inputs[1] = (vk_post_input_t){ &post.smaa_area, VK_NULL_HANDLE, post.linear };
+	pass.inputs[2] = (vk_post_input_t){ &post.smaa_search, VK_NULL_HANDLE, post.nearest };
+	pass.output = &post.smaa_weights;
+	VK_PostSetRect( &pass, x, y, w, h );
+	VK_PostSetTexel( &pass, &post.smaa_edges, &post.smaa_weights );
+	VK_PostRun( cmd, &pass );
+
+	memset( &pass, 0, sizeof( pass ));
+	pass.name = "SMAA blend";
+	pass.pipe = VK_POST_SMAA_BLEND;
+	pass.inputs[0] = (vk_post_input_t){ src, VK_NULL_HANDLE, post.linear };
+	pass.inputs[1] = (vk_post_input_t){ &post.smaa_weights, VK_NULL_HANDLE, post.linear };
+	pass.output = dst;
+	VK_PostSetRect( &pass, x, y, w, h );
+	VK_PostSetTexel( &pass, src, dst );
+	VK_PostRun( cmd, &pass );
+}
+
+/*
+=================
 VK_PostEndScene
 
 x, y, w, h: the view as VK_SetViewport took it, from the bottom left
@@ -1103,7 +1231,7 @@ void VK_PostEndScene( int x, int y, int w, int h )
 	pass.push.params[2] = gp_cl->maxclients > 1 ? 0.0f : 64.0f; // highest total EV, see VK_PostReadSettings
 	VK_PostRun( cmd, &pass );
 
-	if( post.s.fxaa )
+	if( post.s.aa == VK_POST_AA_FXAA )
 	{
 		next ^= 1;
 		memset( &pass, 0, sizeof( pass ));
@@ -1115,6 +1243,12 @@ void VK_PostEndScene( int x, int y, int w, int h )
 		VK_PostSetTexel( &pass, ldr, &post.ldr[next] );
 		VK_PostSetSourceRect( &pass, x, y, w, h );
 		VK_PostRun( cmd, &pass );
+		ldr = &post.ldr[next];
+	}
+	else if( post.s.aa == VK_POST_AA_SMAA )
+	{
+		VK_PostSMAA( cmd, ldr, &post.ldr[next ^ 1], x, y, w, h );
+		next ^= 1;
 		ldr = &post.ldr[next];
 	}
 

@@ -108,18 +108,19 @@ CONSOLE_TEXT = ["clear", "echo regression console test", "echo 0123456789 abcdef
 
 # every effect off but the HDR scene, then one at a time, then all of them
 HDR_NONE = ["r_vk_tonemap 0", "r_vk_autoexposure 0", "r_vk_exposure 0", "r_vk_bloom 0",
-            "r_vk_ssao 0", "r_vk_fxaa 0", "r_vk_sharpen 0"]
+            "r_vk_ssao 0", "r_vk_aa 0", "r_vk_sharpen 0"]
 HDR_SHOTS = (["r_vk_quality enhanced"] + HDR_NONE + ["wait 10", "shot linear",
              "r_vk_tonemap 1", "wait 10", "shot aces",
              "r_vk_tonemap 2", "wait 10", "shot agx",
              "r_vk_tonemap 3", "wait 10", "shot neutral",
              "r_vk_tonemap 0", "r_vk_ssao 1", "wait 10", "shot ssao",
              "r_vk_ssao 0", "r_vk_bloom 0.5", "wait 10", "shot bloom",
-             "r_vk_bloom 0", "r_vk_fxaa 1", "wait 10", "shot fxaa",
-             "r_vk_fxaa 0", "r_vk_sharpen 0.3", "wait 10", "shot sharpen",
+             "r_vk_bloom 0", "r_vk_aa 1", "wait 10", "shot fxaa",
+             "r_vk_aa 2", "wait 10", "shot smaa",
+             "r_vk_aa 0", "r_vk_sharpen 0.3", "wait 10", "shot sharpen",
              "r_vk_sharpen 0", "r_vk_autoexposure 1", "wait 180", "shot autoexposure",
              # the defaults of r_vk_quality enhanced
-             "r_vk_tonemap 3", "r_vk_bloom 0.5", "r_vk_ssao 1", "r_vk_fxaa 1", "r_vk_sharpen 0.3",
+             "r_vk_tonemap 3", "r_vk_bloom 0.5", "r_vk_ssao 1", "r_vk_aa 2", "r_vk_sharpen 0.3",
              "wait 60", "shot enhanced",
              "r_vk_quality classic", "wait 10", "shot classic_again"])
 

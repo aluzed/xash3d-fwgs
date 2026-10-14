@@ -15,7 +15,8 @@ are untouched: a client using `ref_vk` plays on any server.
   NVIDIA (RTX 2080 Ti); other vendors are untested so far.
 - SDL2 with Vulkan support for the window.
 - To build: the Vulkan headers come as a git submodule
-  (`3rdparty/Vulkan-Headers`); shaders are compiled with `glslc`
+  (`3rdparty/Vulkan-Headers`), SMAA as well (`3rdparty/smaa`); shaders are
+  compiled with `glslc`
   (package `glslc` or the Vulkan SDK).
 
 ## Building
@@ -67,7 +68,7 @@ Commands: `r_vk_meminfo` (GPU memory usage), `texturelist`,
 `r_vk_gpu_profile 1`, the frame writes a timestamp when it enters each
 part (frame start, world, solid entities, effects, translucent, view
 model, water, the post-processing stages of `r_vk_quality enhanced`
-(SSAO, bloom, exposure, tonemap with FXAA and sharpening), 2D, present
+(SSAO, bloom, exposure, tonemap with antialiasing and sharpening), 2D, present
 copy); the profile prints the average and
 maximum of each part for the slow frames and for the others, also at
 renderer shutdown, e.g. after `-timedemo`. Off, it costs nothing and
@@ -98,7 +99,7 @@ now. Everything changes at once at runtime, no restart.
 | `r_vk_bloom_threshold`     | `1`     | linear brightness above which pixels bloom                     |
 | `r_vk_ssao`                | `1`     | ambient occlusion strength, 0 off                              |
 | `r_vk_ssao_radius`         | `24`    | ambient occlusion radius in world units                        |
-| `r_vk_fxaa`                | `1`     | FXAA antialiasing                                              |
+| `r_vk_aa`                  | `2`     | antialiasing: 0 none, 1 FXAA, 2 SMAA                           |
 | `r_vk_sharpen`             | `0.3`   | contrast adaptive sharpening, 0 off                            |
 
 - Tonemappers: "neutral" is the highlight compression of Khronos PBR
@@ -119,10 +120,17 @@ now. Everything changes at once at runtime, no restart.
   size: 12 samples in the normal's hemisphere, a 4x4 depth aware blur,
   bilinear upsampling. The view model is drawn with a compressed depth
   range, so its occlusion is approximate.
-- No SMAA yet; FXAA is the quality preset of FXAA 3.11.
+- Antialiasing: FXAA is the quality preset of FXAA 3.11, one pass that
+  blends across the edges it finds, slightly blurring fine texture
+  detail. SMAA 1x is the reference implementation of Jimenez et al.
+  (high preset, colour edges) in three passes: edges, blending weights
+  from the edge shapes (precomputed area and search textures), blending.
+  It only touches real edges (0.3 % of the pixels of a de_dust2 view
+  against 2.7 % for FXAA) and costs some 0.075 ms more.
 - Cost on the RTX 2080 Ti at 1280x720, `long_de_dust2`: 2175 fps classic,
-  1067 fps enhanced, about 0.46 ms of GPU time a frame (SSAO 0.19, bloom
-  0.11, exposure 0.02, tonemap with FXAA, sharpening and the copy 0.14).
+  1026 fps enhanced, about 0.53 ms of GPU time a frame (SSAO 0.19, bloom
+  0.11, exposure 0.02, tonemap with SMAA, sharpening and the copy 0.22;
+  0.14 with FXAA).
   Each effect has its own switch for slower GPUs.
 
 ## Performance

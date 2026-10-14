@@ -27,7 +27,9 @@ pixel-identical to parity output.
       Auto exposure from the log average luminance, adapted over time,
       never above the classic exposure in multiplayer.
 - [x] Bloom (13-tap down, tent up), SSAO (half size, depth only), FXAA,
-      contrast adaptive sharpening. SMAA not done.
+      SMAA 1x (reference implementation, `3rdparty/smaa` submodule, run
+      from compute shaders; `r_vk_aa` picks one), contrast adaptive
+      sharpening.
 - [~] Render graph: the post chain runs through a minimal frame graph
       (passes name what they sample and write; barriers, layout
       transitions and descriptor sets follow). The scene passes still use
@@ -37,7 +39,7 @@ pixel-identical to parity output.
   the story (69/69, only the animated menu banner differs) and 69/69
   above 40 dB against ref_gl. `hdr_valve` / `hdr_cstrike` shot scenes show
   each effect alone, then all of them, then classic again in one run.
-- Cost: see `Documentation/ref-vk.md` (0.46 ms at 720p on the 2080 Ti).
+- Cost: see `Documentation/ref-vk.md` (0.53 ms at 720p on the 2080 Ti).
 
 ## Acceptance criteria
 - `classic` mode passes the parity harness unchanged.
