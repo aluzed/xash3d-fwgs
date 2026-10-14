@@ -58,8 +58,122 @@ static struct
 	VkFormat depth_format;
 
 	qboolean recording; // between a successful VK_BeginFrame and VK_EndFrame
+	qboolean in_pass;   // main colour + depth dynamic rendering is open
+	vec4_t clear_color; // glClearColor state, the frame clear uses it
 	uint32_t image_index; // acquired swapchain image
 } vk_frame;
+
+VkFormat VK_MainColorFormat( void )
+{
+	return VK_MAIN_COLOR_FORMAT;
+}
+
+VkFormat VK_MainDepthFormat( void )
+{
+	return vk_frame.depth_format;
+}
+
+qboolean VK_FormatHasStencil( VkFormat format )
+{
+	return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
+}
+
+qboolean VK_FrameRecording( void )
+{
+	return vk_frame.recording;
+}
+
+uint64_t VK_CurrentFrame( void )
+{
+	return vk_frame.frame_count;
+}
+
+void VK_MainExtent( int *width, int *height )
+{
+	*width = vk_frame.color.width;
+	*height = vk_frame.color.height;
+}
+
+/*
+=================
+VK_BeginMainPass
+
+opens dynamic rendering on the main target if needed, returns the command
+buffer to record draws in, or NULL outside a frame
+=================
+*/
+VkCommandBuffer VK_BeginMainPass( void )
+{
+	VkCommandBuffer cmd;
+
+	if( !vk_frame.recording )
+		return VK_NULL_HANDLE;
+
+	cmd = vk_frame.frames[vk_frame.frame_index].cmd;
+
+	if( vk_frame.in_pass )
+		return cmd;
+
+	VK_ImageBarrier( cmd, &vk_frame.color, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL );
+	VK_ImageBarrier( cmd, &vk_frame.depth, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL );
+
+	VkRenderingAttachmentInfo color = {
+		.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+		.imageView = vk_frame.color.view,
+		.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+	};
+
+	VkRenderingAttachmentInfo depth = {
+		.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+		.imageView = vk_frame.depth.view,
+		.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+		.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+	};
+
+	VkRenderingInfo info = {
+		.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+		.renderArea = { { 0, 0 }, { vk_frame.color.width, vk_frame.color.height } },
+		.layerCount = 1,
+		.colorAttachmentCount = 1,
+		.pColorAttachments = &color,
+		.pDepthAttachment = &depth,
+		.pStencilAttachment = VK_FormatHasStencil( vk_frame.depth_format ) ? &depth : NULL,
+	};
+
+	vkCmdBeginRendering( cmd, &info );
+
+	// negative height: GL's bottom-up Y, so GL matrices work unchanged
+	VkViewport viewport = {
+		.x = 0.0f,
+		.y = (float)vk_frame.color.height,
+		.width = (float)vk_frame.color.width,
+		.height = -(float)vk_frame.color.height,
+		.minDepth = 0.0f,
+		.maxDepth = 1.0f,
+	};
+
+	VkRect2D scissor = { { 0, 0 }, { vk_frame.color.width, vk_frame.color.height } };
+
+	vkCmdSetViewport( cmd, 0, 1, &viewport );
+	vkCmdSetScissor( cmd, 0, 1, &scissor );
+
+	vk_frame.in_pass = true;
+	return cmd;
+}
+
+void VK_EndMainPass( void )
+{
+	VK_ImmFlush();
+
+	if( !vk_frame.in_pass )
+		return;
+
+	vkCmdEndRendering( vk_frame.frames[vk_frame.frame_index].cmd );
+	vk_frame.in_pass = false;
+}
 
 /*
 =================
@@ -317,9 +431,15 @@ static qboolean VK_PrepareSwapchain( void )
 Frames in flight
 =================
 */
+void VK_SetClearColor( float r, float g, float b )
+{
+	VectorSet( vk_frame.clear_color, r, g, b );
+}
+
 qboolean VK_InitFrames( void )
 {
 	memset( &vk_frame, 0, sizeof( vk_frame ));
+	VK_SetClearColor( 0.5f, 0.5f, 0.5f ); // GL_SetDefaultState
 
 	vk_frame.depth_format = VK_PickDepthFormat();
 
@@ -463,16 +583,27 @@ void VK_BeginFrame( qboolean clear_scene )
 	// only reset once a submit is certain to follow
 	vkResetFences( vk.device, 1, &frame->fence );
 
+	// this slot's previous frame is done: so is everything recorded before it
+	if( vk_frame.frame_count >= VK_FRAMES_IN_FLIGHT )
+		VK_RunDeferred( vk_frame.frame_count - VK_FRAMES_IN_FLIGHT );
+	VK_BeginDynamic( vk_frame.frame_index );
+	VK_CheckTextureParams();
+	VK_FlushUploads(); // textures loaded since the last frame
+
 	VK_BeginCommands( frame );
 	vk_frame.recording = true;
+	vk_frame.in_pass = false;
 
 	VK_BeginLabel( frame->cmd, "frame" );
 
-	// the image starts undefined every frame: the clear gives it known contents
-	vk_frame.color.layout = VK_IMAGE_LAYOUT_UNDEFINED;
-	vk_frame.depth.layout = VK_IMAGE_LAYOUT_UNDEFINED;
-	VK_ClearColor( frame->cmd, 0.0f, 0.0f, 0.0f );
+	// ref_gl only clears on request, the previous frame stays otherwise;
+	// a new target has no contents yet and is always cleared
+	if( vk_frame.color.layout == VK_IMAGE_LAYOUT_UNDEFINED || (( gl_clear->value || ENGINE_GET_PARM( PARM_DEV_OVERVIEW ))
+		&& clear_scene && ENGINE_GET_PARM( PARM_CONNSTATE ) != ca_cinematic ))
+		VK_ClearColor( frame->cmd, vk_frame.clear_color[0], vk_frame.clear_color[1], vk_frame.clear_color[2] );
 	VK_ClearDepth( frame->cmd );
+
+	VK_ImmBeginFrame();
 }
 
 /*
@@ -485,6 +616,10 @@ void VK_ClearScreen( void )
 	if( !vk_frame.recording )
 		return;
 
+	VK_EndMainPass();
+
+	// ref_gl leaves black as the clear colour afterwards
+	VK_SetClearColor( 0.0f, 0.0f, 0.0f );
 	VK_ClearColor( vk_frame.frames[vk_frame.frame_index].cmd, 0.0f, 0.0f, 0.0f );
 }
 
@@ -502,6 +637,10 @@ void VK_EndFrame( void )
 
 	if( !vk_frame.recording )
 		return;
+
+	VK_ImmEndFrame();
+	VK_EndMainPass();
+	VK_FlushUploads(); // the frame may sample textures updated while it was recorded
 
 	vk_frame.recording = false;
 	target = sc->images[vk_frame.image_index];
@@ -635,6 +774,9 @@ qboolean VK_ScreenShot( const char *filename, int shot_type )
 
 	if( !vk_frame.recording )
 		return false;
+
+	VK_EndMainPass();
+	VK_FlushUploads();
 
 	const uint32_t w = vk_frame.color.width, h = vk_frame.color.height;
 	const VkDeviceSize size = (VkDeviceSize)w * h * 4;

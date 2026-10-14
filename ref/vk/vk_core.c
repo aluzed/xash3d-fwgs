@@ -130,7 +130,6 @@ int VK_FindMemoryType( uint32_t type_bits, VkMemoryPropertyFlags flags )
 qboolean VK_CreateImage( vk_image_t *img, const char *name, uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect )
 {
 	VkMemoryRequirements req;
-	int type;
 
 	memset( img, 0, sizeof( *img ));
 
@@ -152,21 +151,14 @@ qboolean VK_CreateImage( vk_image_t *img, const char *name, uint32_t width, uint
 		return false;
 
 	vkGetImageMemoryRequirements( vk.device, img->image, &req );
-	type = VK_FindMemoryType( req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT );
 
-	VkMemoryAllocateInfo alloc = {
-		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-		.allocationSize = req.size,
-		.memoryTypeIndex = type,
-	};
-
-	if( type < 0 || vkAllocateMemory( vk.device, &alloc, NULL, &img->memory ) != VK_SUCCESS )
+	if( !VK_Alloc( &req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false, &img->alloc ))
 	{
 		VK_DestroyImage( img );
 		return false;
 	}
 
-	vkBindImageMemory( vk.device, img->image, img->memory, 0 );
+	vkBindImageMemory( vk.device, img->image, img->alloc.memory, img->alloc.offset );
 
 	VkImageViewCreateInfo view = {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -190,7 +182,6 @@ qboolean VK_CreateImage( vk_image_t *img, const char *name, uint32_t width, uint
 
 	VK_SetObjectName( VK_OBJECT_TYPE_IMAGE, (uint64_t)img->image, "%s", name );
 	VK_SetObjectName( VK_OBJECT_TYPE_IMAGE_VIEW, (uint64_t)img->view, "%s view", name );
-	VK_SetObjectName( VK_OBJECT_TYPE_DEVICE_MEMORY, (uint64_t)img->memory, "%s memory", name );
 
 	return true;
 }
@@ -201,8 +192,7 @@ void VK_DestroyImage( vk_image_t *img )
 		vkDestroyImageView( vk.device, img->view, NULL );
 	if( img->image )
 		vkDestroyImage( vk.device, img->image, NULL );
-	if( img->memory )
-		vkFreeMemory( vk.device, img->memory, NULL );
+	VK_Free( &img->alloc );
 
 	memset( img, 0, sizeof( *img ));
 }
@@ -457,6 +447,7 @@ static void VK_QueryDevice( VkPhysicalDevice handle, vk_device_info_t *info )
 	info->caps.ray_query = VK_HasExtension( exts, count, VK_KHR_RAY_QUERY_EXTENSION_NAME );
 	info->caps.ray_tracing_pipeline = VK_HasExtension( exts, count, VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME );
 	info->caps.texture_compression_bc = info->features.features.textureCompressionBC;
+	info->caps.anisotropy = info->features.features.samplerAnisotropy;
 	Mem_Free( exts );
 
 	vkGetPhysicalDeviceQueueFamilyProperties( handle, &count, NULL );
@@ -486,8 +477,10 @@ static void VK_QueryDevice( VkPhysicalDevice handle, vk_device_info_t *info )
 		info->reject = "Vulkan 1.3 not supported";
 	else if( !info->features13.dynamicRendering || !info->features13.synchronization2 )
 		info->reject = "no dynamic rendering or synchronization2";
-	else if( !info->features12.descriptorIndexing || !info->features12.bufferDeviceAddress )
-		info->reject = "no descriptor indexing or buffer device address";
+	else if( !info->features12.descriptorIndexing || !info->features12.bufferDeviceAddress
+		|| !info->features12.descriptorBindingPartiallyBound || !info->features12.descriptorBindingSampledImageUpdateAfterBind
+		|| !info->features12.descriptorBindingUpdateUnusedWhilePending )
+		info->reject = "no bindless descriptors or buffer device address";
 	else if( !info->swapchain )
 		info->reject = "no swapchain support";
 	else if( info->graphics_family == UINT32_MAX )
@@ -616,10 +609,11 @@ static qboolean VK_CreateDevice( const vk_device_info_t *info )
 		.descriptorIndexing = VK_TRUE,
 		.bufferDeviceAddress = VK_TRUE,
 		.runtimeDescriptorArray = info->features12.runtimeDescriptorArray,
-		.descriptorBindingPartiallyBound = info->features12.descriptorBindingPartiallyBound,
+		.descriptorBindingPartiallyBound = VK_TRUE,
 		.descriptorBindingVariableDescriptorCount = info->features12.descriptorBindingVariableDescriptorCount,
 		.shaderSampledImageArrayNonUniformIndexing = info->features12.shaderSampledImageArrayNonUniformIndexing,
-		.descriptorBindingSampledImageUpdateAfterBind = info->features12.descriptorBindingSampledImageUpdateAfterBind,
+		.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE,
+		.descriptorBindingUpdateUnusedWhilePending = VK_TRUE,
 		.timelineSemaphore = info->features12.timelineSemaphore,
 		.scalarBlockLayout = info->features12.scalarBlockLayout,
 	};

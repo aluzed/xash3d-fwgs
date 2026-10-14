@@ -18,6 +18,7 @@ GNU General Public License for more details.
 CVAR_DEFINE_AUTO( r_vk_log_stubs, "0", 0, "log every unimplemented ref_vk call once" );
 CVAR_DEFINE_AUTO( r_vk_validation, "0", FCVAR_GLCONFIG, "enable the Vulkan validation layer (restart the renderer), -vkvalidation does the same" );
 CVAR_DEFINE_AUTO( r_vk_device, "-1", FCVAR_GLCONFIG, "physical device index to use, -1 picks the best one (restart the renderer)" );
+CVAR_DEFINE_AUTO( r_vk_dynamic_mb, "8", FCVAR_GLCONFIG, "size of each per-frame dynamic vertex ring, grows on overflow" );
 
 /*
 =================
@@ -29,6 +30,7 @@ static qboolean R_Init( void )
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_log_stubs );
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_validation );
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_device );
+	gEngfuncs.Cvar_RegisterVariable( &r_vk_dynamic_mb );
 
 	r_temppool = Mem_AllocPool( "ref_vk temp" );
 
@@ -40,9 +42,14 @@ static qboolean R_Init( void )
 	}
 
 	VK_InitTextures();
+	VK_InitImm();
 
-	if( !VK_InitCore( ) || !VK_InitFrames( ))
+	if( !VK_InitCore( ) || !VK_InitMemory( ) || !VK_InitFrames( ) || !VK_InitPipelines( ))
 	{
+		VK_ShutdownTextures();
+		VK_ShutdownPipelines();
+		VK_ShutdownFrames();
+		VK_ShutdownMemory();
 		VK_ShutdownCore();
 		gEngfuncs.R_Free_Video();
 		Mem_FreePool( &r_temppool );
@@ -55,7 +62,9 @@ static qboolean R_Init( void )
 static void R_Shutdown( void )
 {
 	VK_ShutdownTextures();
+	VK_ShutdownPipelines();
 	VK_ShutdownFrames();
+	VK_ShutdownMemory();
 	VK_ShutdownCore();
 	gEngfuncs.R_Free_Video();
 	Mem_FreePool( &r_temppool );
@@ -70,12 +79,39 @@ static intptr_t RefGetParm( int parm, int arg )
 {
 	switch( parm )
 	{
+	case PARM_TEX_WIDTH:
+	case PARM_TEX_HEIGHT:
+	case PARM_TEX_SRC_WIDTH:
+	case PARM_TEX_SRC_HEIGHT:
+	case PARM_TEX_ENCODE:
+	case PARM_TEX_MIPCOUNT:
+	case PARM_TEX_DEPTH:
+	case PARM_TEX_TEXNUM:
+	case PARM_TEX_FLAGS:
+	case PARM_TEX_MEMORY:
+	case PARM_TEX_FILTERING:
+		return VK_TextureParm( parm, arg );
+	case PARM_LIGHTSTYLEVALUE:
+		return g_lightstylevalue[bound( 0, arg, MAX_LIGHTSTYLES - 1 )];
+	case PARM_MAX_IMAGE_UNITS:
+		return 1;
 	case PARM_GL_CONTEXT_TYPE:
 		// no GL context: RenderAPI users must not issue GL calls
 		return CONTEXT_TYPE_SOFTWARE;
-	default:
+	case PARM_TEX_GLFORMAT:
+	case PARM_TEX_TARGET:
+	case PARM_TEX_SKYBOX:
+	case PARM_TEX_SKYTEXNUM:
+	case PARM_TEX_LIGHTMAP:
+	case PARM_ACTIVE_TMU:
+	case PARM_REBUILD_GAMMA:
+	case PARM_GLES_WRAPPER:
+	case PARM_STENCIL_ACTIVE:
+	case PARM_GET_STUDIO_HDR:
 		VK_STUB();
 		return 0;
+	default:
+		return ENGINE_GET_PARM_( parm, arg ); // engine side parameters
 	}
 }
 
@@ -85,11 +121,6 @@ Stubs, replaced story by story (see docs/stories)
 =================
 */
 static void R_SimpleStub( void )
-{
-	;
-}
-
-static void R_SimpleStubInt( int unused )
 {
 	;
 }
@@ -145,38 +176,7 @@ static void R_ProcessEntData( qboolean allocate, cl_entity_t *entities, unsigned
 	;
 }
 
-static const byte *R_GetTextureOriginalBuffer( unsigned int idx )
-{
-	VK_STUB();
-	return NULL;
-}
-
-static void GL_ProcessTexture( int texnum, float gamma, int topColor, int bottomColor )
-{
-	VK_STUB();
-}
-
 static void R_SetupSky( int *skytextures )
-{
-	VK_STUB();
-}
-
-static void R_Set2DMode( qboolean enable )
-{
-	VK_STUB();
-}
-
-static void R_Set2DOffset( float x, float y )
-{
-	VK_STUB();
-}
-
-static void R_DrawStretchPic( float x, float y, float w, float h, float s1, float t1, float s2, float t2, int texnum )
-{
-	VK_STUB();
-}
-
-static void FillRGBA( int rendermode, float x, float y, float w, float h, byte r, byte g, byte b, byte a )
 {
 	VK_STUB();
 }
@@ -254,9 +254,104 @@ static void GL_SubdivideSurface( model_t *mod, msurface_t *fa )
 	VK_STUB();
 }
 
-static qboolean Mod_ProcessRenderData( model_t *mod, qboolean create, const byte *buffer, size_t buffersize )
+/*
+=================
+Model lifetime, as ref_gl/gl_context.c: the engine loads brush textures
+through GL_LoadTexture, the renderer frees them with the model
+=================
+*/
+static qboolean Mod_LooksLikeWaterTexture( const char *name )
 {
-	VK_STUB();
+	if(( name[0] == '*' && Q_stricmp( name, REF_DEFAULT_TEXTURE )) || name[0] == '!' )
+		return true;
+
+	if( !FBitSet( gp_host->features, ENGINE_QUAKE_COMPATIBLE ))
+	{
+		if( !Q_strnicmp( name, "water", 5 ) || !Q_strnicmp( name, "laser", 5 ))
+			return true;
+	}
+
+	return false;
+}
+
+static void Mod_BrushUnloadTextures( model_t *mod )
+{
+	const int default_texture = GL_FindTexture( REF_DEFAULT_TEXTURE );
+
+	for( int i = 0; i < mod->numtextures; i++ )
+	{
+		texture_t *tx = mod->textures[i];
+
+		if( !tx )
+			continue; // free slot
+
+		if( tx->gl_texturenum != default_texture )
+			GL_FreeTexture( tx->gl_texturenum ); // main texture
+
+		if( !Mod_LooksLikeWaterTexture( tx->name ))
+		{
+			GL_FreeTexture( tx->fb_texturenum ); // luma texture
+			GL_FreeTexture( tx->dt_texturenum ); // detail texture
+		}
+	}
+}
+
+static void Mod_StudioUnloadTextures( void *data )
+{
+	const studiohdr_t *phdr = data;
+	const int default_texture = GL_FindTexture( REF_DEFAULT_TEXTURE );
+	const mstudiotexture_t *ptexture;
+
+	if( !phdr )
+		return;
+
+	ptexture = (const mstudiotexture_t *)(((const byte *)phdr) + phdr->textureindex );
+
+	for( int i = 0; i < phdr->numtextures; i++ )
+	{
+		if( ptexture[i].index != default_texture )
+			GL_FreeTexture( ptexture[i].index );
+	}
+}
+
+static qboolean Mod_ProcessRenderData( model_t *mod, qboolean create, const byte *buf, size_t buffersize )
+{
+	if( !create )
+	{
+		if( gEngfuncs.drawFuncs->Mod_ProcessUserData )
+			gEngfuncs.drawFuncs->Mod_ProcessUserData( mod, false, buf );
+
+		switch( mod->type )
+		{
+		case mod_studio:
+			Mod_StudioUnloadTextures( mod->cache.data );
+			break;
+		case mod_brush:
+			Mod_BrushUnloadTextures( mod );
+			break;
+		default:
+			break; // sprites keep nothing, alias models are Quake only
+		}
+		return true;
+	}
+
+	switch( mod->type )
+	{
+	case mod_studio:
+	case mod_brush:
+	case mod_sprite:
+		break;
+	case mod_alias:
+		VK_STUB(); // Quake models, not part of the HL / CS scope
+		return false;
+	default:
+		gEngfuncs.Host_Error( "%s: unsupported type %d\n", __func__, mod->type );
+		return false;
+	}
+
+	if( gEngfuncs.drawFuncs->Mod_ProcessUserData )
+		gEngfuncs.drawFuncs->Mod_ProcessUserData( mod, true, buf );
+
 	return true;
 }
 
@@ -276,38 +371,6 @@ static void CL_DrawTracers( double frametime, particle_t *tracers )
 }
 
 static void CL_DrawBeams( int fTrans, BEAM *beams )
-{
-	VK_STUB();
-}
-
-static void R_GetDetailScaleForTexture( int texture, float *xScale, float *yScale )
-{
-	if( xScale ) *xScale = 1.0f;
-	if( yScale ) *yScale = 1.0f;
-}
-
-static void R_SetDetailScaleForTexture( int texture, float xScale, float yScale )
-{
-	VK_STUB();
-}
-
-static const byte *GL_TextureData( unsigned int texnum )
-{
-	VK_STUB();
-	return NULL;
-}
-
-static void R_OverrideTextureSourceSize( unsigned int texnum, unsigned int srcWidth, unsigned int srcHeight )
-{
-	VK_STUB();
-}
-
-static void GL_UpdateTexture( int texnum, int cols, int rows, int width, int height, const byte *buffer, pixformat_t fmt )
-{
-	VK_STUB();
-}
-
-static void GL_Bind( int tmu, unsigned int texnum )
 {
 	VK_STUB();
 }
@@ -339,46 +402,6 @@ static void R_NewMap( void )
 }
 
 static void R_ClearScene( void )
-{
-	VK_STUB();
-}
-
-static void TriRenderMode( int mode )
-{
-	VK_STUB();
-}
-
-static void TriBegin( int primitive )
-{
-	VK_STUB();
-}
-
-static void TriEnd( void )
-{
-	VK_STUB();
-}
-
-static void Color4f( float r, float g, float b, float a )
-{
-	VK_STUB();
-}
-
-static void Color4ub( unsigned char r, unsigned char g, unsigned char b, unsigned char a )
-{
-	VK_STUB();
-}
-
-static void Vertex3fv( const float *worldPnt )
-{
-	VK_STUB();
-}
-
-static void Vertex3f( float x, float y, float z )
-{
-	VK_STUB();
-}
-
-static void CullFace( TRICULLSTYLE mode )
 {
 	VK_STUB();
 }
@@ -511,11 +534,6 @@ static void R_FillRenderAPI( render_api_t *api )
 	api->GL_GetProcAddress       = RAPI_GetProcAddress;
 }
 
-static void TriTexCoord2f( float u, float v )
-{
-	VK_STUB();
-}
-
 static void TriFog( float flFogColor[3], float flStart, float flEnd, int bOn )
 {
 	VK_STUB();
@@ -548,11 +566,6 @@ static void R_FillTriAPI( triangleapi_t *api )
 	api->FogParams     = TriFogParams;
 }
 
-static void VGUI_SetupDrawing( qboolean rect )
-{
-	VK_STUB();
-}
-
 const ref_interface_t gReffuncs =
 {
 	.R_Init                = R_Init,
@@ -575,7 +588,7 @@ const ref_interface_t gReffuncs =
 
 	.R_ClearScreen    = R_ClearScreen,
 	.R_AllowFog       = R_SimpleStubBool,
-	.GL_SetRenderMode = R_SimpleStubInt,
+	.GL_SetRenderMode = GL_SetRenderMode,
 
 	.R_AddEntity      = R_AddEntity,
 	.R_ProcessEntData = R_ProcessEntData,
@@ -646,11 +659,11 @@ const ref_interface_t gReffuncs =
 	.TriRenderMode = TriRenderMode,
 	.Begin         = TriBegin,
 	.End           = TriEnd,
-	.Color4f       = Color4f,
-	.Color4ub      = Color4ub,
-	.Vertex3fv     = Vertex3fv,
-	.Vertex3f      = Vertex3f,
-	.CullFace      = CullFace,
+	.Color4f       = TriColor4f,
+	.Color4ub      = TriColor4ub,
+	.Vertex3fv     = TriVertex3fv,
+	.Vertex3f      = TriVertex3f,
+	.CullFace      = TriCullFace,
 
 	.R_FillRenderAPI = R_FillRenderAPI,
 	.R_FillTriAPI    = R_FillTriAPI,
