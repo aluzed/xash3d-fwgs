@@ -466,7 +466,10 @@ static void R_UnloadProgs( void )
 
 	Cvar_FullSet( "host_refloaded", "0", FCVAR_READ_ONLY );
 
-	Cvar_Unlink( FCVAR_RENDERINFO | FCVAR_GLCONFIG | FCVAR_REFDLL );
+	// only what the renderer registered: engine cvars flagged RENDERINFO
+	// (width, height, r_refdll...) must survive a renderer that fails to
+	// initialize, or the next one starts without them and video.cfg loses them
+	Cvar_Unlink( FCVAR_REFDLL );
 	Cmd_Unlink( CMD_REFDLL );
 
 	COM_FreeLibrary( ref.hInstance );
@@ -700,6 +703,9 @@ static void R_CollectRendererNames( void )
 #if XASH_REF_GL_ENABLED
 		"gl",
 #endif
+#if XASH_REF_VK_ENABLED
+		"vk",
+#endif
 #if XASH_REF_NANOGL_ENABLED
 		"gles1",
 #endif
@@ -722,6 +728,9 @@ static void R_CollectRendererNames( void )
 	{
 #if XASH_REF_GL_ENABLED
 		"OpenGL",
+#endif
+#if XASH_REF_VK_ENABLED
+		"Vulkan",
 #endif
 #if XASH_REF_NANOGL_ENABLED
 		"GLES1 (NanoGL)",
