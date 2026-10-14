@@ -132,9 +132,21 @@ texture in gamma space, up to 4.6 times in linear) and additive effects
 keep their brightness above white. Compute passes then make the view's
 final pixels; the HUD, menus and console are drawn over them as usual.
 `rt` adds the ray traced effects below, and renders as `enhanced` on GPUs
-without ray queries. Everything changes at once at runtime, no restart. The video options
-menu has the choice ("Rendering quality", classic or enhanced) while
-`ref_vk` is loaded.
+without ray queries. Everything changes at once at runtime, no restart.
+
+`r_vk_preset` sets a look's settings at once; the video options menu
+offers it as "Rendering quality" while `ref_vk` is loaded, with check
+boxes for the four ray traced effects. A setting changed afterwards makes
+it `custom`; the preset saved in the configuration isn't applied again at
+startup, the settings saved with it are.
+
+| Preset    | What it sets                                                                      |
+|-----------|-----------------------------------------------------------------------------------|
+| `classic` | `r_vk_quality classic`, the default                                               |
+| `low`     | enhanced for integrated GPUs: first bloom level a quarter of the view, no SSAO, FXAA, no sharpening |
+| `medium`  | enhanced: half size bloom, SSAO, SMAA, sharpening 0.3                             |
+| `high`    | `rt`: medium's post-processing, ray traced shadows (sun 1.5 degrees), occlusion, reflections |
+| `ultra`   | high and the ray traced lighting (`r_vk_rt_gi 1`)                                 |
 
 | Variable                   | Default | Meaning                                                        |
 |----------------------------|---------|----------------------------------------------------------------|
@@ -150,6 +162,8 @@ menu has the choice ("Rendering quality", classic or enhanced) while
 | `r_vk_ssao_radius`         | `24`    | ambient occlusion radius in world units                        |
 | `r_vk_aa`                  | `2`     | antialiasing: 0 none, 1 FXAA, 2 SMAA                           |
 | `r_vk_sharpen`             | `0.3`   | contrast adaptive sharpening, 0 off                            |
+| `r_vk_bloom_start`         | `1`     | first bloom level: 1 half the view, 2 a quarter (lighter)      |
+| `r_vk_preset`              | `classic` | `classic`, `low`, `medium`, `high`, `ultra`, `custom`        |
 
 - Tonemappers: "neutral" is the highlight compression of Khronos PBR
   Neutral without its toe, so colours below 0.76 are exactly the classic
@@ -245,7 +259,10 @@ rays don't light the scene again, they add what the bake couldn't know.
   lightmap has it. Studio models lit by the sky (`R_EntityDynamicLight`)
   lose their directional light where the world or another entity hides
   the sun. A dynamic light ignores the entity it follows (the muzzle
-  flash of a player doesn't make the player's shadow).
+  flash of a player doesn't make the player's shadow). The sun is a disc
+  (`r_vk_rt_sun_size`): four rays a pixel towards points of it, kept 4
+  frames and averaged over 3x3 pixels, soft shadow edges without trails
+  behind running players; dynamic lights cast hard shadows.
 - **Ambient occlusion**, in place of SSAO: one ray a pixel in the normal's
   hemisphere, accumulated over up to 24 frames where the surface stays
   (reprojected with the previous view, rejected where its distance to the
@@ -266,6 +283,7 @@ rays don't light the scene again, they add what the bake couldn't know.
 | `r_vk_rt_reflections` | `1`     | reflections strength, 0 off                                     |
 | `r_vk_rt_sun`         | `1`     | part of `skycolor` the sun put in the lightmaps                 |
 | `r_vk_rt_shadow_keep` | `0.3`   | least part of its light a shadowed surface keeps                |
+| `r_vk_rt_sun_size`    | `1.5`   | angular size of the sun in degrees, 0 for hard shadows          |
 
 `r_vk_gpu_profile` counts the lighting below as "rt lighting", the rest
 as "rt effects".
@@ -334,10 +352,27 @@ brightness`, `light x y z r g b brightness [style]`). The lighting alone
 c1a0, 75 against 72 at the T spawn of de_dust2 (mean of the view). It
 costs 1-2.5 ms at 1280x720: `long_c2a5` 379 fps, `long_de_dust2` 366.
 
-Not done yet: the noise of soft shadows and rough reflections needs the
-denoiser of story 027; AO is the only effect with noise, and the
-temporal accumulation keeps it out. Sprites and additive effects drawn
-over a shadowed surface are darkened with it.
+### Denoising and motion
+
+The effects with noise (shadows, occlusion, lighting) keep a history of
+their own and filter it, by depth (and normal for the lighting). A
+pixel's history is the previous frame's pixel that saw the same point
+where it was then: the motion of the world is the camera's, brush
+entities moved with their transform of the previous frame, studio
+models with their previous frame's triangles (the same triangle of the
+same skinning, copied by the GPU for the next frame). A history is only
+used when that pixel was as far from the previous eye as the point,
+and the lighting's starts over where a lightmap changed. Reflections
+are mirrors: no noise to filter.
+
+No temporal upscaling: at 2560x1440 the `high` preset runs `long_de_dust2`
+at 315 fps (1 % low 196), `ultra` at 180 (1 % low 99), and GoldSrc's
+crisp, low detail look and online play lose more to a temporal
+reconstruction's blur and lag than they would gain. FSR 2/3 (MIT) could
+come later for weak GPUs; DLSS's SDK licence doesn't go with the GPL.
+
+Sprites and additive effects drawn over a shadowed surface are darkened
+with it.
 
 ## Performance
 

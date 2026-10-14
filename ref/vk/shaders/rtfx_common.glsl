@@ -7,6 +7,9 @@
 #define FX_REFLECTIONS 4
 #define FX_HISTORY     8   // the history image holds the previous frame
 #define FX_GI          16  // ray traced lighting of the lightmapped surfaces (026)
+#define FX_SOFT        32  // the shadows of rt_shadows.comp (027)
+
+#define VK_RTFX_MAX_INPUTS 6
 
 layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer rtfx_params_r
 {
@@ -17,7 +20,7 @@ layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer 
 	vec4 prev_eye;       // the previous frame's eye
 	vec4 ao;             // radius, strength
 	vec4 refl;           // strength, time
-	vec4 shadow;         // sun scale, part of the light a shadow keeps
+	vec4 shadow;         // sun scale, part of the light a shadow keeps, tan of the sun's radius
 	vec4 light;          // lightmap pass: GL blend factor (2 overbright, else 1), glColor scale
 	ivec4 misc;          // FX_* flags, frame number, online
 	ivec4 rect;          // the view, pixels: x, y, width, height
@@ -33,7 +36,7 @@ layout( push_constant ) uniform rtfx_push_s
 } pc;
 
 layout( set = 1, binding = 0 ) uniform accelerationStructureEXT tlas;
-layout( set = 1, binding = 1 ) uniform sampler2D inputs[4];
+layout( set = 1, binding = 1 ) uniform sampler2D inputs[VK_RTFX_MAX_INPUTS];
 
 // eye ray through a pixel centre of the view (GL's bottom-up y: top is +1)
 vec3 ViewRay( rtfx_params_r p, vec2 uv )
@@ -163,4 +166,21 @@ vec3 UnpackNormal( float f )
 float Luminance( vec3 c )
 {
 	return dot( c, vec3( 0.2126, 0.7152, 0.0722 ));
+}
+
+// the pixel of the previous frame that saw a point where it was then (its
+// motion: RTPrevPosition), false when out of that view
+bool PrevPixel( rtfx_params_r p, vec3 prev_pos, out ivec2 prev_pixel )
+{
+	vec4 clip = p.prev_view_proj * vec4( prev_pos, 1.0 );
+	vec2 prev = vec2( clip.x / clip.w * 0.5 + 0.5, 0.5 - clip.y / clip.w * 0.5 );
+
+	prev_pixel = ivec2( prev * vec2( p.rect.zw )) + p.rect.xy;
+	return clip.w > 0.0 && all( greaterThanEqual( prev, vec2( 0.0 ))) && all( lessThan( prev, vec2( 1.0 )));
+}
+
+// that pixel showed the same surface: as far from the previous eye
+bool SameSurface( rtfx_params_r p, float prev_dist, vec3 prev_pos )
+{
+	return prev_dist > 0.0 && abs( prev_dist - length( prev_pos - p.prev_eye.xyz )) < 1.0 + 0.03 * prev_dist;
 }

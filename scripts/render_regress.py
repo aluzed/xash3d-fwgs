@@ -171,6 +171,13 @@ SHOT_SCENES = [
     {"name": "menu_video_valve", "game": "valve", "map": None, "server": [],
      "lines": ["wait 200", "menu_vidoptions", "wait 60", "shot classic",
                "r_vk_quality enhanced", "menu_vidoptions", "wait 60", "shot enhanced"]},
+    # presets (r_vk_preset) in the video options, and a setting changed by hand
+    {"name": "menu_presets_valve", "game": "valve", "map": None, "server": [],
+     "lines": ["wait 200", "menu_vidoptions", "wait 60", "shot classic",
+               "r_vk_preset low", "wait 5", "menu_vidoptions", "wait 30", "shot low", "r_vk_quality", "r_vk_aa", "r_vk_bloom_start",
+               "r_vk_preset ultra", "wait 5", "menu_vidoptions", "wait 30", "shot ultra", "r_vk_quality", "r_vk_rt_gi",
+               "r_vk_rt_gi 0", "wait 5", "menu_vidoptions", "wait 30", "shot custom", "r_vk_preset",
+               "r_vk_preset classic", "wait 5", "r_vk_quality", "r_vk_rt_gi 0"]},
     {"name": "menu_video_cstrike", "game": "cstrike", "map": None, "server": [],
      "lines": ["wait 200", "menu_vidoptions", "wait 60", "shot classic",
                "r_vk_quality enhanced", "menu_vidoptions", "wait 60", "shot enhanced"]},
@@ -554,6 +561,10 @@ class Engine:
         self.data = os.path.abspath(args.data)
         self.exe = os.path.join(self.dev_root, "xash3d")
         self.extra_args = getattr(args, "engine_arg", None) or []
+        self.size = (WIDTH, HEIGHT)
+        if getattr(args, "size", None):
+            w, h = args.size.lower().split("x")
+            self.size = (int(w), int(h))
         if not os.path.isfile(self.exe):
             sys.exit(f"engine not found: {self.exe} "
                      "(run scripts/dev/build-amd64.sh)")
@@ -591,7 +602,7 @@ class Engine:
             open(logo, "wb").close()
             logo_created = True
         cmd = [self.exe, "-rodir", self.steam, "-game", game,
-               "-windowed", "-width", str(WIDTH), "-height", str(HEIGHT),
+               "-windowed", "-width", str(self.size[0]), "-height", str(self.size[1]),
                "-ref", ref, "-dev", "1"] + self.extra_args + engine_args
         env = dict(os.environ, XASH3D_BASEDIR=self.dev_root)
         os.makedirs(os.path.join(self.data, "logs"), exist_ok=True)
@@ -945,6 +956,7 @@ def main():
                         "e.g. --set 'r_vk_quality enhanced' (repeatable)")
     p.add_argument("--engine-arg", action="append", metavar="ARG",
                    help="extra engine command line argument (repeatable)")
+    p.add_argument("--size", metavar="WxH", help="window size (default 1280x720), e.g. 2560x1440")
     p.add_argument("scenes", nargs="*", help="scene names (default: all)")
     p.set_defaults(func=cmd_bench)
 

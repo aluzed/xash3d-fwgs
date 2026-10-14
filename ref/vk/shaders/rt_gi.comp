@@ -128,26 +128,22 @@ void main()
 
 	// the same surface in the previous frame
 	vec4 history = vec4( sample_light, 1.0 );
-	if( pc.iparams.x != 0 ) // a lighting history of the previous frame
+	bool known;
+	vec3 prev_pos = RTPrevPosition( scene, inst, hit, known );
+	ivec2 prev_pixel;
+
+	if( pc.iparams.x != 0 && known && PrevPixel( p, prev_pos, prev_pixel )) // a lighting history of the previous frame
 	{
-		vec4 clip = p.prev_view_proj * vec4( pos, 1.0 );
-		vec2 prev = vec2( clip.x / clip.w * 0.5 + 0.5, 0.5 - clip.y / clip.w * 0.5 );
+		vec4 prev_ao = texelFetch( inputs[1], prev_pixel, 0 );
+		vec4 h = texelFetch( inputs[2], prev_pixel, 0 );
+		float luma = Luminance( textureLod( textures[nonuniformEXT( hit.lightmap )], hit.lightuv, 0.0 ).rgb );
 
-		if( clip.w > 0.0 && all( greaterThanEqual( prev, vec2( 0.0 ))) && all( lessThan( prev, vec2( 1.0 ))))
+		// the same surface, under the same light: a lightstyle that
+		// changed its lightmap changes the bounces too, start over
+		if( h.a > 0.0 && SameSurface( p, prev_ao.z, prev_pos ) && abs( prev_ao.w - luma ) < 0.02 + 0.1 * max( luma, prev_ao.w ))
 		{
-			ivec2 prev_pixel = ivec2( prev * vec2( p.rect.zw )) + p.rect.xy;
-			vec4 prev_ao = texelFetch( inputs[1], prev_pixel, 0 );
-			vec4 h = texelFetch( inputs[2], prev_pixel, 0 );
-			float luma = Luminance( textureLod( textures[nonuniformEXT( hit.lightmap )], hit.lightuv, 0.0 ).rgb );
-
-			// the same surface, under the same light: a lightstyle that
-			// changed its lightmap changes the bounces too, start over
-			if( h.a > 0.0 && prev_ao.z > 0.0 && abs( prev_ao.z - length( pos - p.prev_eye.xyz )) < 1.0 + 0.03 * prev_ao.z
-				&& abs( prev_ao.w - luma ) < 0.02 + 0.1 * max( luma, prev_ao.w ))
-			{
-				float frames = min( h.a + 1.0, MAX_FRAMES );
-				history = vec4( mix( h.rgb, sample_light, 1.0 / frames ), frames );
-			}
+			float frames = min( h.a + 1.0, MAX_FRAMES );
+			history = vec4( mix( h.rgb, sample_light, 1.0 / frames ), frames );
 		}
 	}
 

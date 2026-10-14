@@ -104,6 +104,8 @@ CVAR_DEFINE_AUTO( r_vk_ssao, "1", FCVAR_GLCONFIG, "screen space ambient occlusio
 CVAR_DEFINE_AUTO( r_vk_ssao_radius, "24", FCVAR_GLCONFIG, "screen space ambient occlusion radius in world units" );
 CVAR_DEFINE_AUTO( r_vk_aa, "2", FCVAR_GLCONFIG, "antialiasing of the 3D view: 0 none, 1 FXAA, 2 SMAA" );
 CVAR_DEFINE_AUTO( r_vk_sharpen, "0.3", FCVAR_GLCONFIG, "contrast adaptive sharpening of the 3D view, 0 disables it" );
+CVAR_DEFINE_AUTO( r_vk_bloom_start, "1", FCVAR_GLCONFIG, "size of the first bloom level: 1 half the view, 2 a quarter (lighter)" );
+CVAR_DEFINE_AUTO( r_vk_preset, "classic", FCVAR_GLCONFIG, "rendering preset: classic, low, medium, high, ultra; custom once one of its settings is changed" );
 
 #define VK_POST_GROUP         8   // local size of every pass but the exposure one
 #define VK_POST_LUM_TILE      32  // pixels of a luminance group side
@@ -249,6 +251,108 @@ void VK_RegisterPostCvars( void )
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_ssao_radius );
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_aa );
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_sharpen );
+	gEngfuncs.Cvar_RegisterVariable( &r_vk_bloom_start );
+	gEngfuncs.Cvar_RegisterVariable( &r_vk_preset );
+}
+
+/*
+=================
+Presets
+
+r_vk_preset sets the settings of a look at once. The video options menu
+offers them; a setting changed afterwards makes it "custom". The preset
+saved with the configuration isn't applied again at startup: the settings
+saved with it are what the player had.
+=================
+*/
+typedef struct
+{
+	const char *name;
+	const char *settings; // cvar value pairs
+} vk_post_preset_t;
+
+#define VK_POST_ENHANCED_LOW "r_vk_quality enhanced r_vk_tonemap 3 r_vk_bloom 0.5 r_vk_bloom_start 2 r_vk_ssao 0 r_vk_aa 1 r_vk_sharpen 0 "
+#define VK_POST_ENHANCED "r_vk_tonemap 3 r_vk_bloom 0.5 r_vk_bloom_start 1 r_vk_ssao 1 r_vk_aa 2 r_vk_sharpen 0.3 "
+#define VK_POST_RT "r_vk_quality rt " VK_POST_ENHANCED "r_vk_rt_shadows 1 r_vk_rt_sun_size 1.5 r_vk_rt_ao 1 r_vk_rt_reflections 1 "
+
+static const vk_post_preset_t vk_post_presets[] =
+{
+	// as ref_gl
+	{ "classic", "r_vk_quality classic" },
+	// the enhanced look made light for integrated GPUs: quarter size bloom
+	// first level, no SSAO, FXAA
+	{ "low", VK_POST_ENHANCED_LOW },
+	{ "medium", "r_vk_quality enhanced " VK_POST_ENHANCED },
+	// ray traced shadows, occlusion and reflections (enhanced without ray tracing)
+	{ "high", VK_POST_RT "r_vk_rt_gi 0" },
+	// and the ray traced lighting
+	{ "ultra", VK_POST_RT "r_vk_rt_gi 1" },
+};
+
+static struct
+{
+	const vk_post_preset_t *applied; // its settings are what the cvars have
+	char seen[32];                   // r_vk_preset when last looked at
+	qboolean started;
+} vk_preset;
+
+static const vk_post_preset_t *VK_PostFindPreset( const char *name )
+{
+	for( size_t i = 0; i < ARRAYSIZE( vk_post_presets ); i++ )
+	{
+		if( !Q_stricmp( vk_post_presets[i].name, name ))
+			return &vk_post_presets[i];
+	}
+
+	return NULL;
+}
+
+// sets the preset's settings, or only says whether the cvars have them
+static qboolean VK_PostPresetSettings( const vk_post_preset_t *preset, qboolean apply )
+{
+	char cvar[64], value[64];
+	char *p = (char *)preset->settings;
+
+	while(( p = COM_ParseFile( p, cvar, sizeof( cvar ))) != NULL && ( p = COM_ParseFile( p, value, sizeof( value ))) != NULL )
+	{
+		const char *current = gEngfuncs.pfnGetCvarString( cvar );
+		const qboolean number = ( value[0] >= '0' && value[0] <= '9' ) || value[0] == '-' || value[0] == '.';
+
+		if( apply )
+			gEngfuncs.Cvar_Set( cvar, value );
+		else if( number ? Q_atof( current ) != Q_atof( value ) : Q_stricmp( current, value ) != 0 )
+			return false;
+	}
+
+	return true;
+}
+
+static void VK_PostPresets( void )
+{
+	const char *name = r_vk_preset.string;
+	const qboolean changed = Q_strcmp( vk_preset.seen, name ) != 0;
+
+	Q_strncpy( vk_preset.seen, name, sizeof( vk_preset.seen ));
+
+	if( changed )
+	{
+		const vk_post_preset_t *preset = VK_PostFindPreset( name );
+
+		// at startup the saved settings stand, applied or not
+		if( preset && vk_preset.started )
+			VK_PostPresetSettings( preset, true );
+
+		vk_preset.applied = preset;
+		vk_preset.started = true;
+	}
+
+	// a setting of it changed: no longer that preset
+	if( vk_preset.applied && !VK_PostPresetSettings( vk_preset.applied, false ))
+	{
+		vk_preset.applied = NULL;
+		gEngfuncs.Cvar_Set( r_vk_preset.name, "custom" );
+		Q_strncpy( vk_preset.seen, "custom", sizeof( vk_preset.seen ));
+	}
 }
 
 /*
@@ -470,7 +574,9 @@ static qboolean VK_PostGetTargets( void )
 	post.num_bloom = 0;
 	if( post.s.bloom > 0.0f )
 	{
-		for( int shift = 1; ok && post.num_bloom < VK_POST_MAX_BLOOM; shift++ )
+		const int start = bound( 1, (int)r_vk_bloom_start.value, 3 );
+
+		for( int shift = start; ok && post.num_bloom < VK_POST_MAX_BLOOM; shift++ )
 		{
 			char name[32];
 
@@ -633,6 +739,8 @@ static qboolean VK_PostWanted( void )
 void VK_PostBeginFrame( void )
 {
 	int width, height;
+
+	VK_PostPresets();
 
 	// a failure gives up until the quality setting changes
 	if( Q_strcmp( post.quality, r_vk_quality.string ))

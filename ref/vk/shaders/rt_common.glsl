@@ -31,6 +31,7 @@
 #define RT_INST_GLASS     16  // brush entity drawn with kRenderTransTexture
 #define RT_INST_SKYLIT    32  // studio model lit by the sky (R_EntityDynamicLight)
 #define RT_INST_HIDDEN    64  // online, out of the player's sight: casts and reflects nothing (rt_visibility.comp)
+#define RT_INST_PREV      128 // where it was in the previous frame is known
 
 #define RT_STUDIO_STRIDE  6   // floats a studio vertex: xyz, st, colour (RGBA8)
 #define BRUSH_STRIDE      7   // glpoly2_t: xyz, st, lightmap st
@@ -60,6 +61,9 @@ struct rt_instance_s
 	int entity;        // index, -1 for the view model
 	float ambient;     // studio lighting it was drawn with (R_StudioLighting)
 	float shade;
+	vec4 prev[3];      // brush entity: its transform in the previous frame (rows)
+	int prev_first;    // studio: its first triangle in the previous frame's
+	int pad0, pad1, pad2;
 };
 
 // a dynamic light, as R_AddDynamicLights adds it to the lightmaps
@@ -92,7 +96,7 @@ layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer 
 	uint64_t lights;          // rt_light_s
 	uint64_t gamma;           // uint lightgammatable[1024], then float inverse[256]
 	uint64_t lightgrid;       // the map's lights (vk_rtlights.c), 0 for none
-	uint64_t pad64;
+	uint64_t prev_studio_vertices; // the previous frame's studio triangles, 0 for none
 	ivec4 sky;                // skybox textures of the axes 0-3
 	ivec4 sky2;               // axes 4, 5; number of lights; R_BuildLightMap's lightscale
 	ivec4 counts;             // x: instances
@@ -140,6 +144,9 @@ struct rt_hit_s
 	vec2 lightuv;   // brush: lightmap page coordinates
 	int lightmap;   // brush: lightmap page texture
 	vec4 color;     // studio: lit vertex colour
+	vec3 object;    // position in the instance's space
+	int prim;       // triangle in its geometry
+	vec3 bary;      // weights of its vertices
 };
 
 vec4 RTUnpackColor( float packed )
@@ -201,7 +208,10 @@ rt_hit_s RTHitData( rt_scene_r scene, int custom, int geometry, int prim, vec2 b
 		hit.color = c[0] * w.x + c[1] * w.y + c[2] * w.z;
 	}
 
-	hit.position = to_world * vec4( p[0] * w.x + p[1] * w.y + p[2] * w.z, 1.0 );
+	hit.object = p[0] * w.x + p[1] * w.y + p[2] * w.z;
+	hit.prim = prim;
+	hit.bary = w;
+	hit.position = to_world * vec4( hit.object, 1.0 );
 	hit.uv = st[0] * w.x + st[1] * w.y + st[2] * w.z;
 	hit.normal = normalize( mat3( to_world ) * cross( p[1] - p[0], p[2] - p[0] ));
 	if( dot( hit.normal, dir ) > 0.0 )
@@ -333,4 +343,39 @@ vec3 RTSky( rt_scene_r scene, vec3 dir )
 	vec2 uv = clamp(( st.xy / st.z + 1.0 ) * 0.5, 0.0, 1.0 );
 	uv.y = 1.0 - uv.y;
 	return pow( textureLod( textures[nonuniformEXT( tex )], uv, 0.0 ).rgb, vec3( 2.2 ));
+}
+
+// where a hit's point was in the previous frame, for motion vectors: the
+// world stays, brush entities moved with their transform, studio models
+// with their skinning (the same triangle, the previous frame's vertices)
+vec3 RTPrevPosition( rt_scene_r scene, rt_instance_s inst, rt_hit_s hit, out bool known )
+{
+	known = ( inst.flags & RT_INST_PREV ) != 0;
+
+	if( !known || ( inst.flags & RT_INST_WORLD ) != 0 )
+		return hit.position;
+
+	if(( inst.flags & RT_INST_BRUSH ) != 0 )
+	{
+		vec4 o = vec4( hit.object, 1.0 );
+		return vec3( dot( inst.prev[0], o ), dot( inst.prev[1], o ), dot( inst.prev[2], o ));
+	}
+
+	if( scene.prev_studio_vertices == 0 || inst.prev_first < 0 )
+	{
+		known = false;
+		return hit.position;
+	}
+
+	rt_floats_r verts = rt_floats_r( scene.prev_studio_vertices );
+	uint tri = uint( inst.prev_first + hit.prim );
+	vec3 p = vec3( 0.0 );
+
+	for( int k = 0; k < 3; k++ )
+	{
+		uint i = ( tri * 3u + uint( k )) * RT_STUDIO_STRIDE;
+		p += vec3( verts.v[i], verts.v[i + 1], verts.v[i + 2] ) * hit.bary[k];
+	}
+
+	return p;
 }

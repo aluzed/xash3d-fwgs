@@ -84,7 +84,9 @@ float Fresnel( float f0, float cos_theta )
 
 // the light taken out of a lightmapped surface, in R_BuildLightMap's 10 bit
 // units; lit: what the dynamic lights give it, with their shadows
-vec3 BlockedLight( rt_scene_r scene, rtfx_params_r p, vec3 pos, vec3 n, int self_entity, out vec3 lit )
+// sun_hidden: the part of the sun entities hide (rt_shadows.comp), below 0
+// to find it here with one ray
+vec3 BlockedLight( rt_scene_r scene, rtfx_params_r p, vec3 pos, vec3 n, int self_entity, float sun_hidden, out vec3 lit )
 {
 	const float to_light = 4.0 * float( scene.sky2.w ) / 256.0; // lightmap units to 10 bit light
 	vec3 origin = pos + n * 0.5;
@@ -94,7 +96,9 @@ vec3 BlockedLight( rt_scene_r scene, rtfx_params_r p, vec3 pos, vec3 n, int self
 
 	// the sun: the lightmap has it where the world lets it through
 	float cos_sun = dot( n, scene.sun_dir.xyz );
-	if( cos_sun > 0.0 && dot( scene.sun_color.rgb, vec3( 1.0 )) > 0.0
+	if( sun_hidden >= 0.0 )
+		removed += scene.sun_color.rgb * ( max( cos_sun, 0.0 ) * p.shadow.x * to_light * sun_hidden );
+	else if( cos_sun > 0.0 && dot( scene.sun_color.rgb, vec3( 1.0 )) > 0.0
 		&& !RTOccluded( tlas, scene, origin, scene.sun_dir.xyz, 16384.0, RT_MASK_WORLD, RT_SKIP_NONE )
 		&& RTOccluded( tlas, scene, origin, scene.sun_dir.xyz, 16384.0, CASTERS, self_entity ))
 		removed += scene.sun_color.rgb * ( cos_sun * p.shadow.x * to_light );
@@ -178,11 +182,13 @@ void main()
 	// lightmapped surfaces: shadows taken out of the lightmap's light, and the
 	// rays' lighting (026) in place of part or all of it
 	vec4 gi = ( flags & FX_GI ) != 0 ? texelFetch( inputs[3], pixel, 0 ) : vec4( 0.0 );
+	vec4 soft = ( flags & FX_SOFT ) != 0 ? texelFetch( inputs[4], pixel, 0 ) : vec4( 0.0 );
+	float sun_hidden = ( flags & FX_SOFT ) != 0 ? ( soft.a > 0.0 ? soft.r : 0.0 ) : -1.0;
 	bool lightmapped = hit.kind == RT_KIND_BRUSH && ( hit.flags & RT_SURF_WATER ) == 0 && hit.lightmap > 0;
 
 	if( lightmapped && (( flags & FX_SHADOWS ) != 0 || gi.a > 0.0 ))
 	{
-		vec3 lit, removed = BlockedLight( scene, p, pos, n, inst.entity, lit );
+		vec3 lit, removed = BlockedLight( scene, p, pos, n, inst.entity, sun_hidden, lit );
 		vec3 texel = textureLod( textures[nonuniformEXT( hit.lightmap )], hit.lightuv, 0.0 ).rgb;
 
 		if(( flags & FX_SHADOWS ) == 0 )
@@ -212,8 +218,13 @@ void main()
 
 	if(( flags & FX_SHADOWS ) != 0 )
 	{
-		if( hit.kind == RT_KIND_STUDIO && ( inst.flags & RT_INST_SKYLIT ) != 0 && dot( n, scene.sun_dir.xyz ) > 0.0
-			&& RTOccluded( tlas, scene, pos + n * 1.0, scene.sun_dir.xyz, 16384.0, BLOCKERS, inst.entity ))
+		float hidden = 0.0;
+
+		if( hit.kind == RT_KIND_STUDIO && ( inst.flags & RT_INST_SKYLIT ) != 0 && dot( n, scene.sun_dir.xyz ) > 0.0 )
+			hidden = sun_hidden >= 0.0 ? sun_hidden
+				: RTOccluded( tlas, scene, pos + n * 1.0, scene.sun_dir.xyz, 16384.0, BLOCKERS, inst.entity ) ? 1.0 : 0.0;
+
+		if( hidden > 0.0 )
 		{
 			// R_StudioLighting with the sky's light vector, then without its directional part
 			float lightcos = dot( n, -scene.sun_dir.xyz );
@@ -221,7 +232,7 @@ void main()
 			float illum = clamp( inst.ambient + inst.shade - inst.shade * k, 0.0, 255.0 );
 			float shadowed = clamp( max( inst.ambient, illum * p.shadow.y ), 0.0, 255.0 );
 
-			color.rgb *= TexelRatio( scene, illum * 4.0, shadowed * 4.0 );
+			color.rgb *= mix( 1.0, TexelRatio( scene, illum * 4.0, shadowed * 4.0 ), hidden );
 		}
 	}
 
@@ -248,22 +259,18 @@ void main()
 		float dist = length( pos - p.eye.xyz );
 		float frames = 1.0;
 
-		if(( flags & FX_HISTORY ) != 0 )
+		bool known;
+		vec3 prev_pos = RTPrevPosition( scene, inst, hit, known );
+		ivec2 prev_pixel;
+
+		if(( flags & FX_HISTORY ) != 0 && known && PrevPixel( p, prev_pos, prev_pixel ))
 		{
-			vec4 clip = p.prev_view_proj * vec4( pos, 1.0 );
-			vec2 prev = vec2( clip.x / clip.w * 0.5 + 0.5, 0.5 - clip.y / clip.w * 0.5 );
-			ivec2 prev_pixel = ivec2( prev * vec2( p.rect.zw )) + p.rect.xy;
+			vec4 h = texelFetch( inputs[2], prev_pixel, 0 );
 
-			if( clip.w > 0.0 && all( greaterThanEqual( prev, vec2( 0.0 ))) && all( lessThan( prev, vec2( 1.0 ))))
+			if( h.y > 0.0 && SameSurface( p, h.z, prev_pos ))
 			{
-				vec4 h = texelFetch( inputs[2], prev_pixel, 0 );
-
-				// what the previous eye saw there is this surface: as far from it
-				if( h.y > 0.0 && abs( h.z - length( pos - p.prev_eye.xyz )) < 1.0 + 0.03 * h.z )
-				{
-					frames = min( h.y + 1.0, hit.kind == RT_KIND_STUDIO ? 4.0 : 24.0 );
-					ao = mix( h.x, ao, 1.0 / frames );
-				}
+				frames = min( h.y + 1.0, 24.0 );
+				ao = mix( h.x, ao, 1.0 / frames );
 			}
 		}
 

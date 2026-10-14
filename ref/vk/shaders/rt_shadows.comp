@@ -1,0 +1,96 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+// soft sun shadows of the entities (025), per pixel of the view: how much of
+// the sun's disc an entity hides, four rays towards points of the disc per
+// frame, accumulated where the surface stays (with its motion) and
+// filtered by rt_shadow_filter.comp. Lightmapped surfaces count only the
+// entities (the lightmap has the world's shadows), where the world lets the
+// sun's centre through; studio models lit by the sky count everything.
+//
+// inputs: depth, previous occlusion history (distances), previous shadow history
+// output: shadow history (hidden part, frames, 0, 1 where a shadow can fall)
+
+layout( local_size_x = 8, local_size_y = 8 ) in;
+
+#include "rtfx_common.glsl"
+
+layout( set = 1, binding = 2, rgba16f ) uniform writeonly image2D history_out;
+
+#define MAX_FRAMES 4.0  // shadows move over static surfaces: a short history, no trail
+#define RAYS       4
+
+// a direction towards the sun's disc, of angular radius tan_radius
+vec3 SunSample( vec3 sun, float tan_radius, vec2 r )
+{
+	vec3 up = abs( sun.z ) < 0.99 ? vec3( 0.0, 0.0, 1.0 ) : vec3( 1.0, 0.0, 0.0 );
+	vec3 t = normalize( cross( up, sun ));
+	vec3 b = cross( sun, t );
+	float rad = sqrt( r.x ) * tan_radius, phi = r.y * 6.2831853;
+
+	return normalize( sun + t * ( cos( phi ) * rad ) + b * ( sin( phi ) * rad ));
+}
+
+void main()
+{
+	rtfx_params_r p = rtfx_params_r( pc.params );
+	rt_scene_r scene = rt_scene_r( pc.scene );
+
+	if( any( greaterThanEqual( gl_GlobalInvocationID.xy, uvec2( p.rect.zw ))))
+		return;
+
+	ivec2 pixel = ivec2( gl_GlobalInvocationID.xy ) + p.rect.xy;
+	vec2 uv = ( vec2( gl_GlobalInvocationID.xy ) + 0.5 ) / vec2( p.rect.zw );
+	float raster = EyeDepth( p, texelFetch( inputs[0], pixel, 0 ).r );
+	vec3 dir, sun = scene.sun_dir.xyz;
+	rt_hit_s hit;
+	int instance;
+	float t;
+
+	imageStore( history_out, pixel, vec4( 0.0 ));
+
+	if( dot( scene.sun_color.rgb, vec3( 1.0 )) <= 0.0 || !PrimaryHit( p, scene, pixel, uv, raster, dir, hit, instance, t ))
+		return;
+
+	rt_instance_s inst = rt_instances_r( scene.instances ).v[instance];
+	vec3 n = hit.normal;
+	bool lightmapped = hit.kind == RT_KIND_BRUSH && ( hit.flags & RT_SURF_WATER ) == 0 && hit.lightmap > 0;
+	bool skylit = hit.kind == RT_KIND_STUDIO && ( inst.flags & ( RT_INST_SKYLIT | RT_INST_VIEWMODEL )) == RT_INST_SKYLIT;
+
+	if(( !lightmapped && !skylit ) || dot( n, sun ) <= 0.0 )
+		return;
+
+	vec3 origin = hit.position + n * ( skylit ? 1.0 : 0.5 );
+
+	// the lightmap has no sun here: nothing to take out of it
+	if( lightmapped && RTOccluded( tlas, scene, origin, sun, 16384.0, RT_MASK_WORLD, RT_SKIP_NONE ))
+		return;
+
+	float hidden = 0.0;
+	for( int i = 0; i < RAYS; i++ )
+	{
+		vec3 ray = SunSample( sun, p.shadow.z, Random2( pixel, p.misc.y, 53u + uint( i ) * 17u ));
+
+		if( dot( n, ray ) > 0.0 && RTOccluded( tlas, scene, origin, ray, 16384.0,
+			lightmapped ? ( RT_MASK_BRUSH | RT_MASK_MODELS ) : BLOCKERS, inst.entity ))
+			hidden += 1.0 / float( RAYS );
+	}
+	float frames = 1.0;
+
+	bool known;
+	vec3 prev_pos = RTPrevPosition( scene, inst, hit, known );
+	ivec2 prev_pixel;
+
+	if( pc.iparams.x != 0 && known && PrevPixel( p, prev_pos, prev_pixel ))
+	{
+		vec4 h = texelFetch( inputs[2], prev_pixel, 0 );
+
+		if( h.a > 0.0 && SameSurface( p, texelFetch( inputs[1], prev_pixel, 0 ).z, prev_pos ))
+		{
+			frames = min( h.y + 1.0, MAX_FRAMES );
+			hidden = mix( h.x, hidden, 1.0 / frames );
+		}
+	}
+
+	imageStore( history_out, pixel, vec4( hidden, frames, 0.0, 1.0 ));
+}

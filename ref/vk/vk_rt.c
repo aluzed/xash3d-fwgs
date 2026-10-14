@@ -78,12 +78,14 @@ CVAR_DEFINE_AUTO( r_vk_rt_debug, "0", FCVAR_CHEAT, "show the scene traced from t
 #define RT_INST_VIEWMODEL 8
 #define RT_INST_GLASS     16
 #define RT_INST_SKYLIT    32
+#define RT_INST_PREV      128 // where it was in the previous frame is known (motion vectors)
 
 #define RT_STUDIO_STRIDE  6  // floats a studio vertex: xyz, st, colour (RGBA8)
 
 #define VK_RT_MAX_INSTANCES 1024
 #define VK_RT_MAX_SEGMENTS  256  // studio entities drawn in a frame
 #define VK_RT_IDLE_FRAMES   60   // frames before an unused entity BLAS goes
+#define VK_RT_MAX_ENTITIES  8192 // brush entities whose previous transform is kept
 
 // mirrors rt_common.glsl
 typedef struct
@@ -109,6 +111,9 @@ typedef struct
 	int entity;       // index, -1 for the view model
 	float ambient;    // studio: the ambient and directional light it was lit with
 	float shade;
+	float prev[3][4]; // brush entity: its transform in the previous frame
+	int prev_first;   // studio: its first triangle in the previous frame's, -1 for none
+	int pad[3];
 } vk_rt_instance_t;
 
 typedef struct
@@ -132,7 +137,7 @@ typedef struct
 	VkDeviceAddress lights;
 	VkDeviceAddress gamma;   // uint lightgammatable[1024], then its inverse, float[256]
 	VkDeviceAddress lightgrid; // the map's lights (vk_rtlights.c), 0 for none
-	VkDeviceAddress pad64;
+	VkDeviceAddress prev_studio_vertices; // the previous frame's, 0 for none
 	int sky[4];              // skybox textures of the axes 0-3
 	int sky2[2];             // axes 4 and 5
 	int num_lights;
@@ -185,6 +190,7 @@ typedef struct
 	vk_rt_dynamic_t dynamic[VK_RT_MAX_SEGMENTS];
 	vk_as_t tlas;
 	vk_buffer_t scratch;
+	vk_buffer_t studio_copy; // the studio triangles, kept for the next frame's motion
 	VkDescriptorSet debug_set;
 } vk_rt_frame_t;
 
@@ -228,6 +234,17 @@ static struct
 	int num_studio, max_studio;
 	vk_rt_segment_t segments[VK_RT_MAX_SEGMENTS];
 	int num_segments;
+
+	// the previous frame, for the motion of what moves
+	vk_rt_segment_t prev_segments[VK_RT_MAX_SEGMENTS];
+	int prev_num_segments;
+	VkDeviceAddress prev_studio_verts;
+	uint64_t prev_frame;   // the frame they are of
+	struct
+	{
+		float m[3][4];
+		uint64_t frame;
+	} prev_brush[VK_RT_MAX_ENTITIES]; // brush entities' transforms, by entity index
 	qboolean capturing;
 
 	// r_vk_rtinfo
@@ -903,6 +920,39 @@ static void VK_RTStudioGeometry( VkAccelerationStructureGeometryKHR *g, VkDevice
 	};
 }
 
+/*
+=================
+VK_RTKeepStudio
+
+the triangles of the frame, copied by the GPU into this frame slot's own
+buffer: the next frame reads them for the motion of the models, while the
+CPU may already be filling this slot's part of the dynamic ring again
+=================
+*/
+static void VK_RTDeferDestroy( vk_buffer_t *buf );
+
+static void VK_RTKeepStudio( VkCommandBuffer cmd, vk_rt_frame_t *frame, VkBuffer src, VkDeviceSize offset, VkDeviceSize size )
+{
+	if( !frame->studio_copy.buffer || frame->studio_copy.size < size )
+	{
+		VK_RTDeferDestroy( &frame->studio_copy );
+		if( !VK_CreateBuffer( &frame->studio_copy, "rt previous studio triangles", size * 3 / 2,
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT ))
+			return;
+	}
+
+	VkBufferCopy copy = { offset, 0, size };
+	vkCmdCopyBuffer( cmd, src, frame->studio_copy.buffer, 1, &copy );
+	VK_RTBarrier( cmd, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+		VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT );
+}
+
+static void VK_RTDeferDestroy( vk_buffer_t *buf )
+{
+	VK_DeferDestroyBuffer( buf );
+}
+
 static void *VK_RTDynamic( VkDeviceSize size, VkDeviceSize align, VkDeviceAddress *address )
 {
 	VkBuffer buffer;
@@ -952,6 +1002,24 @@ static vk_rt_dynamic_t *VK_RTDynamicFor( vk_rt_frame_t *frame, const vk_rt_segme
 	}
 
 	return same ? same : free_entry ? free_entry : oldest;
+}
+
+// the same entity's triangles in the previous frame: the same model with as
+// many triangles is the same skinning order, a triangle for a triangle
+static int VK_RTPrevFirstTri( const vk_rt_segment_t *seg )
+{
+	if( vk_rt.prev_frame + 1 != VK_CurrentFrame( ) || !vk_rt.prev_studio_verts )
+		return -1;
+
+	for( int i = 0; i < vk_rt.prev_num_segments; i++ )
+	{
+		const vk_rt_segment_t *p = &vk_rt.prev_segments[i];
+
+		if( p->key == seg->key && p->model == seg->model )
+			return p->num_tris == seg->num_tris ? p->first_tri : -1;
+	}
+
+	return -1;
 }
 
 /*
@@ -1037,7 +1105,10 @@ static int VK_RTBuildStudio( VkCommandBuffer cmd, vk_rt_frame_t *frame, VkDevice
 			.entity = seg->key,
 			.ambient = seg->ambient,
 			.shade = seg->shade,
+			.prev_first = VK_RTPrevFirstTri( seg ),
 		};
+		if( info[num_instances].prev_first >= 0 )
+			info[num_instances].flags |= RT_INST_PREV;
 		VK_RTInstance( &instances[num_instances++], identity, vk_rt.num_geometries + i,
 			seg->viewmodel ? RT_MASK_VIEWMODEL : RT_MASK_MODELS, d->as.address );
 		count++;
@@ -1189,6 +1260,7 @@ void VK_RTBuildScene( void )
 	VkAccelerationStructureInstanceKHR *instances;
 	vk_rt_instance_t *info;
 	VkDeviceAddress studio_verts = 0, studio_tris = 0, instances_addr, info_addr, geometries_addr, scene_addr;
+	qboolean frame_kept = true;
 	matrix4x4 identity;
 	int num_instances = 0;
 
@@ -1204,7 +1276,10 @@ void VK_RTBuildScene( void )
 	// the captured triangles, read by the builds and the shaders
 	if( vk_rt.num_studio )
 	{
-		float *v = VK_RTDynamic( vk_rt.num_studio * 3 * RT_STUDIO_STRIDE * sizeof( float ), 16, &studio_verts );
+		const VkDeviceSize verts_size = vk_rt.num_studio * 3 * RT_STUDIO_STRIDE * sizeof( float );
+		VkBuffer verts_buffer;
+		VkDeviceSize verts_offset;
+		float *v = VK_DynamicAlloc( verts_size, 16, &verts_buffer, &verts_offset );
 		vk_rt_surface_t *t = VK_RTDynamic( vk_rt.num_studio * sizeof( vk_rt_surface_t ), 16, &studio_tris );
 
 		if( !v || !t )
@@ -1213,9 +1288,12 @@ void VK_RTBuildScene( void )
 			return;
 		}
 
-		memcpy( v, vk_rt.studio_verts, vk_rt.num_studio * 3 * RT_STUDIO_STRIDE * sizeof( float ));
+		studio_verts = VK_BufferAddress( verts_buffer ) + verts_offset;
+		memcpy( v, vk_rt.studio_verts, verts_size );
 		memcpy( t, vk_rt.studio_tris, vk_rt.num_studio * sizeof( vk_rt_surface_t ));
+		VK_RTKeepStudio( cmd, frame, verts_buffer, verts_offset, verts_size );
 	}
+	else frame_kept = false;
 
 	instances = VK_RTDynamic( VK_RT_MAX_INSTANCES * sizeof( *instances ), 16, &instances_addr );
 	info = VK_RTDynamic( VK_RT_MAX_INSTANCES * sizeof( *info ), 16, &info_addr );
@@ -1229,11 +1307,11 @@ void VK_RTBuildScene( void )
 		num_instances = VK_RTBuildStudio( cmd, frame, studio_verts, instances, info );
 
 	// the map, and its brush models where their entities are
-	info[num_instances] = (vk_rt_instance_t){ .flags = RT_INST_WORLD, .entity = 0 };
+	info[num_instances] = (vk_rt_instance_t){ .flags = RT_INST_WORLD | RT_INST_PREV, .entity = 0, .prev_first = -1 };
 	VK_RTInstance( &instances[num_instances++], identity, vk_rt.world.geometry_base, RT_MASK_WORLD, vk_rt.world.as.address );
 	if( vk_rt.water.as.handle )
 	{
-		info[num_instances] = (vk_rt_instance_t){ .flags = RT_INST_WORLD, .entity = 0 };
+		info[num_instances] = (vk_rt_instance_t){ .flags = RT_INST_WORLD | RT_INST_PREV, .entity = 0, .prev_first = -1 };
 		VK_RTInstance( &instances[num_instances++], identity, vk_rt.water.geometry_base, RT_MASK_WATER, vk_rt.water.as.address );
 	}
 	for( int list = 0; list < 2; list++ )
@@ -1259,7 +1337,27 @@ void VK_RTBuildScene( void )
 				.origin = { e->origin[0], e->origin[1], e->origin[2], 0.0f },
 				.flags = RT_INST_BRUSH | ( e->curstate.rendermode == kRenderTransTexture ? RT_INST_GLASS : 0 ),
 				.entity = e->index,
+				.prev_first = -1,
 			};
+
+			// where it was: its transform kept from the previous frame
+			if( e->index >= 0 && e->index < VK_RT_MAX_ENTITIES )
+			{
+				const uint64_t now = VK_CurrentFrame();
+
+				if( vk_rt.prev_brush[e->index].frame + 1 == now )
+				{
+					memcpy( info[num_instances].prev, vk_rt.prev_brush[e->index].m, sizeof( info[num_instances].prev ));
+					info[num_instances].flags |= RT_INST_PREV;
+				}
+
+				for( int r = 0; r < 3; r++ )
+				{
+					for( int c = 0; c < 4; c++ )
+						vk_rt.prev_brush[e->index].m[r][c] = m[r][c];
+				}
+				vk_rt.prev_brush[e->index].frame = now;
+			}
 			VK_RTInstance( &instances[num_instances++], m, vk_rt.submodels[index].geometry_base,
 				e->curstate.rendermode == kRenderNormal ? RT_MASK_BRUSH : RT_MASK_TRANS, vk_rt.submodels[index].as.address );
 		}
@@ -1314,6 +1412,7 @@ void VK_RTBuildScene( void )
 		scene->lights = lights_addr;
 		scene->gamma = gamma_addr;
 		scene->lightgrid = VK_RTLightsAddress();
+		scene->prev_studio_vertices = vk_rt.prev_frame + 1 == VK_CurrentFrame() ? vk_rt.prev_studio_verts : 0;
 		scene->num_instances = num_instances;
 		scene->num_lights = VK_RTLights( lights );
 		scene->lightscale = gl_overbright.value ? 256 : (int)( pow( 2.0f, 1.0f / v_lightgamma->value ) * 256 + 0.5f );
@@ -1321,6 +1420,13 @@ void VK_RTBuildScene( void )
 		VK_RTSky( scene );
 		vk_rt.scene = scene_addr;
 		vk_rt.num_instances = num_instances;
+
+		// this frame's triangles stay in its slot of the ring until it comes
+		// around again: the next frame reads them
+		memcpy( vk_rt.prev_segments, vk_rt.segments, vk_rt.num_segments * sizeof( vk_rt_segment_t ));
+		vk_rt.prev_num_segments = vk_rt.num_segments;
+		vk_rt.prev_studio_verts = frame_kept && frame->studio_copy.buffer ? VK_BufferAddress( frame->studio_copy.buffer ) : 0;
+		vk_rt.prev_frame = VK_CurrentFrame();
 		vk_rt.built_frame = VK_CurrentFrame();
 	}
 
@@ -1564,6 +1670,7 @@ void VK_ShutdownRT( void )
 			VK_DestroyAS( &vk_rt.frames[i].dynamic[j].as );
 		VK_DestroyAS( &vk_rt.frames[i].tlas );
 		VK_DestroyBuffer( &vk_rt.frames[i].scratch );
+		VK_DestroyBuffer( &vk_rt.frames[i].studio_copy );
 	}
 
 	if( vk_rt.debug_pipeline )
