@@ -44,6 +44,8 @@ static qboolean R_Init( void )
 	VK_InitWorld();
 	R_StudioInit();
 	R_SpriteInit();
+	R_DecalInit();
+	R_ClearDecals();
 
 	// the engine falls back to the next renderer when this fails
 	if( !gEngfuncs.R_Init_Video( REF_VULKAN ))
@@ -183,27 +185,6 @@ static qboolean VID_CubemapShot( const char *base, uint size, const float *viewo
 	return false;
 }
 
-static void R_DecalShoot( int textureIndex, int entityIndex, int modelIndex, vec3_t pos, int flags, float scale )
-{
-	VK_STUB();
-}
-
-static void R_DecalRemoveAll( int texture )
-{
-	VK_STUB();
-}
-
-static int R_CreateDecalList( struct decallist_s *pList )
-{
-	VK_STUB();
-	return 0;
-}
-
-static void R_ClearAllDecals( qboolean include_permanent )
-{
-	VK_STUB();
-}
-
 /*
 =================
 Model lifetime, as ref_gl/gl_context.c: the engine loads brush textures
@@ -335,23 +316,6 @@ static int RAPI_CreateTextureArray( const char *name, int width, int height, int
 	return 0;
 }
 
-static void RAPI_DrawSingleDecal( struct decal_s *pDecal, struct msurface_s *fa )
-{
-	VK_STUB();
-}
-
-static float *RAPI_DecalSetupVerts( struct decal_s *pDecal, struct msurface_s *surf, int texture, int *outCount )
-{
-	VK_STUB();
-	if( outCount ) *outCount = 0;
-	return NULL;
-}
-
-static void RAPI_EntityRemoveDecals( struct model_s *mod )
-{
-	VK_STUB();
-}
-
 // fixed function GL state has no meaning here
 static void RAPI_GLStubInt( int unused )
 {
@@ -398,9 +362,9 @@ static void R_FillRenderAPI( render_api_t *api )
 	api->GL_CreateTexture        = GL_CreateTexture;
 	api->GL_LoadTextureArray     = RAPI_LoadTextureArray;
 	api->GL_CreateTextureArray   = RAPI_CreateTextureArray;
-	api->DrawSingleDecal         = RAPI_DrawSingleDecal;
-	api->R_DecalSetupVerts       = RAPI_DecalSetupVerts;
-	api->R_EntityRemoveDecals    = RAPI_EntityRemoveDecals;
+	api->DrawSingleDecal         = DrawSingleDecal;
+	api->R_DecalSetupVerts       = R_DecalSetupVerts;
+	api->R_EntityRemoveDecals    = R_EntityRemoveDecals;
 	api->GL_SelectTexture        = RAPI_GLStubInt;
 	api->GL_LoadTextureMatrix    = RAPI_GLStubMatrix;
 	api->GL_TexMatrixIdentity    = R_SimpleStub;

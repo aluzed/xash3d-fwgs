@@ -31,6 +31,7 @@ CVAR_DEFINE_AUTO( r_novis, "0", 0, "ignore vis information (perfomance test)" );
 CVAR_DEFINE_AUTO( r_nocull, "0", 0, "ignore frustrum culling (perfomance test)" );
 CVAR_DEFINE_AUTO( r_lockpvs, "0", FCVAR_CHEAT, "lockpvs area at current point (pvs test)" );
 CVAR_DEFINE_AUTO( r_lockfrustum, "0", FCVAR_CHEAT, "lock frustrum area at current point (cull test)" );
+CVAR_DEFINE_AUTO( gl_polyoffset_bmodels, "2", FCVAR_GLCONFIG, "polygon offset for brush models" );
 CVAR_DEFINE_AUTO( r_large_lightmaps, "0", FCVAR_GLCONFIG|FCVAR_LATCH, "enable larger lightmap atlas textures (might break custom renderer mods)" );
 
 #define BLOCK_SIZE_DEFAULT 128 // for keep backward compatibility
@@ -312,7 +313,7 @@ void R_AllowFog( qboolean allowed )
 Polygons (gl_rsurf.c)
 =================
 */
-static void R_LightmapCoord( const vec3_t v, const msurface_t *surf, const float sample_size, vec2_t coords )
+void R_LightmapCoord( const vec3_t v, const msurface_t *surf, const float sample_size, vec2_t coords )
 {
 	const mextrasurf_t *info = surf->info;
 	float s, t;
@@ -1065,7 +1066,7 @@ static void R_UpdateSurfaceLightmap( msurface_t *fa, int surfnum )
 Texture animation
 =================
 */
-static texture_t *R_TextureAnimation( msurface_t *s )
+texture_t *R_TextureAnimation( msurface_t *s )
 {
 	texture_t *base = s->texinfo->texture;
 	int reletive;
@@ -1928,6 +1929,29 @@ static void VK_DrawWaterSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 	}
 }
 
+// glPolygonOffset of the brush draws, restored after the decals
+static float vk_brush_offset_factor, vk_brush_offset_units;
+
+static void VK_SetBrushOffset( VkCommandBuffer cmd, float factor, float units )
+{
+	vk_brush_offset_factor = factor;
+	vk_brush_offset_units = units;
+	vkCmdSetDepthBias( cmd, units, 0.0f, factor );
+}
+
+// the decals went through the immediate mode: rebind the brush state
+static void VK_ResumeBrushDraws( VkCommandBuffer cmd, const vk_brush_state_t *st, vk_world_push_t *push )
+{
+	VK_ImmFlush();
+	VK_BindBrushGeometry( cmd );
+	vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, VK_WorldPipeline( st->blend, st->depth_write, false ));
+	vkCmdSetDepthBias( cmd, vk_brush_offset_units, 0.0f, vk_brush_offset_factor );
+	push->texture = -1; // the push constants changed too
+
+	if( st->mode == VK_WORLD_MODE_COLOR )
+		VK_PushWorld( cmd, push );
+}
+
 static void VK_DrawBrushSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int count, const vk_brush_state_t *st, const matrix4x4 modelview )
 {
 	vk_world_push_t push = { 0 };
@@ -1976,6 +2000,24 @@ static void VK_DrawBrushSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 
 		VK_DrawSurface( cmd, surfnum );
 
+		// R_RenderDecalsForSurface
+		if( s->pdecals )
+		{
+			if( RI.currententity->curstate.rendermode == kRenderNormal )
+			{
+				// batch decals to draw later
+				if( tr.num_draw_decals < MAX_DECAL_SURFS )
+					tr.draw_decals[tr.num_draw_decals++] = s;
+			}
+			else
+			{
+				// if rendermode != kRenderNormal draw decals sequentially
+				GL_Bind( XASH_TEXTURE0, R_TextureAnimation( s )->gl_texturenum );
+				DrawSurfaceDecals( s, true, R_CullSurface( s, &RI.frustum, 0 ) == CULL_BACKSIDE );
+				VK_ResumeBrushDraws( cmd, st, &push );
+			}
+		}
+
 		// R_RenderLightmapForSurface
 		if( st->lightmaps && s->polys && !FBitSet( s->flags, SURF_DRAWTILED ))
 		{
@@ -1984,6 +2026,16 @@ static void VK_DrawBrushSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 			lightmap_surfaces[s->lightmaptexturenum] = s;
 			any_lightmap = true;
 		}
+	}
+
+	// before the lightmaps, which light them like the surface
+	if( tr.num_draw_decals )
+	{
+		if( RI.currententity->curstate.rendermode == kRenderTransColor )
+			VK_ImmTexture2D( true );
+
+		DrawDecalsBatch();
+		VK_ResumeBrushDraws( cmd, st, &push );
 	}
 
 	if( !any_lightmap )
@@ -2079,7 +2131,7 @@ static void VK_DrawWorldSurfaces( VkCommandBuffer cmd )
 
 	VK_BeginLabel( cmd, "world" );
 	VK_BindBrushGeometry( cmd );
-	vkCmdSetDepthBias( cmd, 0.0f, 0.0f, 0.0f );
+	VK_SetBrushOffset( cmd, 0.0f, 0.0f );
 	VK_DrawBrushSurfaces( cmd, vk_draw_surfs, count, &st, RI.worldviewMatrix );
 	VK_DrawWaterSurfaces( cmd, vk_draw_surfs, count, &st, RI.worldviewMatrix, false );
 	VK_EndLabel( cmd );
@@ -2414,6 +2466,55 @@ qboolean R_AddEntity( struct cl_entity_s *clent, int type )
 Brush entities (R_DrawBrushModel)
 =================
 */
+// R_SetRenderMode of gl_rsurf.c: the GL state the decals of the entity
+// inherit, set on the immediate mode
+static void R_SetRenderModeImm( cl_entity_t *e )
+{
+	switch( e->curstate.rendermode )
+	{
+	case kRenderNormal:
+		VK_ImmColor4f( 1.0f, 1.0f, 1.0f, 1.0f );
+		break;
+	case kRenderTransColor:
+		VK_ImmBlendFunc( VK_BLEND_ALPHA );
+		VK_ImmColor4ub( e->curstate.rendercolor.r, e->curstate.rendercolor.g, e->curstate.rendercolor.b, e->curstate.renderamt );
+		VK_ImmTexReplace( false );
+		VK_ImmTexture2D( false );
+		VK_ImmBlendEnable( true );
+		break;
+	case kRenderTransAdd:
+		VK_ImmTexReplace( false );
+		VK_ImmColor4f( tr.blend, tr.blend, tr.blend, 1.0f );
+		VK_ImmBlendFunc( VK_BLEND_ONE_ONE );
+		VK_ImmDepthMask( false );
+		VK_ImmBlendEnable( true );
+		break;
+	case kRenderTransAlpha:
+		VK_ImmAlphaTestEnable( true );
+		VK_ImmTexReplace( false );
+		if( FBitSet( gp_host->features, ENGINE_QUAKE_COMPATIBLE ))
+		{
+			VK_ImmBlendFunc( VK_BLEND_ALPHA );
+			VK_ImmColor4f( 1.0f, 1.0f, 1.0f, tr.blend );
+			VK_ImmBlendEnable( true );
+		}
+		else
+		{
+			VK_ImmColor4f( 1.0f, 1.0f, 1.0f, 1.0f );
+			VK_ImmBlendEnable( false );
+		}
+		VK_ImmAlphaFunc( 0.25f );
+		break;
+	default:
+		VK_ImmTexReplace( false );
+		VK_ImmBlendFunc( VK_BLEND_ALPHA );
+		VK_ImmColor4f( 1.0f, 1.0f, 1.0f, tr.blend );
+		VK_ImmDepthMask( false );
+		VK_ImmBlendEnable( true );
+		break;
+	}
+}
+
 static void R_SetBrushRenderMode( cl_entity_t *e, vk_brush_state_t *st )
 {
 	memset( st, 0, sizeof( *st ));
@@ -2582,11 +2683,29 @@ static void R_DrawBrushModel( VkCommandBuffer cmd, cl_entity_t *e )
 		qsort( vk_draw_surfs, num_sorted, sizeof( *vk_draw_surfs ), R_SurfaceCompare );
 
 	
-	// gl_polyoffset_bmodels: glPolygonOffset( -0.5, -2 )
-	vkCmdSetDepthBias( cmd, -2.0f, 0.0f, -0.5f );
+	// draw bmodels with a polyoffset to avoid flickering when they are too
+	// close to world; the decals push theirs on top
+	if( gl_polyoffset_bmodels.value )
+	{
+		GL_PushPolygonOffset( -0.5f, -gl_polyoffset_bmodels.value );
+		VK_SetBrushOffset( cmd, -0.5f, -gl_polyoffset_bmodels.value );
+	}
+	else VK_SetBrushOffset( cmd, 0.0f, 0.0f );
+
+	R_SetRenderModeImm( e );
 	VK_DrawBrushSurfaces( cmd, vk_draw_surfs, num_sorted, &st, modelview );
 	VK_DrawWaterSurfaces( cmd, vk_draw_surfs, num_sorted, &st, modelview, true );
-	vkCmdSetDepthBias( cmd, 0.0f, 0.0f, 0.0f );
+
+	if( gl_polyoffset_bmodels.value )
+		GL_PopPolygonOffset();
+	VK_SetBrushOffset( cmd, 0.0f, 0.0f );
+
+	// the GL state R_DrawBrushModel leaves
+	VK_ImmAlphaTestEnable( false );
+	VK_ImmAlphaFunc( DEFAULT_ALPHATEST );
+	VK_ImmBlendEnable( false );
+	VK_ImmDepthMask( true );
+	VK_ImmTexture2D( true );
 
 	e->curstate.rendermode = old_rendermode;
 	tr.modelviewIdentity = true;
@@ -2831,6 +2950,7 @@ void R_NewMap( void )
 	tr.worldmodel = gp_cl->models[1];
 	tr.world = (world_static_t *)ENGINE_GET_PARM( PARM_GET_WORLD_PTR );
 
+	R_ClearDecals(); // clear all level decals
 	R_StudioResetPlayerModels();
 
 	for( int i = 0; i < WORLDMODEL->numleafs; i++ )
@@ -2886,6 +3006,7 @@ void VK_InitWorld( void )
 	gEngfuncs.Cvar_RegisterVariable( &gl_overbright );
 	gEngfuncs.Cvar_RegisterVariable( &gl_keeptjunctions );
 	gEngfuncs.Cvar_RegisterVariable( &gl_litwater_force );
+	gEngfuncs.Cvar_RegisterVariable( &gl_polyoffset_bmodels );
 	gEngfuncs.Cvar_RegisterVariable( &r_novis );
 	gEngfuncs.Cvar_RegisterVariable( &r_nocull );
 	gEngfuncs.Cvar_RegisterVariable( &r_lockpvs );

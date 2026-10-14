@@ -233,10 +233,18 @@ static void VK_SetBlend( VkPipelineColorBlendAttachmentState *state, vk_blend_t 
 		state->srcColorBlendFactor = state->srcAlphaBlendFactor = VK_BLEND_FACTOR_DST_COLOR;
 		state->dstColorBlendFactor = state->dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 		break;
+	case VK_BLEND_PREMULTIPLIED: // GL_ONE, GL_ONE_MINUS_SRC_ALPHA
+		state->blendEnable = VK_TRUE;
+		state->srcColorBlendFactor = state->srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+		state->dstColorBlendFactor = state->dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		break;
 	case VK_BLEND_MODULATE: // GL_ZERO, GL_SRC_COLOR
 		state->blendEnable = VK_TRUE;
 		state->srcColorBlendFactor = state->srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
 		state->dstColorBlendFactor = state->dstAlphaBlendFactor = VK_BLEND_FACTOR_SRC_COLOR;
+		break;
+	case VK_BLEND_NO_COLOR: // glColorMask( GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE )
+		state->colorWriteMask = 0;
 		break;
 	case VK_BLEND_NONE:
 	default:
@@ -320,7 +328,7 @@ static VkPipeline VK_CreateGraphicsPipeline( const vk_pipeline_desc_t *desc )
 		.pAttachments = &attachment,
 	};
 
-	VkDynamicState dynamic_states[7] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+	VkDynamicState dynamic_states[12] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
 	VkPipelineDynamicStateCreateInfo dynamic = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
 		.dynamicStateCount = 2,
@@ -336,6 +344,11 @@ static VkPipeline VK_CreateGraphicsPipeline( const vk_pipeline_desc_t *desc )
 		dynamic_states[dynamic.dynamicStateCount++] = VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE;
 		dynamic_states[dynamic.dynamicStateCount++] = VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE;
 		dynamic_states[dynamic.dynamicStateCount++] = VK_DYNAMIC_STATE_DEPTH_COMPARE_OP;
+		dynamic_states[dynamic.dynamicStateCount++] = VK_DYNAMIC_STATE_STENCIL_TEST_ENABLE;
+		dynamic_states[dynamic.dynamicStateCount++] = VK_DYNAMIC_STATE_STENCIL_OP;
+		dynamic_states[dynamic.dynamicStateCount++] = VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK;
+		dynamic_states[dynamic.dynamicStateCount++] = VK_DYNAMIC_STATE_STENCIL_WRITE_MASK;
+		dynamic_states[dynamic.dynamicStateCount++] = VK_DYNAMIC_STATE_STENCIL_REFERENCE;
 	}
 
 	VkFormat color_format = VK_MainColorFormat();

@@ -133,6 +133,11 @@ GNU General Public License for more details.
 	X( vkCmdSetDepthTestEnable ) \
 	X( vkCmdSetDepthWriteEnable ) \
 	X( vkCmdSetDepthCompareOp ) \
+	X( vkCmdSetStencilTestEnable ) \
+	X( vkCmdSetStencilOp ) \
+	X( vkCmdSetStencilCompareMask ) \
+	X( vkCmdSetStencilWriteMask ) \
+	X( vkCmdSetStencilReference ) \
 	X( vkCreateSampler ) \
 	X( vkDestroySampler ) \
 	X( vkCreateDescriptorSetLayout ) \
@@ -267,6 +272,8 @@ typedef enum
 	VK_BLEND_OVERBRIGHT = VK_BLEND_COUNT, // GL_DST_COLOR, GL_SRC_COLOR
 	VK_BLEND_ONE_ONE,                     // GL_ONE, GL_ONE
 	VK_BLEND_DSTCOLOR_INVSRCALPHA,        // GL_DST_COLOR, GL_ONE_MINUS_SRC_ALPHA
+	VK_BLEND_PREMULTIPLIED,               // GL_ONE, GL_ONE_MINUS_SRC_ALPHA
+	VK_BLEND_NO_COLOR,                    // glColorMask( GL_FALSE, ... ), stencil passes
 	VK_BLEND_ALL
 } vk_blend_t;
 
@@ -358,6 +365,7 @@ qboolean VK_FormatHasStencil( VkFormat format );
 #define BLOCK_SIZE_MAX  1024
 #define MAX_LIGHTMAPS   256
 #define FRUSTUM_PLANES  6
+#define MAX_DECAL_SURFS 4096
 
 typedef struct vk_frustum_s
 {
@@ -404,6 +412,8 @@ typedef struct
 	int max_entities;
 
 	vk_draw_list_t *draw_list;
+	msurface_t *draw_decals[MAX_DECAL_SURFS]; // decals batched for the surfaces drawn
+	int num_draw_decals;
 	cl_entity_t *viewent;    // the view model
 	dlight_t *elights;       // entity lights
 	color24 *palette;        // quake palette, particle colours
@@ -498,6 +508,8 @@ void VK_WorldBeginFrame( void );
 void VK_ComputeMVP( float out[16], const matrix4x4 modelview );
 qboolean R_CullModel( const cl_entity_t *e, const vec3_t absmin, const vec3_t absmax );
 qboolean R_CullBox( const vec3_t mins, const vec3_t maxs );
+void R_LightmapCoord( const vec3_t v, const msurface_t *surf, const float sample_size, vec2_t coords );
+texture_t *R_TextureAnimation( msurface_t *s );
 void CL_DrawParticlesExternal( const ref_viewpass_t *rvp, qboolean trans_pass, float frametime );
 int R_WorldToScreen( const vec3_t point, vec3_t screen );
 void R_ScreenToWorld( const vec3_t screen, vec3_t point );
@@ -519,6 +531,21 @@ void R_PopScene( void );
 void R_ClearScene( void );
 qboolean R_AddEntity( struct cl_entity_s *clent, int type );
 int CL_FxBlend( cl_entity_t *e );
+
+//
+// vk_decals.c
+//
+void R_DecalInit( void );
+void DrawSurfaceDecals( msurface_t *fa, qboolean single, qboolean reverse );
+void DrawDecalsBatch( void );
+float *R_DecalSetupVerts( decal_t *pDecal, msurface_t *surf, int texture, int *outCount );
+void DrawSingleDecal( decal_t *pDecal, msurface_t *fa );
+void R_DecalShoot( int textureIndex, int entityIndex, int modelIndex, vec3_t pos, int flags, float scale );
+void R_DecalRemoveAll( int texture );
+int R_CreateDecalList( struct decallist_s *pList );
+void R_ClearAllDecals( qboolean include_permanent );
+void R_EntityRemoveDecals( model_t *mod );
+void R_ClearDecals( void );
 
 //
 // vk_rpart.c, vk_beams.c
@@ -579,6 +606,12 @@ void VK_ImmAlphaFunc( float ref );
 void VK_ImmTexture2D( qboolean enable );
 void VK_ImmTexReplace( qboolean replace );
 void VK_ImmFlatShade( qboolean flat );
+void VK_ImmStencilTest( qboolean enable );
+void VK_ImmStencilFunc( VkCompareOp op, uint32_t ref, uint32_t mask );
+void VK_ImmStencilOp( VkStencilOp fail, VkStencilOp zfail, VkStencilOp zpass );
+void VK_ImmColorMask( qboolean write );
+void GL_PushPolygonOffset( float factor, float units );
+void GL_PopPolygonOffset( void );
 int TriSpriteTexture( model_t *pSpriteModel, int frame );
 void TriBrightness( float brightness );
 void TriRenderMode( int mode );

@@ -33,9 +33,24 @@ typedef struct
 	VkBool32 depth_write;  // glDepthMask
 	VkCompareOp depth_func; // glDepthFunc
 	VkCullModeFlags cull;  // GL_Cull
+	float offset_factor;   // glPolygonOffset, 0 when GL_POLYGON_OFFSET_FILL is off
+	float offset_units;
+	VkBool32 stencil_test; // GL_STENCIL_TEST enabled
+	VkCompareOp stencil_func; // glStencilFunc
+	uint32_t stencil_ref;
+	uint32_t stencil_mask;
+	VkStencilOp stencil_fail; // glStencilOp
+	VkStencilOp stencil_zfail;
+	VkStencilOp stencil_zpass;
 } vk_imm_raster_t;
 
-static const vk_imm_raster_t imm_raster_2d = { VK_FALSE, VK_FALSE, VK_COMPARE_OP_LESS_OR_EQUAL, VK_CULL_MODE_NONE };
+static const vk_imm_raster_t imm_raster_2d =
+{
+	.depth_func = VK_COMPARE_OP_LESS_OR_EQUAL,
+	.cull = VK_CULL_MODE_NONE,
+	.stencil_func = VK_COMPARE_OP_ALWAYS,
+	.stencil_mask = 0xFFFFFFFF,
+};
 
 static struct
 {
@@ -51,8 +66,11 @@ static struct
 	float alpha_ref;       // glAlphaFunc( GL_GREATER, ref )
 	int cull;              // TRICULLSTYLE, 2D mode never culls
 	vk_imm_raster_t raster; // depth and culling of 3D draws, 2D mode has neither
+	struct { float factor, units; } polyoffset[4]; // GL_PushPolygonOffset stack
+	int num_polyoffsets;
 	qboolean tex_replace;  // GL_REPLACE texture environment instead of GL_MODULATE
 	qboolean flat_shade;   // glShadeModel( GL_FLAT )
+	qboolean color_mask;   // glColorMask, all channels or none
 
 	qboolean in2d;
 	vec2_t offset2d;
@@ -106,7 +124,13 @@ void VK_ImmFlush( void )
 		vkCmdSetDepthTestEnable( cmd, imm.batch_raster.depth_test );
 		vkCmdSetDepthWriteEnable( cmd, imm.batch_raster.depth_write );
 		vkCmdSetDepthCompareOp( cmd, imm.batch_raster.depth_func );
-		vkCmdSetDepthBias( cmd, 0.0f, 0.0f, 0.0f );
+		vkCmdSetDepthBias( cmd, imm.batch_raster.offset_units, 0.0f, imm.batch_raster.offset_factor );
+		vkCmdSetStencilTestEnable( cmd, imm.batch_raster.stencil_test );
+		vkCmdSetStencilOp( cmd, VK_STENCIL_FACE_FRONT_AND_BACK, imm.batch_raster.stencil_fail,
+			imm.batch_raster.stencil_zpass, imm.batch_raster.stencil_zfail, imm.batch_raster.stencil_func );
+		vkCmdSetStencilCompareMask( cmd, VK_STENCIL_FACE_FRONT_AND_BACK, imm.batch_raster.stencil_mask );
+		vkCmdSetStencilWriteMask( cmd, VK_STENCIL_FACE_FRONT_AND_BACK, 0xFFFFFFFF );
+		vkCmdSetStencilReference( cmd, VK_STENCIL_FACE_FRONT_AND_BACK, imm.batch_raster.stencil_ref );
 		vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipe.layout, 0, 1, &vk_pipe.texture_set, 0, NULL );
 		vkCmdPushConstants( cmd, vk_pipe.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 			0, sizeof( imm.batch_push ), &imm.batch_push );
@@ -119,6 +143,9 @@ void VK_ImmFlush( void )
 
 static vk_blend_t VK_ImmBatchBlend( void )
 {
+	if( !imm.color_mask && !imm.in2d )
+		return VK_BLEND_NO_COLOR;
+
 	return imm.blend ? imm.blend_func : VK_BLEND_NONE;
 }
 
@@ -508,6 +535,11 @@ void VK_ImmSet3D( qboolean enable )
 		imm.raster.depth_write = VK_TRUE;
 		imm.raster.depth_func = VK_COMPARE_OP_LESS_OR_EQUAL;
 		imm.raster.cull = VK_CULL_MODE_FRONT_BIT;
+		imm.raster.stencil_test = VK_FALSE;
+		imm.raster.stencil_func = VK_COMPARE_OP_ALWAYS;
+		imm.raster.stencil_mask = 0xFFFFFFFF;
+		imm.raster.stencil_fail = imm.raster.stencil_zfail = imm.raster.stencil_zpass = VK_STENCIL_OP_KEEP;
+		imm.color_mask = true;
 		imm.blend = false;
 		imm.alpha_test = false;
 		imm.tex_replace = false;
@@ -631,6 +663,70 @@ void VK_ImmFlatShade( qboolean flat )
 	imm.flat_shade = flat;
 }
 
+void VK_ImmStencilTest( qboolean enable )
+{
+	// the depth format may lack the stencil aspect
+	imm.raster.stencil_test = enable && VK_FormatHasStencil( VK_MainDepthFormat( )) ? VK_TRUE : VK_FALSE;
+}
+
+void VK_ImmStencilFunc( VkCompareOp op, uint32_t ref, uint32_t mask )
+{
+	imm.raster.stencil_func = op;
+	imm.raster.stencil_ref = ref;
+	imm.raster.stencil_mask = mask;
+}
+
+void VK_ImmStencilOp( VkStencilOp fail, VkStencilOp zfail, VkStencilOp zpass )
+{
+	imm.raster.stencil_fail = fail;
+	imm.raster.stencil_zfail = zfail;
+	imm.raster.stencil_zpass = zpass;
+}
+
+void VK_ImmColorMask( qboolean write )
+{
+	imm.color_mask = write;
+}
+
+// gl_backend.c: the offset on top of the stack is the one in use
+void GL_PushPolygonOffset( float factor, float units )
+{
+	if( imm.num_polyoffsets >= ARRAYSIZE( imm.polyoffset ))
+	{
+		gEngfuncs.Con_Reportf( "%s: overflow\n", __func__ );
+		return;
+	}
+
+	imm.raster.offset_factor = factor;
+	imm.raster.offset_units = units;
+
+	imm.polyoffset[imm.num_polyoffsets].factor = factor;
+	imm.polyoffset[imm.num_polyoffsets].units = units;
+	imm.num_polyoffsets++;
+}
+
+void GL_PopPolygonOffset( void )
+{
+	if( imm.num_polyoffsets <= 0 )
+	{
+		gEngfuncs.Con_Reportf( "%s: underflow\n", __func__ );
+		return;
+	}
+
+	imm.num_polyoffsets--;
+
+	if( imm.num_polyoffsets > 0 )
+	{
+		imm.raster.offset_factor = imm.polyoffset[imm.num_polyoffsets - 1].factor;
+		imm.raster.offset_units = imm.polyoffset[imm.num_polyoffsets - 1].units;
+	}
+	else
+	{
+		imm.raster.offset_factor = 0.0f;
+		imm.raster.offset_units = 0.0f;
+	}
+}
+
 /*
 =================
 Frame hooks
@@ -655,5 +751,6 @@ void VK_InitImm( void )
 	Vector4Set( imm.color, 1.0f, 1.0f, 1.0f, 1.0f );
 	imm.texture_2d = true;
 	imm.alpha_ref = 0.0f; // DEFAULT_ALPHATEST
+	imm.color_mask = true;
 	imm.primitive = -1;
 }
