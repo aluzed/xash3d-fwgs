@@ -42,7 +42,7 @@ cp build/cl_dll/client_amd64.so "$XASH_DEV_ROOT/valve/cl_dlls/"
 cp build/dlls/hl_amd64.so "$XASH_DEV_ROOT/valve/dlls/"
 
 # Counter-Strike 1.6 game libraries.
-clone cs16-client https://github.com/Velaron/cs16-client.git
+clone cs16-client https://github.com/aluzed/cs16-client.git
 cd "$XASH_DEV_SRC/cs16-client"
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$JOBS"
