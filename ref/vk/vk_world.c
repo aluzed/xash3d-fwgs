@@ -14,7 +14,6 @@ GNU General Public License for more details.
 */
 
 #include "vk_local.h"
-#include "atlas.h"
 #include "entity_types.h"
 
 /*
@@ -35,8 +34,6 @@ CVAR_DEFINE_AUTO( r_lockfrustum, "0", FCVAR_CHEAT, "lock frustrum area at curren
 CVAR_DEFINE_AUTO( r_large_lightmaps, "0", FCVAR_GLCONFIG|FCVAR_LATCH, "enable larger lightmap atlas textures (might break custom renderer mods)" );
 
 #define BLOCK_SIZE_DEFAULT 128 // for keep backward compatibility
-#define BLOCK_SIZE_MAX     1024
-#define MAX_LIGHTMAPS      256
 #define SUBDIVIDE_SIZE     64
 #define TURBSCALE          ( 256.0f / ( M_PI2 ))
 
@@ -52,7 +49,6 @@ static const float r_turbsin[] =
 #define FRUSTUM_TOP     3
 #define FRUSTUM_FAR     4
 #define FRUSTUM_NEAR    5
-#define FRUSTUM_PLANES  6
 
 #define CULL_VISIBLE    0
 #define CULL_BACKSIDE   1
@@ -62,62 +58,9 @@ static const float r_turbsin[] =
 
 #define R_StaticEntity( ent ) ( VectorIsNull( ent->origin ) && VectorIsNull( ent->angles ))
 
-typedef struct vk_frustum_s
-{
-	mplane_t planes[FRUSTUM_PLANES];
-	unsigned int clipFlags;
-} vk_frustum_t;
-
-// RI of ref_gl
-static struct
-{
-	ref_viewpass_t rvp;
-	vec3_t vforward, vright, vup;
-	vec3_t cullorigin, cull_vforward, cull_vright, cull_vup;
-	vk_frustum_t frustum;
-	mleaf_t *viewleaf, *oldviewleaf;
-	byte visbytes[(MAX_MAP_LEAFS+7)/8];
-	float farClip;
-	float viewplanedist;
-	matrix4x4 projectionMatrix;
-	matrix4x4 worldviewMatrix;
-	matrix4x4 objectMatrix;
-	cl_entity_t *currententity;
-	model_t *currentmodel;
-	float skyMins[2][SKYBOX_MAX_SIDES];
-	float skyMaxs[2][SKYBOX_MAX_SIDES];
-} RI;
-
-// tr of ref_gl
-static struct
-{
-	model_t *worldmodel;
-	world_static_t *world;
-	cl_entity_t *entities;
-	int max_entities;
-
-	int framecount;
-	int visframecount;
-	int realframecount;
-	int dlightframecount;
-	qboolean fResetVis;
-	qboolean fCustomRendering;
-	qboolean modelviewIdentity;
-	vec3_t modelorg;
-
-	int skytexturenum;
-	int block_size;
-	int lightmapTextures[MAX_LIGHTMAPS];
-	int current_lightmap_texture;
-	atlas_t atlas;
-	byte lightmap_buffer[BLOCK_SIZE_MAX * BLOCK_SIZE_MAX * 4];
-
-	msurface_t *skychain;
-	vec2_t ortho_mins, ortho_maxs;
-
-	int skyboxTextures[SKYBOX_MAX_SIDES];
-	int solidskyTexture, alphaskyTexture; // Quake sky, unused by HL / CS
-} tr;
+// RI and tr of ref_gl, declared in vk_local.h
+vk_refinst_t RI;
+vk_globals_t tr;
 
 #define WORLDMODEL ( tr.worldmodel )
 #define BLOCK_SIZE ( tr.block_size )
@@ -135,21 +78,6 @@ static struct
 	int num_surfaces;
 } vk_wgeo;
 
-static cl_entity_t *CL_GetEntityByIndex( int index )
-{
-	if( unlikely( index < 0 || index >= tr.max_entities || !tr.entities ))
-		return NULL;
-
-	return &tr.entities[index];
-}
-
-static model_t *CL_ModelHandle( int index )
-{
-	if( unlikely( index < 0 || index >= gp_cl->nummodels ))
-		return NULL;
-
-	return gp_cl->models[index];
-}
 
 void R_ProcessEntData( qboolean allocate, cl_entity_t *entities, unsigned int max_entities )
 {
@@ -294,6 +222,28 @@ static qboolean VK_FrustumCullBox( const vk_frustum_t *out, const vec3_t mins, c
 	}
 
 	return false;
+}
+
+// gl_cull.c
+qboolean R_CullModel( const cl_entity_t *e, const vec3_t absmin, const vec3_t absmax )
+{
+	if( e == tr.viewent )
+	{
+		if( ENGINE_GET_PARM( PARM_DEV_OVERVIEW ))
+			return true;
+
+		if( !FBitSet( RI.rvp.flags, RF_DRAW_CUBEMAP ) && !ENGINE_GET_PARM( PARM_THIRDPERSON ) && CL_IsViewEntityLocalPlayer())
+			return false;
+
+		return true;
+	}
+
+	return VK_FrustumCullBox( &RI.frustum, absmin, absmax, 0 );
+}
+
+// fog comes with story 015
+void R_AllowFog( qboolean allowed )
+{
 }
 
 /*
@@ -1276,38 +1226,6 @@ loc0:
 	goto loc0;
 }
 
-/*
-=================
-View state shared with the studio API
-=================
-*/
-cl_entity_t *VK_CurrentEntity( void )
-{
-	return RI.currententity;
-}
-
-void VK_SetCurrentModel( model_t *model )
-{
-	RI.currentmodel = model;
-}
-
-const ref_viewpass_t *VK_ViewPass( void )
-{
-	return &RI.rvp;
-}
-
-void VK_ViewVectors( vec3_t forward, vec3_t right, vec3_t up )
-{
-	VectorCopy( RI.vforward, forward );
-	VectorCopy( RI.vright, right );
-	VectorCopy( RI.vup, up );
-}
-
-int VK_RealFrameCount( void )
-{
-	return tr.realframecount;
-}
-
 byte *Mod_GetCurrentVis( void )
 {
 	return RI.visbytes;
@@ -1393,7 +1311,7 @@ static void VK_GLToVulkanClip( matrix4x4 out, const matrix4x4 in )
 	Matrix4x4_Concat( out, clip, in );
 }
 
-static void VK_ComputeMVP( float out[16], const matrix4x4 modelview )
+void VK_ComputeMVP( float out[16], const matrix4x4 modelview )
 {
 	matrix4x4 mvp, vkmvp;
 
@@ -2176,22 +2094,9 @@ Entity lists (gl_rmain.c)
 */
 #define MAX_DRAW_STACK 2 // normal view and menu view
 
-typedef struct vk_draw_list_s
-{
-	cl_entity_t *solid_entities[MAX_VISIBLE_PACKET];
-	cl_entity_t *trans_entities[MAX_VISIBLE_PACKET];
-	cl_entity_t *beam_entities[MAX_VISIBLE_PACKET];
-	uint num_solid_entities;
-	uint num_trans_entities;
-	uint num_beam_entities;
-} vk_draw_list_t;
-
 static vk_draw_list_t vk_draw_stack[MAX_DRAW_STACK];
 static int vk_draw_stack_pos;
-static vk_draw_list_t *vk_draw_list = &vk_draw_stack[0];
-static float vk_blend; // tr.blend
 
-#define R_ModelOpaque( rm ) ( rm == kRenderNormal )
 
 int CL_FxBlend( cl_entity_t *e )
 {
@@ -2303,21 +2208,6 @@ int CL_FxBlend( cl_entity_t *e )
 	return bound( 0, blend, 255 );
 }
 
-// R_GetEntityRenderMode; player model overrides and studio texture flags
-// come with the studio renderer (story 017)
-static int R_GetEntityRenderMode( cl_entity_t *ent )
-{
-	model_t *model = ent->model;
-
-	if( R_ModelOpaque( ent->curstate.rendermode ))
-	{
-		// forcing to choose right sorting type
-		if(( model && model->type == mod_brush ) && FBitSet( model->flags, MODEL_TRANSPARENT ))
-			return kRenderTransAlpha;
-	}
-
-	return ent->curstate.rendermode;
-}
 
 static qboolean R_OpaqueEntity( cl_entity_t *ent )
 {
@@ -2394,7 +2284,7 @@ void R_PushScene( void )
 	if( ++vk_draw_stack_pos >= MAX_DRAW_STACK )
 		gEngfuncs.Host_Error( "draw stack overflow\n" );
 
-	vk_draw_list = &vk_draw_stack[vk_draw_stack_pos];
+	tr.draw_list = &vk_draw_stack[vk_draw_stack_pos];
 }
 
 void R_PopScene( void )
@@ -2402,14 +2292,14 @@ void R_PopScene( void )
 	if( --vk_draw_stack_pos < 0 )
 		gEngfuncs.Host_Error( "draw stack underflow\n" );
 
-	vk_draw_list = &vk_draw_stack[vk_draw_stack_pos];
+	tr.draw_list = &vk_draw_stack[vk_draw_stack_pos];
 }
 
 void R_ClearScene( void )
 {
-	vk_draw_list->num_solid_entities = 0;
-	vk_draw_list->num_trans_entities = 0;
-	vk_draw_list->num_beam_entities = 0;
+	tr.draw_list->num_solid_entities = 0;
+	tr.draw_list->num_trans_entities = 0;
+	tr.draw_list->num_beam_entities = 0;
 
 	if( gEngfuncs.drawFuncs->R_ClearScene != NULL )
 		gEngfuncs.drawFuncs->R_ClearScene();
@@ -2428,29 +2318,29 @@ qboolean R_AddEntity( struct cl_entity_s *clent, int type )
 
 	if( type == ET_BEAM )
 	{
-		if( vk_draw_list->num_beam_entities >= MAX_VISIBLE_PACKET )
+		if( tr.draw_list->num_beam_entities >= MAX_VISIBLE_PACKET )
 		{
-			gEngfuncs.Con_Printf( S_ERROR "Too many beams %d!\n", vk_draw_list->num_beam_entities );
+			gEngfuncs.Con_Printf( S_ERROR "Too many beams %d!\n", tr.draw_list->num_beam_entities );
 			return false;
 		}
 
-		vk_draw_list->beam_entities[vk_draw_list->num_beam_entities++] = clent;
+		tr.draw_list->beam_entities[tr.draw_list->num_beam_entities++] = clent;
 		return true;
 	}
 
 	if( R_OpaqueEntity( clent ))
 	{
-		if( vk_draw_list->num_solid_entities >= MAX_VISIBLE_PACKET )
+		if( tr.draw_list->num_solid_entities >= MAX_VISIBLE_PACKET )
 			return false;
 
-		vk_draw_list->solid_entities[vk_draw_list->num_solid_entities++] = clent;
+		tr.draw_list->solid_entities[tr.draw_list->num_solid_entities++] = clent;
 	}
 	else
 	{
-		if( vk_draw_list->num_trans_entities >= MAX_VISIBLE_PACKET )
+		if( tr.draw_list->num_trans_entities >= MAX_VISIBLE_PACKET )
 			return false;
 
-		vk_draw_list->trans_entities[vk_draw_list->num_trans_entities++] = clent;
+		tr.draw_list->trans_entities[tr.draw_list->num_trans_entities++] = clent;
 	}
 
 	return true;
@@ -2483,7 +2373,7 @@ static void R_SetBrushRenderMode( cl_entity_t *e, vk_brush_state_t *st )
 	case kRenderTransAdd:
 		st->blend = VK_BLEND_ONE_ONE;
 		st->depth_write = false;
-		Vector4Set( st->color, vk_blend, vk_blend, vk_blend, 1.0f );
+		Vector4Set( st->color, tr.blend, tr.blend, tr.blend, 1.0f );
 		break;
 	case kRenderTransAlpha:
 		st->alpha_test = true;
@@ -2491,13 +2381,13 @@ static void R_SetBrushRenderMode( cl_entity_t *e, vk_brush_state_t *st )
 		if( FBitSet( gp_host->features, ENGINE_QUAKE_COMPATIBLE ))
 		{
 			st->blend = VK_BLEND_ALPHA;
-			st->color[3] = vk_blend;
+			st->color[3] = tr.blend;
 		}
 		break;
 	default:
 		st->blend = VK_BLEND_ALPHA;
 		st->depth_write = false;
-		st->color[3] = vk_blend;
+		st->color[3] = tr.blend;
 		break;
 	}
 
@@ -2644,12 +2534,12 @@ static void R_DrawEntitiesOnList( VkCommandBuffer cmd )
 {
 	const double frametime = gp_cl->time - gp_cl->oldtime;
 
-	vk_blend = 1.0f;
+	tr.blend = 1.0f;
 	VK_BindBrushGeometry( cmd );
 
-	for( uint i = 0; i < vk_draw_list->num_solid_entities && !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ); i++ )
+	for( uint i = 0; i < tr.draw_list->num_solid_entities && !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ); i++ )
 	{
-		RI.currententity = vk_draw_list->solid_entities[i];
+		RI.currententity = tr.draw_list->solid_entities[i];
 		RI.currentmodel = RI.currententity->model;
 
 		if( !RI.currentmodel )
@@ -2662,6 +2552,7 @@ static void R_DrawEntitiesOnList( VkCommandBuffer cmd )
 			break;
 		case mod_studio:
 			R_DrawStudioModel( RI.currententity );
+			VK_ImmFlush(); // keep the draw order with the brush entities
 			VK_BindBrushGeometry( cmd );
 			break;
 		default:
@@ -2679,16 +2570,16 @@ static void R_DrawEntitiesOnList( VkCommandBuffer cmd )
 
 	VK_BindBrushGeometry( cmd );
 
-	for( uint i = 0; i < vk_draw_list->num_trans_entities && !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ); i++ )
+	for( uint i = 0; i < tr.draw_list->num_trans_entities && !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ); i++ )
 	{
-		RI.currententity = vk_draw_list->trans_entities[i];
+		RI.currententity = tr.draw_list->trans_entities[i];
 		RI.currentmodel = RI.currententity->model;
 
 		if( RI.currententity->curstate.rendermode != kRenderNormal )
-			vk_blend = CL_FxBlend( RI.currententity ) / 255.0f;
-		else vk_blend = 1.0f;
+			tr.blend = CL_FxBlend( RI.currententity ) / 255.0f;
+		else tr.blend = 1.0f;
 
-		if( vk_blend <= 0.0f || !RI.currentmodel )
+		if( tr.blend <= 0.0f || !RI.currentmodel )
 			continue;
 
 		switch( RI.currentmodel->type )
@@ -2698,6 +2589,7 @@ static void R_DrawEntitiesOnList( VkCommandBuffer cmd )
 			break;
 		case mod_studio:
 			R_DrawStudioModel( RI.currententity );
+			VK_ImmFlush(); // keep the draw order with the brush entities
 			VK_BindBrushGeometry( cmd );
 			break;
 		default:
@@ -2712,7 +2604,8 @@ static void R_DrawEntitiesOnList( VkCommandBuffer cmd )
 	if( !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ))
 		gEngfuncs.CL_DrawEFX( frametime, true );
 
-	// view model: story 017
+	if( !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ))
+		R_DrawViewModel();
 	gEngfuncs.CL_ExtraUpdate();
 }
 
@@ -2736,7 +2629,7 @@ static void R_RenderScene( void )
 
 	// R_SetupFrame
 	RI.viewplanedist = DotProduct( RI.rvp.vieworigin, RI.vforward );
-	qsort( vk_draw_list->trans_entities, vk_draw_list->num_trans_entities, sizeof( cl_entity_t * ), R_TransEntityCompare );
+	qsort( tr.draw_list->trans_entities, tr.draw_list->num_trans_entities, sizeof( cl_entity_t * ), R_TransEntityCompare );
 
 	if( FBitSet( RI.rvp.flags, RF_DRAW_WORLD ))
 		R_FindViewLeaf();
@@ -2760,6 +2653,7 @@ static void R_RenderScene( void )
 	}
 
 	VK_SetViewport( x, y, w, h );
+	VK_ImmSet3D( true );
 
 	// R_Clear: depth only, and the clear colour becomes grey (green in overview)
 	if( ENGINE_GET_PARM( PARM_DEV_OVERVIEW ))
@@ -2775,6 +2669,7 @@ static void R_RenderScene( void )
 		R_DrawWaterSurfaces( cmd );
 	}
 
+	VK_ImmSet3D( false );
 	VK_ResetViewport();
 }
 
@@ -2793,6 +2688,7 @@ void GL_RenderFrame( const struct ref_viewpass_s *rvp )
 
 		if( gEngfuncs.drawFuncs->GL_RenderFrame( rvp ))
 		{
+			R_GatherPlayerLight( tr.viewent );
 			tr.realframecount++;
 			tr.fResetVis = true;
 			return;
@@ -2800,7 +2696,10 @@ void GL_RenderFrame( const struct ref_viewpass_s *rvp )
 	}
 
 	tr.fCustomRendering = false;
-	tr.realframecount++;
+	if( !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ))
+		R_RunViewmodelEvents();
+
+	tr.realframecount++; // right called after viewmodel events
 	R_RenderScene();
 }
 
@@ -2856,6 +2755,13 @@ void VK_InitWorld( void )
 	memset( &tr, 0, sizeof( tr ));
 	memset( &RI, 0, sizeof( RI ));
 	memset( &vk_wgeo, 0, sizeof( vk_wgeo ));
+	tr.draw_list = &vk_draw_stack[0];
+	tr.viewent = (cl_entity_t *)ENGINE_GET_PARM( PARM_GET_VIEWENT_PTR );
+	tr.texgammatable = (byte *)ENGINE_GET_PARM( PARM_GET_TEXGAMMATABLE_PTR );
+	tr.lightgammatable = (uint16_t *)ENGINE_GET_PARM( PARM_GET_LIGHTGAMMATABLE_PTR );
+	tr.screengammatable = (uint16_t *)ENGINE_GET_PARM( PARM_GET_SCREENGAMMATABLE_PTR );
+	tr.lineargammatable = (uint16_t *)ENGINE_GET_PARM( PARM_GET_LINEARGAMMATABLE_PTR );
+	tr.elights = (dlight_t *)ENGINE_GET_PARM( PARM_GET_ELIGHTS_PTR );
 	tr.block_size = BLOCK_SIZE_DEFAULT;
 
 	gEngfuncs.Cvar_RegisterVariable( &gl_overbright );

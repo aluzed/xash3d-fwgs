@@ -257,6 +257,7 @@ typedef struct vk_pipeline_desc_s
 	qboolean depth_write;
 	qboolean depth_equal; // GL_EQUAL instead of GL_LEQUAL
 	qboolean depth_bias;  // glPolygonOffset, set with vkCmdSetDepthBias
+	qboolean dynamic_gl;  // cull mode and depth test, write and function set per draw
 	VkCullModeFlags cull;
 } vk_pipeline_desc_t;
 
@@ -319,12 +320,23 @@ static VkPipeline VK_CreateGraphicsPipeline( const vk_pipeline_desc_t *desc )
 		.pAttachments = &attachment,
 	};
 
-	VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_DEPTH_BIAS };
+	VkDynamicState dynamic_states[7] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
 	VkPipelineDynamicStateCreateInfo dynamic = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-		.dynamicStateCount = desc->depth_bias ? 3 : 2,
+		.dynamicStateCount = 2,
 		.pDynamicStates = dynamic_states,
 	};
+
+	if( desc->depth_bias )
+		dynamic_states[dynamic.dynamicStateCount++] = VK_DYNAMIC_STATE_DEPTH_BIAS;
+
+	if( desc->dynamic_gl )
+	{
+		dynamic_states[dynamic.dynamicStateCount++] = VK_DYNAMIC_STATE_CULL_MODE;
+		dynamic_states[dynamic.dynamicStateCount++] = VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE;
+		dynamic_states[dynamic.dynamicStateCount++] = VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE;
+		dynamic_states[dynamic.dynamicStateCount++] = VK_DYNAMIC_STATE_DEPTH_COMPARE_OP;
+	}
 
 	VkFormat color_format = VK_MainColorFormat();
 	VkFormat depth_format = VK_MainDepthFormat();
@@ -378,17 +390,19 @@ static qboolean VK_CreateImmPipelines( void )
 
 	for( int topology = 0; ok && topology < VK_TOPOLOGY_COUNT; topology++ )
 	{
-		for( int blend = 0; ok && blend < VK_BLEND_COUNT; blend++ )
+		for( int blend = 0; ok && blend < VK_BLEND_ALL; blend++ )
 		{
 			char name[64];
 
-			// 2D mode: no depth test or write, no culling
+			// culling, depth test and polygon offset follow the GL state of each draw
 			vk_pipeline_desc_t desc = {
 				.name = name,
 				.vert = vert, .frag = frag,
 				.binding = &binding, .attribs = attribs, .num_attribs = 3,
 				.topology = topologies[topology],
 				.blend = blend,
+				.depth_bias = true,
+				.dynamic_gl = true,
 				.cull = VK_CULL_MODE_NONE,
 			};
 
@@ -508,7 +522,7 @@ void VK_ShutdownPipelines( void )
 
 	for( int topology = 0; topology < VK_TOPOLOGY_COUNT; topology++ )
 	{
-		for( int blend = 0; blend < VK_BLEND_COUNT; blend++ )
+		for( int blend = 0; blend < VK_BLEND_ALL; blend++ )
 		{
 			if( vk_pipe.imm[topology][blend] )
 				vkDestroyPipeline( vk.device, vk_pipe.imm[topology][blend], NULL );

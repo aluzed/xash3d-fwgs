@@ -26,12 +26,22 @@ GNU General Public License for more details.
  */
 
 #define VK_IMM_MAX_VERTICES 65536
-#define VK_IMM_MAX_PRIMITIVE 4096 // vertices between Begin and End
+
+typedef struct
+{
+	VkBool32 depth_test;   // GL_DEPTH_TEST enabled
+	VkBool32 depth_write;  // glDepthMask
+	VkCompareOp depth_func; // glDepthFunc
+	VkCullModeFlags cull;  // GL_Cull
+} vk_imm_raster_t;
+
+static const vk_imm_raster_t imm_raster_2d = { VK_FALSE, VK_FALSE, VK_COMPARE_OP_LESS_OR_EQUAL, VK_CULL_MODE_NONE };
 
 static struct
 {
 	// GL state
 	vec4_t color;          // glColor
+	vec4_t tri_rgba;       // TriColor, what TriBrightness scales
 	vec2_t texcoord;       // glTexCoord
 	int texture;           // bound on unit 0
 	qboolean texture_2d;   // GL_TEXTURE_2D enabled
@@ -40,6 +50,9 @@ static struct
 	qboolean alpha_test;   // GL_ALPHA_TEST enabled
 	float alpha_ref;       // glAlphaFunc( GL_GREATER, ref )
 	int cull;              // TRICULLSTYLE, 2D mode never culls
+	vk_imm_raster_t raster; // depth and culling of 3D draws, 2D mode has neither
+	qboolean tex_replace;  // GL_REPLACE texture environment instead of GL_MODULATE
+	qboolean flat_shade;   // glShadeModel( GL_FLAT )
 
 	qboolean in2d;
 	vec2_t offset2d;
@@ -56,6 +69,7 @@ static struct
 	vk_topology_t batch_topology;
 	vk_blend_t batch_blend;
 	vk_imm_push_t batch_push;
+	vk_imm_raster_t batch_raster;
 } imm;
 
 /*
@@ -88,6 +102,11 @@ void VK_ImmFlush( void )
 		memcpy( dst, imm.vertices, imm.num_vertices * sizeof( vk_imm_vertex_t ));
 
 		vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipe.imm[imm.batch_topology][imm.batch_blend] );
+		vkCmdSetCullMode( cmd, imm.batch_raster.cull );
+		vkCmdSetDepthTestEnable( cmd, imm.batch_raster.depth_test );
+		vkCmdSetDepthWriteEnable( cmd, imm.batch_raster.depth_write );
+		vkCmdSetDepthCompareOp( cmd, imm.batch_raster.depth_func );
+		vkCmdSetDepthBias( cmd, 0.0f, 0.0f, 0.0f );
 		vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipe.layout, 0, 1, &vk_pipe.texture_set, 0, NULL );
 		vkCmdPushConstants( cmd, vk_pipe.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 			0, sizeof( imm.batch_push ), &imm.batch_push );
@@ -98,7 +117,7 @@ void VK_ImmFlush( void )
 	imm.num_vertices = 0;
 }
 
-static vk_blend_t VK_ImmBlend( void )
+static vk_blend_t VK_ImmBatchBlend( void )
 {
 	return imm.blend ? imm.blend_func : VK_BLEND_NONE;
 }
@@ -107,7 +126,8 @@ static vk_blend_t VK_ImmBlend( void )
 static void VK_ImmEmit( vk_topology_t topology, const vk_imm_vertex_t *verts, int count )
 {
 	vk_imm_push_t push = imm.push;
-	vk_blend_t blend = VK_ImmBlend();
+	vk_blend_t blend = VK_ImmBatchBlend();
+	const vk_imm_raster_t *raster = imm.in2d ? &imm_raster_2d : &imm.raster;
 
 	if( count <= 0 || !VK_FrameRecording( ))
 		return;
@@ -118,12 +138,14 @@ static void VK_ImmEmit( vk_topology_t topology, const vk_imm_vertex_t *verts, in
 
 	if( imm.num_vertices && ( topology != imm.batch_topology || blend != imm.batch_blend
 		|| memcmp( &push, &imm.batch_push, sizeof( push ))
+		|| memcmp( raster, &imm.batch_raster, sizeof( *raster ))
 		|| imm.num_vertices + count > VK_IMM_MAX_VERTICES ))
 		VK_ImmFlush();
 
 	imm.batch_topology = topology;
 	imm.batch_blend = blend;
 	imm.batch_push = push;
+	imm.batch_raster = *raster;
 
 	memcpy( &imm.vertices[imm.num_vertices], verts, count * sizeof( *verts ));
 	imm.num_vertices += count;
@@ -164,8 +186,9 @@ static void VK_ImmAssemble( void )
 	switch( imm.primitive )
 	{
 	case TRI_TRIANGLES:
-		VK_ImmEmit( VK_TOPOLOGY_TRIANGLES, v, n - n % 3 );
-		return;
+		count = n - n % 3;
+		memcpy( tris, v, count * sizeof( *v ));
+		break;
 	case TRI_LINES:
 		VK_ImmEmit( VK_TOPOLOGY_LINES, v, n & ~1 );
 		return;
@@ -207,6 +230,16 @@ static void VK_ImmAssemble( void )
 		break;
 	}
 
+	// glShadeModel( GL_FLAT ): the last vertex of each triangle colours it
+	if( imm.flat_shade )
+	{
+		for( int i = 0; i + 2 < count; i += 3 )
+		{
+			Vector4Copy( tris[i + 2].color, tris[i + 0].color );
+			Vector4Copy( tris[i + 2].color, tris[i + 1].color );
+		}
+	}
+
 	VK_ImmEmit( VK_TOPOLOGY_TRIANGLES, tris, count );
 }
 
@@ -242,29 +275,42 @@ void TriBegin( int primitive )
 	imm.num_prim = 0;
 }
 
-void TriEnd( void )
+// glEnd for the renderer's own drawing, 2D or 3D
+void VK_ImmEnd( void )
 {
 	if( imm.primitive < 0 )
 		return;
 
-	// 3D TriAPI needs the world view (story 019)
-	if( imm.in2d )
-		VK_ImmAssemble();
-	else
-		VK_STUB();
+	VK_ImmAssemble();
 
 	imm.primitive = -1;
 	imm.num_prim = 0;
 }
 
+void TriEnd( void )
+{
+	// client 3D TriAPI needs its GL state (story 019)
+	if( !imm.in2d )
+	{
+		VK_STUB();
+		imm.primitive = -1;
+		imm.num_prim = 0;
+		return;
+	}
+
+	VK_ImmEnd();
+}
+
 void TriColor4f( float r, float g, float b, float a )
 {
+	Vector4Set( imm.tri_rgba, r, g, b, a );
 	Vector4Set( imm.color, r, g, b, a );
 }
 
 void TriColor4ub( byte r, byte g, byte b, byte a )
 {
-	Vector4Set( imm.color, r * ( 1.0f / 255.0f ), g * ( 1.0f / 255.0f ), b * ( 1.0f / 255.0f ), a * ( 1.0f / 255.0f ));
+	Vector4Set( imm.tri_rgba, r * ( 1.0f / 255.0f ), g * ( 1.0f / 255.0f ), b * ( 1.0f / 255.0f ), a * ( 1.0f / 255.0f ));
+	Vector4Copy( imm.tri_rgba, imm.color );
 }
 
 void TriTexCoord2f( float u, float v )
@@ -282,7 +328,30 @@ void TriVertex3f( float x, float y, float z )
 	vert = &imm.prim[imm.num_prim++];
 	VectorSet( vert->position, x, y, z );
 	Vector2Copy( imm.texcoord, vert->texcoord );
-	Vector4Copy( imm.color, vert->color );
+
+	// GL_REPLACE takes the texel as is, which GL_MODULATE does with white
+	if( imm.tex_replace && imm.texture_2d && !imm.in2d )
+		Vector4Set( vert->color, 1.0f, 1.0f, 1.0f, 1.0f );
+	else Vector4Copy( imm.color, vert->color );
+}
+
+// a vertex with its own colour (a GL colour array), rgba NULL for glColor
+void VK_ImmVertex( const float *v, float s, float t, const byte *rgba )
+{
+	vk_imm_vertex_t *vert;
+
+	if( imm.primitive < 0 || imm.num_prim >= VK_IMM_MAX_PRIMITIVE )
+		return;
+
+	vert = &imm.prim[imm.num_prim++];
+	VectorCopy( v, vert->position );
+	Vector2Set( vert->texcoord, s, t );
+
+	if( imm.tex_replace && imm.texture_2d && !imm.in2d )
+		Vector4Set( vert->color, 1.0f, 1.0f, 1.0f, 1.0f );
+	else if( rgba )
+		Vector4Set( vert->color, rgba[0] * ( 1.0f / 255.0f ), rgba[1] * ( 1.0f / 255.0f ), rgba[2] * ( 1.0f / 255.0f ), rgba[3] * ( 1.0f / 255.0f ));
+	else Vector4Copy( imm.color, vert->color );
 }
 
 void TriVertex3fv( const float *v )
@@ -293,6 +362,7 @@ void TriVertex3fv( const float *v )
 void TriCullFace( TRICULLSTYLE mode )
 {
 	imm.cull = mode;
+	imm.raster.cull = mode == TRI_FRONT ? VK_CULL_MODE_FRONT_BIT : VK_CULL_MODE_NONE;
 }
 
 /*
@@ -417,6 +487,149 @@ void VGUI_SetupDrawing( qboolean rect )
 		imm.alpha_test = true;
 		imm.alpha_ref = 0.0f;
 	}
+}
+
+/*
+=================
+3D state of the renderer's own drawing (studio models), as ref_gl sets it
+with direct GL calls. Every change that a pending batch can't share ends
+it, like a GL state change splits a draw.
+=================
+*/
+void VK_ImmSet3D( qboolean enable )
+{
+	VK_ImmFlush();
+
+	if( enable )
+	{
+		// R_SetupGL and R_Set2DMode( false )
+		imm.in2d = false;
+		VK_ImmLoadModelview( RI.worldviewMatrix );
+		imm.raster.depth_test = VK_TRUE;
+		imm.raster.depth_write = VK_TRUE;
+		imm.raster.depth_func = VK_COMPARE_OP_LESS_OR_EQUAL;
+		imm.raster.cull = VK_CULL_MODE_FRONT_BIT;
+		imm.blend = false;
+		imm.alpha_test = false;
+		imm.tex_replace = false;
+		imm.flat_shade = false;
+		Vector4Set( imm.color, 1.0f, 1.0f, 1.0f, 1.0f );
+	}
+	else
+	{
+		VK_SetDepthRange( 0.0f, 1.0f );
+		imm.in2d = false;
+		R_Set2DMode( true );
+	}
+}
+
+// GL_LoadMatrix( modelview ) with the scene projection
+void VK_ImmLoadModelview( const matrix4x4 modelview )
+{
+	VK_ComputeMVP( imm.push.mvp, modelview );
+}
+
+void VK_ImmDepthTest( qboolean enable )
+{
+	imm.raster.depth_test = enable ? VK_TRUE : VK_FALSE;
+}
+
+void VK_ImmDepthMask( qboolean write )
+{
+	imm.raster.depth_write = write ? VK_TRUE : VK_FALSE;
+}
+
+void VK_ImmDepthFunc( VkCompareOp op )
+{
+	imm.raster.depth_func = op;
+}
+
+// glDepthRange: viewport state, which pending draws must not see
+void VK_ImmDepthRange( float min, float max )
+{
+	VK_ImmFlush();
+	VK_SetDepthRange( min, max );
+}
+
+void VK_ImmCull( VkCullModeFlags mode )
+{
+	imm.raster.cull = mode;
+}
+
+// glState.faceCull
+VkCullModeFlags VK_ImmGetCull( void )
+{
+	return imm.raster.cull;
+}
+
+void VK_ImmBlendEnable( qboolean enable )
+{
+	imm.blend = enable;
+}
+
+void VK_ImmBlendFunc( vk_blend_t func )
+{
+	imm.blend_func = func;
+}
+
+void VK_ImmAlphaTestEnable( qboolean enable )
+{
+	imm.alpha_test = enable;
+}
+
+void VK_ImmAlphaFunc( float ref )
+{
+	imm.alpha_ref = ref;
+}
+
+// glColor, which leaves the TriAPI colour of TriBrightness alone
+void VK_ImmColor4f( float r, float g, float b, float a )
+{
+	Vector4Set( imm.color, r, g, b, a );
+}
+
+void VK_ImmColor4ub( byte r, byte g, byte b, byte a )
+{
+	Vector4Set( imm.color, r * ( 1.0f / 255.0f ), g * ( 1.0f / 255.0f ), b * ( 1.0f / 255.0f ), a * ( 1.0f / 255.0f ));
+}
+
+// gl_triapi.c
+int TriSpriteTexture( model_t *pSpriteModel, int frame )
+{
+	if( !pSpriteModel || pSpriteModel->type != mod_sprite || !pSpriteModel->cache.data )
+		return 0;
+
+	int gl_texturenum = gEngfuncs.R_GetSpriteFrame( pSpriteModel, frame, 0.0f )->gl_texturenum;
+	if( gl_texturenum == 0 )
+		return 0;
+
+	GL_Bind( XASH_TEXTURE0, gl_texturenum );
+
+	return 1;
+}
+
+void TriBrightness( float brightness )
+{
+	float r = imm.tri_rgba[0] * imm.tri_rgba[3] * brightness;
+	float g = imm.tri_rgba[1] * imm.tri_rgba[3] * brightness;
+	float b = imm.tri_rgba[2] * imm.tri_rgba[3] * brightness;
+
+	VK_ImmColor4f( r, g, b, 1.0f );
+}
+
+void VK_ImmTexture2D( qboolean enable )
+{
+	imm.texture_2d = enable;
+}
+
+void VK_ImmTexReplace( qboolean replace )
+{
+	imm.tex_replace = replace;
+}
+
+void VK_ImmFlatShade( qboolean flat )
+{
+	imm.flat_shade = flat;
 }
 
 /*

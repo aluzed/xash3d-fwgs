@@ -30,6 +30,8 @@ GNU General Public License for more details.
 #include "protocol.h"
 #include "common/mod_local.h"
 #include "pmove.h"
+#include "atlas.h"
+#include "studio.h"
 #include "shaders/bindings.h"
 
 // baseline: dynamic rendering, synchronization2, descriptor indexing and
@@ -127,6 +129,10 @@ GNU General Public License for more details.
 	X( vkCmdCopyBuffer ) \
 	X( vkCmdClearAttachments ) \
 	X( vkCmdSetDepthBias ) \
+	X( vkCmdSetCullMode ) \
+	X( vkCmdSetDepthTestEnable ) \
+	X( vkCmdSetDepthWriteEnable ) \
+	X( vkCmdSetDepthCompareOp ) \
 	X( vkCreateSampler ) \
 	X( vkDestroySampler ) \
 	X( vkCreateDescriptorSetLayout ) \
@@ -311,7 +317,7 @@ typedef struct vk_pipelines_s
 	VkDescriptorSet texture_set;
 	VkPipelineLayout layout;
 	VkPipelineCache cache;
-	VkPipeline imm[VK_TOPOLOGY_COUNT][VK_BLEND_COUNT];
+	VkPipeline imm[VK_TOPOLOGY_COUNT][VK_BLEND_ALL];
 	VkPipeline world[VK_BLEND_ALL][2][2]; // blend, depth write, depth GL_EQUAL
 } vk_pipelines_t;
 
@@ -332,6 +338,7 @@ void VK_EndFrame( void );
 void VK_ClearScreen( void );
 void VK_SetClearColor( float r, float g, float b );
 void VK_SetViewport( int x, int y, int width, int height );
+void VK_SetDepthRange( float min, float max );
 void VK_ResetViewport( void );
 void VK_ClearMainDepth( void );
 qboolean VK_ScreenShot( const char *filename, int shot_type );
@@ -345,12 +352,147 @@ VkFormat VK_MainDepthFormat( void );
 qboolean VK_FormatHasStencil( VkFormat format );
 
 //
+// RI and tr of ref_gl: the view being drawn and the renderer globals, shared
+// by the world and the studio code that are ported from it
+//
+#define BLOCK_SIZE_MAX  1024
+#define MAX_LIGHTMAPS   256
+#define FRUSTUM_PLANES  6
+
+typedef struct vk_frustum_s
+{
+	mplane_t planes[FRUSTUM_PLANES];
+	unsigned int clipFlags;
+} vk_frustum_t;
+
+typedef struct vk_draw_list_s
+{
+	cl_entity_t *solid_entities[MAX_VISIBLE_PACKET];
+	cl_entity_t *trans_entities[MAX_VISIBLE_PACKET];
+	cl_entity_t *beam_entities[MAX_VISIBLE_PACKET];
+	uint num_solid_entities;
+	uint num_trans_entities;
+	uint num_beam_entities;
+} vk_draw_list_t;
+
+typedef struct
+{
+	ref_viewpass_t rvp;
+	vec3_t vforward, vright, vup;
+	vec3_t cullorigin, cull_vforward, cull_vright, cull_vup;
+	vk_frustum_t frustum;
+	mleaf_t *viewleaf, *oldviewleaf;
+	byte visbytes[(MAX_MAP_LEAFS+7)/8];
+	float farClip;
+	float viewplanedist;
+	matrix4x4 projectionMatrix;
+	matrix4x4 worldviewMatrix;
+	matrix4x4 objectMatrix;
+	cl_entity_t *currententity;
+	model_t *currentmodel;
+	float skyMins[2][SKYBOX_MAX_SIDES];
+	float skyMaxs[2][SKYBOX_MAX_SIDES];
+} vk_refinst_t;
+
+typedef struct
+{
+	model_t *worldmodel;
+	world_static_t *world;
+	cl_entity_t *entities;
+	int max_entities;
+
+	vk_draw_list_t *draw_list;
+	cl_entity_t *viewent;    // the view model
+	dlight_t *elights;       // entity lights
+	byte *texgammatable;
+	uint16_t *lightgammatable;
+	uint16_t *screengammatable;
+	uint16_t *lineargammatable;
+	float blend;             // CL_FxBlend of the entity being drawn, 0..1
+	qboolean fFlipViewModel; // cl_righthand
+
+	int framecount;
+	int visframecount;
+	int realframecount;
+	int dlightframecount;
+	qboolean fResetVis;
+	qboolean fCustomRendering;
+	qboolean modelviewIdentity;
+	vec3_t modelorg;
+
+	int skytexturenum;
+	int block_size;
+	int lightmapTextures[MAX_LIGHTMAPS];
+	int current_lightmap_texture;
+	atlas_t atlas;
+	byte lightmap_buffer[BLOCK_SIZE_MAX * BLOCK_SIZE_MAX * 4];
+
+	msurface_t *skychain;
+	vec2_t ortho_mins, ortho_maxs;
+
+	int skyboxTextures[SKYBOX_MAX_SIDES];
+	int solidskyTexture, alphaskyTexture; // Quake sky, unused by HL / CS
+} vk_globals_t;
+
+extern vk_refinst_t RI;
+extern vk_globals_t tr;
+
+#define R_ModelOpaque( rm ) ( rm == kRenderNormal )
+#define CL_IsViewEntityLocalPlayer() ( gp_cl->viewentity == ( gp_cl->playernum + 1 ))
+#define DEFAULT_ALPHATEST 0.0f
+
+static inline cl_entity_t *CL_GetEntityByIndex( int index )
+{
+	if( unlikely( index < 0 || index >= tr.max_entities || !tr.entities ))
+		return NULL;
+
+	return &tr.entities[index];
+}
+
+static inline model_t *CL_ModelHandle( int index )
+{
+	if( unlikely( index < 0 || index >= gp_cl->nummodels ))
+		return NULL;
+
+	return gp_cl->models[index];
+}
+
+// the gamma tables of gl_local.h
+static inline uint LightToTexGamma( uint b )
+{
+	if( unlikely( b >= 1024 ))
+		return 0;
+
+	return !FBitSet( gp_host->features, ENGINE_LINEAR_GAMMA_SPACE ) ? tr.lightgammatable[b] : b;
+}
+
+static inline uint ScreenGammaTable( uint b )
+{
+	if( unlikely( b >= 1024 ))
+		return 0;
+
+	return !FBitSet( gp_host->features, ENGINE_LINEAR_GAMMA_SPACE ) ? tr.screengammatable[b] : b;
+}
+
+static inline uint LinearGammaTable( uint b )
+{
+	if( unlikely( b >= 1024 ))
+		return 0;
+
+	return !FBitSet( gp_host->features, ENGINE_LINEAR_GAMMA_SPACE ) ? tr.lineargammatable[b] : b;
+}
+
+//
 // vk_world.c
 //
 extern convar_t gl_overbright;
 void VK_InitWorld( void );
 void VK_ShutdownWorld( void );
 void VK_WorldBeginFrame( void );
+void VK_ComputeMVP( float out[16], const matrix4x4 modelview );
+qboolean R_CullModel( const cl_entity_t *e, const vec3_t absmin, const vec3_t absmax );
+void R_AllowFog( qboolean allowed );
+int R_GetEntityRenderMode( cl_entity_t *ent );
 void R_NewMap( void );
 void GL_RenderFrame( const struct ref_viewpass_s *rvp );
 void R_ProcessEntData( qboolean allocate, cl_entity_t *entities, unsigned int max_entities );
@@ -366,11 +508,6 @@ void R_PopScene( void );
 void R_ClearScene( void );
 qboolean R_AddEntity( struct cl_entity_s *clent, int type );
 int CL_FxBlend( cl_entity_t *e );
-cl_entity_t *VK_CurrentEntity( void );
-void VK_SetCurrentModel( model_t *model );
-const ref_viewpass_t *VK_ViewPass( void );
-void VK_ViewVectors( vec3_t forward, vec3_t right, vec3_t up );
-int VK_RealFrameCount( void );
 
 //
 // vk_studio.c
@@ -381,6 +518,15 @@ qboolean R_StudioFillAPI( struct engine_studio_api_s *api, struct r_studio_inter
 void R_StudioSetDrawInterface( struct r_studio_interface_s *pDraw );
 void R_StudioResetPlayerModels( void );
 void R_DrawStudioModel( cl_entity_t *e );
+void R_DrawViewModel( void );
+void R_RunViewmodelEvents( void );
+void R_StudioInit( void );
+void Mod_StudioLoadTextures( model_t *mod, void *data );
+void Mod_StudioUnloadTextures( void *data );
+void R_StudioLerpMovement( cl_entity_t *e, double time, vec3_t origin, vec3_t angles );
+float R_StudioEstimateFrame( cl_entity_t *e, mstudioseqdesc_t *pseqdesc, double time );
+mstudiotexture_t *R_StudioGetTexture( cl_entity_t *e );
+studiohdr_t *R_StudioGetHeader( void );
 
 //
 // vk_imm.c
@@ -389,6 +535,28 @@ void VK_InitImm( void );
 void VK_ImmBeginFrame( void );
 void VK_ImmEndFrame( void );
 void VK_ImmFlush( void );
+void VK_ImmSet3D( qboolean enable );
+void VK_ImmEnd( void );
+void VK_ImmVertex( const float *v, float s, float t, const byte *rgba );
+#define VK_IMM_MAX_PRIMITIVE 4096 // vertices between Begin and End
+void VK_ImmLoadModelview( const matrix4x4 modelview );
+void VK_ImmColor4f( float r, float g, float b, float a );
+void VK_ImmColor4ub( byte r, byte g, byte b, byte a );
+void VK_ImmDepthTest( qboolean enable );
+void VK_ImmDepthMask( qboolean write );
+void VK_ImmDepthFunc( VkCompareOp op );
+void VK_ImmDepthRange( float min, float max );
+void VK_ImmCull( VkCullModeFlags mode );
+VkCullModeFlags VK_ImmGetCull( void );
+void VK_ImmBlendEnable( qboolean enable );
+void VK_ImmBlendFunc( vk_blend_t func );
+void VK_ImmAlphaTestEnable( qboolean enable );
+void VK_ImmAlphaFunc( float ref );
+void VK_ImmTexture2D( qboolean enable );
+void VK_ImmTexReplace( qboolean replace );
+void VK_ImmFlatShade( qboolean flat );
+int TriSpriteTexture( model_t *pSpriteModel, int frame );
+void TriBrightness( float brightness );
 void TriRenderMode( int mode );
 void TriBegin( int primitive );
 void TriEnd( void );
@@ -427,6 +595,11 @@ void R_SetDetailScaleForTexture( int texture, float xScale, float yScale );
 void VK_CheckTextureParams( void );
 void VK_UpdateTextureRegion( int texnum, int x, int y, int width, int height, const byte *rgba );
 int VK_TextureForDraw( int texnum );
+int VK_WhiteTexture( void );
+int VK_DefaultTexture( void );
+#define Mod_AllowMaterials() ( host_allow_materials->value && !FBitSet( gp_host->features, ENGINE_DISABLE_HDTEXTURES ))
+qboolean R_SearchForTextureReplacement( char *out, size_t size, const char *modelname, const char *fmt, ... ) FORMAT_CHECK( 4 );
+void R_TextureReplacementReport( const char *modelname, int gl_texturenum, const char *foundpath );
 intptr_t VK_TextureParm( int parm, int texnum );
 
 //

@@ -42,6 +42,7 @@ static qboolean R_Init( void )
 	VK_InitTextures();
 	VK_InitImm();
 	VK_InitWorld();
+	R_StudioInit();
 
 	// the engine falls back to the next renderer when this fails
 	if( !gEngfuncs.R_Init_Video( REF_VULKAN ))
@@ -209,17 +210,6 @@ static void R_ClearAllDecals( qboolean include_permanent )
 	VK_STUB();
 }
 
-static float R_StudioEstimateFrame( cl_entity_t *e, mstudioseqdesc_t *pseqdesc, double time )
-{
-	VK_STUB();
-	return 0.0f;
-}
-
-static void R_StudioLerpMovement( cl_entity_t *e, double time, vec3_t origin, vec3_t angles )
-{
-	VK_STUB();
-}
-
 /*
 =================
 Model lifetime, as ref_gl/gl_context.c: the engine loads brush textures
@@ -262,24 +252,6 @@ static void Mod_BrushUnloadTextures( model_t *mod )
 	}
 }
 
-static void Mod_StudioUnloadTextures( void *data )
-{
-	const studiohdr_t *phdr = data;
-	const int default_texture = GL_FindTexture( REF_DEFAULT_TEXTURE );
-	const mstudiotexture_t *ptexture;
-
-	if( !phdr )
-		return;
-
-	ptexture = (const mstudiotexture_t *)(((const byte *)phdr) + phdr->textureindex );
-
-	for( int i = 0; i < phdr->numtextures; i++ )
-	{
-		if( ptexture[i].index != default_texture )
-			GL_FreeTexture( ptexture[i].index );
-	}
-}
-
 static qboolean Mod_ProcessRenderData( model_t *mod, qboolean create, const byte *buf, size_t buffersize )
 {
 	if( !create )
@@ -319,11 +291,6 @@ static qboolean Mod_ProcessRenderData( model_t *mod, qboolean create, const byte
 		gEngfuncs.drawFuncs->Mod_ProcessUserData( mod, true, buf );
 
 	return true;
-}
-
-static void Mod_StudioLoadTextures( model_t *mod, void *data )
-{
-	VK_STUB();
 }
 
 static void CL_DrawParticles( double frametime, particle_t *particles, float partsize )

@@ -1283,6 +1283,50 @@ VK_TextureForDraw
 the descriptor index to sample, GL_Bind falls back to the default texture
 =================
 */
+// gl_image.c: the materials/ folder (host_allow_materials)
+void R_TextureReplacementReport( const char *modelname, int gl_texturenum, const char *foundpath )
+{
+	if( host_allow_materials->value != 2.0f )
+		return;
+
+	if( gl_texturenum > 0 )
+		gEngfuncs.Con_Printf( "Looking for %s tex replacement..." S_GREEN "OK (%s)\n", modelname, foundpath );
+	else if( gl_texturenum < 0 )
+		gEngfuncs.Con_Printf( "Looking for %s tex replacement..." S_YELLOW "MISS (%s)\n", modelname, foundpath );
+	else
+		gEngfuncs.Con_Printf( "Looking for %s tex replacement..." S_RED "FAIL (%s)\n", modelname, foundpath );
+}
+
+qboolean R_SearchForTextureReplacement( char *out, size_t size, const char *modelname, const char *fmt, ... )
+{
+	va_list ap;
+	va_start( ap, fmt );
+	int ret = Q_vsnprintf( out, size, fmt, ap );
+	va_end( ap );
+
+	if( ret < 0 )
+	{
+		R_TextureReplacementReport( modelname, -1, "overflow" );
+		return false;
+	}
+
+	if( gEngfuncs.fsapi->FileExists( out, false ))
+		return true;
+
+	R_TextureReplacementReport( modelname, -1, out );
+	return false;
+}
+
+int VK_WhiteTexture( void )
+{
+	return vk_tex.whiteTexture;
+}
+
+int VK_DefaultTexture( void )
+{
+	return vk_tex.defaultTexture;
+}
+
 int VK_TextureForDraw( int texnum )
 {
 	if( texnum <= 0 || texnum >= VK_MAX_TEXTURES || !vk_textures[texnum].view )

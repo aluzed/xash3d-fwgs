@@ -60,6 +60,7 @@ static struct
 	qboolean recording; // between a successful VK_BeginFrame and VK_EndFrame
 	qboolean in_pass;   // main colour + depth dynamic rendering is open
 	vec4_t clear_color; // glClearColor state, the frame clear uses it
+	VkViewport viewport;  // glViewport and glDepthRange of the open pass
 	uint32_t image_index; // acquired swapchain image
 } vk_frame;
 
@@ -157,6 +158,7 @@ VkCommandBuffer VK_BeginMainPass( void )
 
 	VkRect2D scissor = { { 0, 0 }, { vk_frame.color.width, vk_frame.color.height } };
 
+	vk_frame.viewport = viewport;
 	vkCmdSetViewport( cmd, 0, 1, &viewport );
 	vkCmdSetScissor( cmd, 0, 1, &scissor );
 
@@ -184,8 +186,8 @@ void VK_SetViewport( int x, int y, int width, int height )
 		.y = (float)( target_height - y ),
 		.width = (float)width,
 		.height = -(float)height,
-		.minDepth = 0.0f,
-		.maxDepth = 1.0f,
+		.minDepth = vk_frame.viewport.minDepth,
+		.maxDepth = vk_frame.viewport.maxDepth,
 	};
 
 	VkRect2D scissor = {
@@ -193,8 +195,21 @@ void VK_SetViewport( int x, int y, int width, int height )
 		{ width, height },
 	};
 
+	vk_frame.viewport = viewport;
 	vkCmdSetViewport( cmd, 0, 1, &viewport );
 	vkCmdSetScissor( cmd, 0, 1, &scissor );
+}
+
+// glDepthRange, kept until changed again
+void VK_SetDepthRange( float min, float max )
+{
+	VkCommandBuffer cmd = vk_frame.frames[vk_frame.frame_index].cmd;
+
+	vk_frame.viewport.minDepth = min;
+	vk_frame.viewport.maxDepth = max;
+
+	if( vk_frame.in_pass )
+		vkCmdSetViewport( cmd, 0, 1, &vk_frame.viewport );
 }
 
 void VK_ResetViewport( void )
