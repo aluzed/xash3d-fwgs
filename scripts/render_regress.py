@@ -108,7 +108,11 @@ SHOT_SCENES = [
                "xhair_enable 1", "xhair_size 3.5", "xhair_gap 0.5", "xhair_thick 0.75", "xhair_dot 1",
                "xhair_pad 1", 'xhair_pad_color "255 0 255"', "menu_crosshair", "wait 60", "shot custom",
                # black background, to compare the 1:1 view with crosshair_cstrike's menu_match
-               "ui_xhair_background 1", "menu_crosshair", "wait 60", "shot black"]},
+               "ui_xhair_background 1", "menu_crosshair", "wait 60", "shot black",
+               # a share code from the console (the built-in circle with dot), then the presets page
+               "ui_xhair_background 0", "crosshair_import XH-04404-4607R-CEG1R-W08GC-0314T-07JM1-7ZZZZ-ZZ05T",
+               "menu_crosshair", "wait 60", "shot imported", "menu_crosshair_presets", "wait 60", "shot presets",
+               "crosshair_export"]},
     {"name": "hud_valve", "game": "valve", "map": "c2a5", "server": [],
      "lines": ["gl_clear 1", "r_norefresh 1", "wait 100"] + HL_SETUP + ["wait 200", "shot hud"]},
     # customizable crosshair (cs16-client xhair_*), over a black screen
