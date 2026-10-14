@@ -283,12 +283,31 @@ void VK_WorldDataBeginFrame( int frame )
 	vk_pipe.world_written[frame] = vk_pipe.world_generation;
 }
 
-// the textures, the fog table and the world data of the frame being recorded
+/*
+=================
+VK_BindDescriptorSets
+
+the textures, the fog table and the world data of the frame being
+recorded: the same for every draw of a command buffer, so bound once
+(every graphics pipeline shares the layout; compute passes bind their own
+sets on the other bind point)
+=================
+*/
 void VK_BindDescriptorSets( VkCommandBuffer cmd )
 {
+	if( cmd == vk_pipe.bound_cmd )
+		return;
+
 	VkDescriptorSet sets[3] = { vk_pipe.texture_set, vk_pipe.fog_sets[VK_FrameIndex( )], vk_pipe.world_sets[VK_FrameIndex( )] };
 
 	vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipe.layout, 0, 3, sets, 0, NULL );
+	vk_pipe.bound_cmd = cmd;
+}
+
+// a command buffer begins: nothing is bound in it
+void VK_DescriptorSetsReset( void )
+{
+	vk_pipe.bound_cmd = VK_NULL_HANDLE;
 }
 
 void VK_WriteTextureDescriptor( int texnum, VkImageView view, VkSampler sampler )

@@ -5,7 +5,7 @@ A render graph with an HDR pipeline, keeping a "classic" mode that is
 pixel-identical to parity output.
 
 ## Tasks
-- [~] Minimal render graph (passes, transient attachments, automatic
+- [x] Minimal render graph (passes, transient attachments, automatic
       barriers) replacing ad-hoc pass code from phases 1-5.
 - [x] HDR main target (`R16G16B16A16_SFLOAT`), lightmaps decoded to linear.
 - [x] Tonemappers (classic passthrough, ACES, AgX) and auto exposure.
@@ -33,11 +33,16 @@ pixel-identical to parity output.
       SMAA 1x (reference implementation, `3rdparty/smaa` submodule, run
       from compute shaders; `r_vk_aa` picks one), contrast adaptive
       sharpening.
-- [~] Render graph: the post chain runs through a minimal frame graph
-      (passes name what they sample and write; barriers, layout
-      transitions and descriptor sets follow). The scene passes still use
-      `VK_BeginMainPass`, now with a switchable colour target; moving them
-      into the graph is left for 024, when the RT passes need it.
+- [x] Render graph (`ref/vk/vk_graph.c`), for a renderer that records as
+      the engine calls it: every pass says how it uses each image (colour
+      or depth target, sampled, storage, copy source or destination) and
+      the graph puts the barrier the two uses need, with their stages and
+      accesses, none between two reads. The scene and 2D passes, clears,
+      readbacks, the present copy and the post-processing chain go through
+      it; the transient images (HDR scene, post-processing) are asked for
+      by name and size, made again when the target size changes and given
+      back when unused. The precise barriers made the enhanced look 13 %
+      faster on `long_de_dust2` (1161 fps against 1026).
 - Classic: the full harness is identical to the ref_vk captures before
   the story (69/69, only the animated menu banner differs) and 69/69
   above 40 dB against ref_gl. `hdr_valve` / `hdr_cstrike` shot scenes show

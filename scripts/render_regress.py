@@ -849,6 +849,8 @@ def main():
     p.add_argument("--set", action="append", metavar="COMMAND",
                    help="console variable set on the command line, "
                         "e.g. --set 'r_vk_quality enhanced' (repeatable)")
+    p.add_argument("--engine-arg", action="append", metavar="ARG",
+                   help="extra engine command line argument (repeatable)")
     p.add_argument("scenes", nargs="*", help="scene names (default: all)")
     p.set_defaults(func=cmd_bench)
 

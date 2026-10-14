@@ -34,12 +34,13 @@ turn it into the main target's pixels, inside the view rectangle only:
 
 The 2D (HUD, menus, console) is then drawn over the main target as usual.
 
-The passes run through a minimal frame graph: each one names the images it
-samples and the one it writes, and VK_PostRun puts the barriers and layout
-transitions between them, and caches one descriptor set per combination
-of images (they only change with the target size). Sampled images are in
-read only layouts, written ones in GENERAL: the depth and the scene stay
-compressed when read.
+The images are transient images of the render graph (vk_graph.c), asked
+for every frame. Each pass names the images it samples and the one it
+writes: VK_PostRun lets the graph put the barriers between them, and
+caches one descriptor set per combination of images (they only change
+when the graph makes its images again). Sampled images are in read only
+layouts, written ones in GENERAL: the depth and the scene stay compressed
+when read.
 */
 
 #include "vk_local.h"
@@ -202,13 +203,14 @@ static struct
 	char quality[32]; // r_vk_quality the state was decided for
 	vk_post_settings_t s;
 
-	uint32_t width, height; // of the targets
-	vk_image_t scene;
-	vk_image_t lindepth, ao_raw, ao; // half size
-	vk_image_t bloom[VK_POST_MAX_BLOOM];
+	uint32_t width, height; // of the main target
+	vk_image_t *scene;      // transient images of the graph, asked for each frame
+	vk_image_t *lindepth, *ao_raw, *ao; // half size
+	vk_image_t *bloom[VK_POST_MAX_BLOOM];
 	int num_bloom;
-	vk_image_t ldr[2];
-	vk_image_t smaa_edges, smaa_weights;
+	vk_image_t *ldr[2];
+	vk_image_t *smaa_edges, *smaa_weights;
+	int graph_generation;   // the cached descriptor sets are for it
 	vk_image_t smaa_area, smaa_search; // precomputed, created with the renderer
 	vk_buffer_t exposure;
 	uint32_t max_lum_groups;
@@ -222,10 +224,6 @@ static struct
 	int num_sets;
 	VkPipeline pipes[VK_POST_PIPELINES];
 
-	// frame graph state of the pass chain being recorded
-	vk_image_t *touched[32]; // images used since the last barrier on them
-	qboolean written[32];
-	int num_touched;
 	qboolean buffer_first; // the buffer wasn't used by the chain yet
 
 	qboolean in_scene; // between VK_PostBeginScene and VK_PostEndScene
@@ -437,92 +435,75 @@ qboolean VK_InitPost( void )
 
 /*
 =================
-Targets, created when the look needs them and at each size change
+Targets: transient images of the graph, and the exposure buffer
 =================
 */
-static void VK_PostDestroyTargets( void )
-{
-	VK_DestroyImage( &post.scene );
-	VK_DestroyImage( &post.lindepth );
-	VK_DestroyImage( &post.ao_raw );
-	VK_DestroyImage( &post.ao );
-	VK_DestroyImage( &post.ldr[0] );
-	VK_DestroyImage( &post.ldr[1] );
-	VK_DestroyImage( &post.smaa_edges );
-	VK_DestroyImage( &post.smaa_weights );
-	for( int i = 0; i < VK_POST_MAX_BLOOM; i++ )
-		VK_DestroyImage( &post.bloom[i] );
-	VK_DestroyBuffer( &post.exposure );
-
-	// every cached set pointed at the images
-	if( post.pool )
-		vkResetDescriptorPool( vk.device, post.pool, 0 );
-	post.num_sets = 0;
-	post.num_bloom = 0;
-	post.width = post.height = 0;
-}
-
-static qboolean VK_PostCreateTargets( uint32_t width, uint32_t height )
+// the images of the frame: the graph makes them when missing
+static qboolean VK_PostGetTargets( void )
 {
 	const VkImageUsageFlags storage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-	const uint32_t half_width = ( width + 1 ) / 2, half_height = ( height + 1 ) / 2;
 	qboolean ok;
 
-	ok = VK_CreateImage( &post.scene, "HDR scene", width, height, VK_HDR_COLOR_FORMAT,
-		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT )
-		&& VK_CreateImage( &post.lindepth, "SSAO depth", half_width, half_height, VK_POST_AO_FORMAT, storage, VK_IMAGE_ASPECT_COLOR_BIT )
-		&& VK_CreateImage( &post.ao_raw, "SSAO raw", half_width, half_height, VK_POST_AO_FORMAT, storage, VK_IMAGE_ASPECT_COLOR_BIT )
-		&& VK_CreateImage( &post.ao, "SSAO", half_width, half_height, VK_POST_AO_FORMAT, storage, VK_IMAGE_ASPECT_COLOR_BIT )
-		&& VK_CreateImage( &post.ldr[0], "post LDR 0", width, height, VK_POST_LDR_FORMAT,
-			storage | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT )
-		&& VK_CreateImage( &post.ldr[1], "post LDR 1", width, height, VK_POST_LDR_FORMAT,
-			storage | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT )
-		// cleared on first use: outside the view nothing writes them
-		&& VK_CreateImage( &post.smaa_edges, "SMAA edges", width, height, VK_POST_LDR_FORMAT,
-			storage | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT )
-		&& VK_CreateImage( &post.smaa_weights, "SMAA weights", width, height, VK_POST_LDR_FORMAT,
-			storage | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT );
+	post.scene = VK_GraphImage( "HDR scene", VK_HDR_COLOR_FORMAT,
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, 0 );
+	post.lindepth = VK_GraphImage( "SSAO depth", VK_POST_AO_FORMAT, storage, 1 );
+	post.ao_raw = VK_GraphImage( "SSAO raw", VK_POST_AO_FORMAT, storage, 1 );
+	post.ao = VK_GraphImage( "SSAO", VK_POST_AO_FORMAT, storage, 1 );
+	post.ldr[0] = VK_GraphImage( "post LDR 0", VK_POST_LDR_FORMAT, storage | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, 0 );
+	post.ldr[1] = VK_GraphImage( "post LDR 1", VK_POST_LDR_FORMAT, storage | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, 0 );
+	ok = post.scene && post.lindepth && post.ao_raw && post.ao && post.ldr[0] && post.ldr[1];
+
+	// cleared on first use: outside the view nothing writes them
+	if( post.s.aa == VK_POST_AA_SMAA )
+	{
+		post.smaa_edges = VK_GraphImage( "SMAA edges", VK_POST_LDR_FORMAT, storage | VK_IMAGE_USAGE_TRANSFER_DST_BIT, 0 );
+		post.smaa_weights = VK_GraphImage( "SMAA weights", VK_POST_LDR_FORMAT, storage | VK_IMAGE_USAGE_TRANSFER_DST_BIT, 0 );
+		ok = ok && post.smaa_edges && post.smaa_weights;
+	}
 
 	// half size first, down to a few pixels
-	uint32_t w = width, h = height;
-	for( post.num_bloom = 0; ok && post.num_bloom < VK_POST_MAX_BLOOM; post.num_bloom++ )
+	post.num_bloom = 0;
+	if( post.s.bloom > 0.0f )
 	{
-		char name[32];
+		for( int shift = 1; ok && post.num_bloom < VK_POST_MAX_BLOOM; shift++ )
+		{
+			char name[32];
 
-		w = Q_max( w / 2, 1 );
-		h = Q_max( h / 2, 1 );
+			if( post.num_bloom >= 2 && ((int)post.width >> shift < 8 || (int)post.height >> shift < 8 ))
+				break;
 
-		if( post.num_bloom >= 2 && ( w < 8 || h < 8 ))
-			break;
-
-		Q_snprintf( name, sizeof( name ), "bloom %d", post.num_bloom );
-		ok = VK_CreateImage( &post.bloom[post.num_bloom], name, w, h, VK_HDR_COLOR_FORMAT, storage, VK_IMAGE_ASPECT_COLOR_BIT );
+			Q_snprintf( name, sizeof( name ), "bloom %d", post.num_bloom );
+			ok = ( post.bloom[post.num_bloom++] = VK_GraphImage( name, VK_HDR_COLOR_FORMAT, storage, shift )) != NULL;
+		}
 	}
 
-	post.max_lum_groups = (( width + VK_POST_LUM_TILE - 1 ) / VK_POST_LUM_TILE ) * (( height + VK_POST_LUM_TILE - 1 ) / VK_POST_LUM_TILE );
-
-	ok = ok && VK_CreateBuffer( &post.exposure, "exposure", VK_POST_EXPOSURE_HEAD + post.max_lum_groups * 2 * sizeof( float ),
-		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT );
-
-	if( !ok )
+	// the cached sets point at views the graph made again
+	if( post.graph_generation != VK_GraphGeneration( ))
 	{
-		VK_PostDestroyTargets();
-		return false;
+		vkDeviceWaitIdle( vk.device ); // settings or size changes: rare
+		vkResetDescriptorPool( vk.device, post.pool, 0 );
+		post.num_sets = 0;
+		post.graph_generation = VK_GraphGeneration();
 	}
 
-	post.width = width;
-	post.height = height;
-	post.exposure_reset = true;
-	return true;
+	return ok;
 }
 
-static void VK_PostDestroy( void )
+// the per tile luminance sums follow the size of the view
+static qboolean VK_PostExposureBuffer( uint32_t width, uint32_t height )
 {
-	if( !post.width )
-		return;
+	const uint32_t groups = (( width + VK_POST_LUM_TILE - 1 ) / VK_POST_LUM_TILE ) * (( height + VK_POST_LUM_TILE - 1 ) / VK_POST_LUM_TILE );
+
+	if( post.exposure.buffer && groups <= post.max_lum_groups )
+		return true;
 
 	vkDeviceWaitIdle( vk.device );
-	VK_PostDestroyTargets();
+	VK_DestroyBuffer( &post.exposure );
+	post.max_lum_groups = groups;
+	post.exposure_reset = true;
+
+	return VK_CreateBuffer( &post.exposure, "exposure", VK_POST_EXPOSURE_HEAD + groups * 2 * sizeof( float ),
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT );
 }
 
 void VK_ShutdownPost( void )
@@ -531,7 +512,7 @@ void VK_ShutdownPost( void )
 		return;
 
 	vkDeviceWaitIdle( vk.device );
-	VK_PostDestroyTargets();
+	VK_DestroyBuffer( &post.exposure );
 	VK_DestroyImage( &post.smaa_area );
 	VK_DestroyImage( &post.smaa_search );
 
@@ -625,29 +606,25 @@ void VK_PostBeginFrame( void )
 
 	post.enabled = false;
 
+	// nothing asked for: the graph gives the images back after a while
 	if( post.failed || !VK_PostWanted( ))
-	{
-		VK_PostDestroy(); // gives the memory back
 		return;
-	}
 
 	VK_MainExtent( &width, &height );
 	if( width <= 0 || height <= 0 )
 		return;
 
-	if( post.width != (uint32_t)width || post.height != (uint32_t)height )
-	{
-		VK_PostDestroy();
+	post.width = width;
+	post.height = height;
+	VK_PostReadSettings( &post.s );
 
-		if( !VK_CreateHDRPipelines( ) || !VK_PostCreateTargets( width, height ))
-		{
-			gEngfuncs.Con_Printf( S_ERROR "ref_vk: can't create the HDR targets, back to the classic look\n" );
-			post.failed = true;
-			return;
-		}
+	if( !VK_CreateHDRPipelines( ) || !VK_PostGetTargets( ) || !VK_PostExposureBuffer( width, height ))
+	{
+		gEngfuncs.Con_Printf( S_ERROR "ref_vk: can't create the HDR targets, back to the classic look\n" );
+		post.failed = true;
+		return;
 	}
 
-	VK_PostReadSettings( &post.s );
 	post.enabled = true;
 }
 
@@ -669,18 +646,18 @@ qboolean VK_PostBeginScene( void )
 		|| ENGINE_GET_PARM( PARM_DEV_OVERVIEW ))
 		return false;
 
-	VK_SetColorTarget( &post.scene, VK_TARGET_HDR );
+	VK_SetColorTarget( post.scene, VK_TARGET_HDR );
 
 	// what ref_gl's frame clear gave, linear; otherwise the last scene stays
-	if( post.scene.layout == VK_IMAGE_LAYOUT_UNDEFINED || gl_clear->value )
+	if( post.scene->layout == VK_IMAGE_LAYOUT_UNDEFINED || gl_clear->value )
 	{
 		VK_GetClearColor( clear );
 
 		VkClearColorValue color = { .float32 = { powf( clear[0], 2.2f ), powf( clear[1], 2.2f ), powf( clear[2], 2.2f ), 1.0f } };
 		VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-		VK_ImageBarrier( cmd, &post.scene, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
-		vkCmdClearColorImage( cmd, post.scene.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &color, 1, &range );
+		VK_GraphUse( cmd, post.scene, VK_USE_COPY_DST );
+		vkCmdClearColorImage( cmd, post.scene->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &color, 1, &range );
 	}
 
 	post.in_scene = true;
@@ -792,89 +769,10 @@ static VkDescriptorSet VK_PostDescriptorSet( const vk_post_pass_t *pass )
 	return key.set;
 }
 
-// a new chain: whatever the images and the buffer did before (previous
-// frames included) needs a barrier before their first use
+// a new chain: the buffer's first use waits for the previous frame's
 static void VK_PostBeginGraph( void )
 {
-	post.num_touched = 0;
 	post.buffer_first = true;
-}
-
-static int VK_PostTouchedIndex( vk_image_t *img )
-{
-	for( int i = 0; i < post.num_touched; i++ )
-	{
-		if( post.touched[i] == img )
-			return i;
-	}
-
-	return -1;
-}
-
-/*
-=================
-VK_PostUse
-
-the barrier an image needs before a pass reads it (after a write) or
-writes it (after any use), with its move to the layout of that use
-=================
-*/
-/*
-=================
-VK_PostComputeBarrier
-
-between two passes of the chain: a full barrier (VK_ImageBarrier) costs
-some 15 us each on the RTX 2080 Ti, a third of the bloom
-=================
-*/
-static void VK_PostComputeBarrier( VkCommandBuffer cmd, vk_image_t *img, VkImageLayout layout )
-{
-	VkImageMemoryBarrier2 barrier = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-		.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-		.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-		.oldLayout = img->layout,
-		.newLayout = layout,
-		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.image = img->image,
-		.subresourceRange = { img->aspect, 0, 1, 0, 1 },
-	};
-
-	VkDependencyInfo dep = {
-		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-		.imageMemoryBarrierCount = 1,
-		.pImageMemoryBarriers = &barrier,
-	};
-
-	vkCmdPipelineBarrier2( cmd, &dep );
-	img->layout = layout;
-}
-
-static void VK_PostUse( VkCommandBuffer cmd, vk_image_t *img, qboolean write )
-{
-	const VkImageLayout layout = write ? VK_IMAGE_LAYOUT_GENERAL : VK_PostReadLayout( img );
-	int index = VK_PostTouchedIndex( img );
-
-	if( index < 0 )
-	{
-		// first use in this chain: unknown past (drawn into, copied from,
-		// used by the previous frame), always a full barrier
-		VK_ImageBarrier( cmd, img, layout );
-
-		if( post.num_touched < (int)ARRAYSIZE( post.touched ))
-		{
-			index = post.num_touched++;
-			post.touched[index] = img;
-		}
-	}
-	else if( img->layout != layout || post.written[index] || write )
-		VK_PostComputeBarrier( cmd, img, layout );
-
-	if( index >= 0 )
-		post.written[index] = write;
 }
 
 // the previous frame's passes for the first use, then the chain's
@@ -906,11 +804,11 @@ static void VK_PostRun( VkCommandBuffer cmd, const vk_post_pass_t *pass )
 	for( int i = 0; i < VK_POST_MAX_INPUTS; i++ )
 	{
 		if( pass->inputs[i].img )
-			VK_PostUse( cmd, pass->inputs[i].img, false );
+			VK_GraphUse( cmd, pass->inputs[i].img, VK_USE_SAMPLED );
 	}
 
 	if( pass->output )
-		VK_PostUse( cmd, pass->output, true );
+		VK_GraphUse( cmd, pass->output, VK_USE_STORAGE );
 
 	// every pass using the buffer writes it but the tonemap: keep it simple
 	if( pass->buffer )
@@ -974,7 +872,7 @@ at half size: the depth samples are the cost, and the occlusion is soft
 static void VK_PostSSAO( VkCommandBuffer cmd, int x, int y, int w, int h )
 {
 	vk_post_input_t depth = { VK_MainDepthImage(), VK_MainDepthSampleView(), post.nearest };
-	vk_post_input_t lindepth = { &post.lindepth, VK_NULL_HANDLE, post.nearest };
+	vk_post_input_t lindepth = { post.lindepth, VK_NULL_HANDLE, post.nearest };
 	const float zfar = Q_max( 256.0f, RI.farClip );
 	const int hx = x / 2, hy = y / 2;
 	const int hw = ( x + w + 1 ) / 2 - hx, hh = ( y + h + 1 ) / 2 - hy;
@@ -985,9 +883,9 @@ static void VK_PostSSAO( VkCommandBuffer cmd, int x, int y, int w, int h )
 	pass.name = "SSAO depth";
 	pass.pipe = VK_POST_SSAO_DEPTH;
 	pass.inputs[0] = depth;
-	pass.output = &post.lindepth;
+	pass.output = post.lindepth;
 	VK_PostSetRect( &pass, hx, hy, hw, hh );
-	VK_PostSetTexel( &pass, VK_MainDepthImage(), &post.lindepth );
+	VK_PostSetTexel( &pass, VK_MainDepthImage(), post.lindepth );
 	pass.push.params[0] = 4.0f; // R_SetupProjectionMatrix
 	pass.push.params[1] = zfar;
 	VK_PostRun( cmd, &pass );
@@ -996,9 +894,9 @@ static void VK_PostSSAO( VkCommandBuffer cmd, int x, int y, int w, int h )
 	pass.name = "SSAO";
 	pass.pipe = VK_POST_SSAO;
 	pass.inputs[0] = lindepth;
-	pass.output = &post.ao_raw;
+	pass.output = post.ao_raw;
 	VK_PostSetRect( &pass, hx, hy, hw, hh );
-	VK_PostSetTexel( &pass, &post.lindepth, &post.ao_raw );
+	VK_PostSetTexel( &pass, post.lindepth, post.ao_raw );
 	pass.push.params[0] = 4.0f;
 	pass.push.params[1] = zfar;
 	pass.push.params[2] = tanf( RI.rvp.fov_x * M_PI_F / 360.0f );
@@ -1010,11 +908,11 @@ static void VK_PostSSAO( VkCommandBuffer cmd, int x, int y, int w, int h )
 	memset( &pass, 0, sizeof( pass ));
 	pass.name = "SSAO blur";
 	pass.pipe = VK_POST_SSAO_BLUR;
-	pass.inputs[0] = (vk_post_input_t){ &post.ao_raw, VK_NULL_HANDLE, post.nearest };
+	pass.inputs[0] = (vk_post_input_t){ post.ao_raw, VK_NULL_HANDLE, post.nearest };
 	pass.inputs[1] = lindepth;
-	pass.output = &post.ao;
+	pass.output = post.ao;
 	VK_PostSetRect( &pass, hx, hy, hw, hh );
-	VK_PostSetTexel( &pass, &post.ao_raw, &post.ao );
+	VK_PostSetTexel( &pass, post.ao_raw, post.ao );
 	VK_PostRun( cmd, &pass );
 }
 
@@ -1024,8 +922,8 @@ static void VK_PostBloom( VkCommandBuffer cmd, int x, int y, int w, int h )
 
 	for( int i = 0; i < post.num_bloom; i++ )
 	{
-		vk_image_t *src = i ? &post.bloom[i - 1] : &post.scene;
-		vk_image_t *dst = &post.bloom[i];
+		vk_image_t *src = i ? post.bloom[i - 1] : post.scene;
+		vk_image_t *dst = post.bloom[i];
 
 		memset( &pass, 0, sizeof( pass ));
 		pass.name = i ? "bloom down" : "bloom prefilter";
@@ -1046,8 +944,8 @@ static void VK_PostBloom( VkCommandBuffer cmd, int x, int y, int w, int h )
 
 	for( int i = post.num_bloom - 2; i >= 0; i-- )
 	{
-		vk_image_t *src = &post.bloom[i + 1];
-		vk_image_t *dst = &post.bloom[i];
+		vk_image_t *src = post.bloom[i + 1];
+		vk_image_t *dst = post.bloom[i];
 
 		memset( &pass, 0, sizeof( pass ));
 		pass.name = "bloom up";
@@ -1069,10 +967,10 @@ static void VK_PostExposure( VkCommandBuffer cmd, int x, int y, int w, int h )
 	memset( &pass, 0, sizeof( pass ));
 	pass.name = "luminance";
 	pass.pipe = VK_POST_LUMINANCE;
-	pass.inputs[0] = (vk_post_input_t){ &post.scene, VK_NULL_HANDLE, post.linear };
+	pass.inputs[0] = (vk_post_input_t){ post.scene, VK_NULL_HANDLE, post.linear };
 	pass.buffer = true;
 	VK_PostSetRect( &pass, x, y, w, h );
-	VK_PostSetTexel( &pass, &post.scene, &post.scene );
+	VK_PostSetTexel( &pass, post.scene, post.scene );
 	pass.groups[0] = groups_x;
 	pass.groups[1] = groups_y;
 	pass.push.iparams[0] = groups_x;
@@ -1107,7 +1005,7 @@ static void VK_PostClear( VkCommandBuffer cmd, vk_image_t *img )
 	VkClearColorValue zero = { 0 };
 	VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-	VK_ImageBarrier( cmd, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
+	VK_GraphUse( cmd, img, VK_USE_COPY_DST );
 	vkCmdClearColorImage( cmd, img->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1, &range );
 }
 
@@ -1116,36 +1014,36 @@ static void VK_PostSMAA( VkCommandBuffer cmd, vk_image_t *src, vk_image_t *dst, 
 	vk_post_pass_t pass;
 
 	// the searches read past the view: no edge there
-	if( post.smaa_edges.layout == VK_IMAGE_LAYOUT_UNDEFINED )
-		VK_PostClear( cmd, &post.smaa_edges );
-	if( post.smaa_weights.layout == VK_IMAGE_LAYOUT_UNDEFINED )
-		VK_PostClear( cmd, &post.smaa_weights );
+	if( post.smaa_edges->layout == VK_IMAGE_LAYOUT_UNDEFINED )
+		VK_PostClear( cmd, post.smaa_edges );
+	if( post.smaa_weights->layout == VK_IMAGE_LAYOUT_UNDEFINED )
+		VK_PostClear( cmd, post.smaa_weights );
 
 	memset( &pass, 0, sizeof( pass ));
 	pass.name = "SMAA edges";
 	pass.pipe = VK_POST_SMAA_EDGES;
 	pass.inputs[0] = (vk_post_input_t){ src, VK_NULL_HANDLE, post.linear };
-	pass.output = &post.smaa_edges;
+	pass.output = post.smaa_edges;
 	VK_PostSetRect( &pass, x, y, w, h );
-	VK_PostSetTexel( &pass, src, &post.smaa_edges );
+	VK_PostSetTexel( &pass, src, post.smaa_edges );
 	VK_PostRun( cmd, &pass );
 
 	memset( &pass, 0, sizeof( pass ));
 	pass.name = "SMAA weights";
 	pass.pipe = VK_POST_SMAA_WEIGHTS;
-	pass.inputs[0] = (vk_post_input_t){ &post.smaa_edges, VK_NULL_HANDLE, post.linear };
+	pass.inputs[0] = (vk_post_input_t){ post.smaa_edges, VK_NULL_HANDLE, post.linear };
 	pass.inputs[1] = (vk_post_input_t){ &post.smaa_area, VK_NULL_HANDLE, post.linear };
 	pass.inputs[2] = (vk_post_input_t){ &post.smaa_search, VK_NULL_HANDLE, post.nearest };
-	pass.output = &post.smaa_weights;
+	pass.output = post.smaa_weights;
 	VK_PostSetRect( &pass, x, y, w, h );
-	VK_PostSetTexel( &pass, &post.smaa_edges, &post.smaa_weights );
+	VK_PostSetTexel( &pass, post.smaa_edges, post.smaa_weights );
 	VK_PostRun( cmd, &pass );
 
 	memset( &pass, 0, sizeof( pass ));
 	pass.name = "SMAA blend";
 	pass.pipe = VK_POST_SMAA_BLEND;
 	pass.inputs[0] = (vk_post_input_t){ src, VK_NULL_HANDLE, post.linear };
-	pass.inputs[1] = (vk_post_input_t){ &post.smaa_weights, VK_NULL_HANDLE, post.linear };
+	pass.inputs[1] = (vk_post_input_t){ post.smaa_weights, VK_NULL_HANDLE, post.linear };
 	pass.output = dst;
 	VK_PostSetRect( &pass, x, y, w, h );
 	VK_PostSetTexel( &pass, src, dst );
@@ -1214,15 +1112,15 @@ void VK_PostEndScene( int x, int y, int w, int h )
 	memset( &pass, 0, sizeof( pass ));
 	pass.name = "tonemap";
 	pass.pipe = VK_POST_TONEMAP;
-	pass.inputs[0] = (vk_post_input_t){ &post.scene, VK_NULL_HANDLE, post.nearest };
+	pass.inputs[0] = (vk_post_input_t){ post.scene, VK_NULL_HANDLE, post.nearest };
 	if( FBitSet( flags, VK_POST_USE_BLOOM ))
-		pass.inputs[1] = (vk_post_input_t){ &post.bloom[0], VK_NULL_HANDLE, post.linear };
+		pass.inputs[1] = (vk_post_input_t){ post.bloom[0], VK_NULL_HANDLE, post.linear };
 	if( FBitSet( flags, VK_POST_USE_AO ))
-		pass.inputs[2] = (vk_post_input_t){ &post.ao, VK_NULL_HANDLE, post.linear };
+		pass.inputs[2] = (vk_post_input_t){ post.ao, VK_NULL_HANDLE, post.linear };
 	pass.buffer = FBitSet( flags, VK_POST_USE_EXPOSURE ) != 0;
-	pass.output = ldr = &post.ldr[next];
+	pass.output = ldr = post.ldr[next];
 	VK_PostSetRect( &pass, x, y, w, h );
-	VK_PostSetTexel( &pass, &post.scene, ldr );
+	VK_PostSetTexel( &pass, post.scene, ldr );
 	pass.push.iparams[0] = post.s.tonemap;
 	pass.push.iparams[1] = flags;
 	pass.push.iparams[2] = post.num_bloom;
@@ -1238,18 +1136,18 @@ void VK_PostEndScene( int x, int y, int w, int h )
 		pass.name = "FXAA";
 		pass.pipe = VK_POST_FXAA;
 		pass.inputs[0] = (vk_post_input_t){ ldr, VK_NULL_HANDLE, post.linear };
-		pass.output = &post.ldr[next];
+		pass.output = post.ldr[next];
 		VK_PostSetRect( &pass, x, y, w, h );
-		VK_PostSetTexel( &pass, ldr, &post.ldr[next] );
+		VK_PostSetTexel( &pass, ldr, post.ldr[next] );
 		VK_PostSetSourceRect( &pass, x, y, w, h );
 		VK_PostRun( cmd, &pass );
-		ldr = &post.ldr[next];
+		ldr = post.ldr[next];
 	}
 	else if( post.s.aa == VK_POST_AA_SMAA )
 	{
-		VK_PostSMAA( cmd, ldr, &post.ldr[next ^ 1], x, y, w, h );
+		VK_PostSMAA( cmd, ldr, post.ldr[next ^ 1], x, y, w, h );
 		next ^= 1;
-		ldr = &post.ldr[next];
+		ldr = post.ldr[next];
 	}
 
 	if( post.s.sharpen > 0.0f )
@@ -1259,17 +1157,17 @@ void VK_PostEndScene( int x, int y, int w, int h )
 		pass.name = "sharpen";
 		pass.pipe = VK_POST_SHARPEN;
 		pass.inputs[0] = (vk_post_input_t){ ldr, VK_NULL_HANDLE, post.nearest };
-		pass.output = &post.ldr[next];
+		pass.output = post.ldr[next];
 		VK_PostSetRect( &pass, x, y, w, h );
-		VK_PostSetTexel( &pass, ldr, &post.ldr[next] );
+		VK_PostSetTexel( &pass, ldr, post.ldr[next] );
 		pass.push.params[0] = post.s.sharpen;
 		VK_PostRun( cmd, &pass );
-		ldr = &post.ldr[next];
+		ldr = post.ldr[next];
 	}
 
 	// into the main target, under the 2D still to come
-	VK_ImageBarrier( cmd, ldr, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL );
-	VK_ImageBarrier( cmd, main_color, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
+	VK_GraphUse( cmd, ldr, VK_USE_COPY_SRC );
+	VK_GraphUse( cmd, main_color, VK_USE_COPY_DST );
 
 	VkImageCopy copy = {
 		.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },

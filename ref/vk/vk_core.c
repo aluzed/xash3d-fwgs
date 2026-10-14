@@ -229,10 +229,12 @@ void VK_ImageBarrierRaw( VkCommandBuffer cmd, VkImage image, VkImageAspectFlags 
 	vkCmdPipelineBarrier2( cmd, &dep );
 }
 
+// a full barrier made outside the graph (uploads): its next use waits for everything
 void VK_ImageBarrier( VkCommandBuffer cmd, vk_image_t *img, VkImageLayout layout )
 {
 	VK_ImageBarrierRaw( cmd, img->image, img->aspect, img->layout, layout );
 	img->layout = layout;
+	img->use = VK_USE_NONE;
 }
 
 /*

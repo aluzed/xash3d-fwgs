@@ -224,6 +224,19 @@ typedef struct vk_buffer_s
 	vk_alloc_t alloc;
 } vk_buffer_t;
 
+// how a pass uses an image (vk_graph.c)
+typedef enum
+{
+	VK_USE_NONE = 0,     // nothing yet, or after a barrier made elsewhere
+	VK_USE_COLOR_TARGET,
+	VK_USE_DEPTH_TARGET,
+	VK_USE_SAMPLED,      // fragment or compute shaders
+	VK_USE_STORAGE,      // written (and read) by compute shaders
+	VK_USE_COPY_SRC,
+	VK_USE_COPY_DST,     // copies, blits and clears
+	VK_USE_COUNT
+} vk_use_t;
+
 // an image together with the layout it was last left in
 typedef struct vk_image_s
 {
@@ -233,6 +246,7 @@ typedef struct vk_image_s
 	VkFormat format;
 	VkImageAspectFlags aspect;
 	VkImageLayout layout;
+	vk_use_t use;           // its last use, for the barrier to the next one
 	uint32_t width;
 	uint32_t height;
 } vk_image_t;
@@ -356,6 +370,7 @@ typedef struct vk_pipelines_s
 	VkDeviceSize world_ranges[2];
 	int world_generation;          // bumped when a buffer changes
 	int world_written[VK_FRAMES_IN_FLIGHT];
+	VkCommandBuffer bound_cmd;     // the command buffer the sets are bound in
 	VkPipelineLayout layout;
 	VkPipelineCache cache;
 	VkPipeline imm[VK_TARGET_COUNT][VK_TOPOLOGY_COUNT][VK_BLEND_ALL];
@@ -370,6 +385,7 @@ void VK_ShutdownPipelines( void );
 void VK_WriteTextureDescriptor( int texnum, VkImageView view, VkSampler sampler );
 void VK_WriteFogDescriptor( int frame, VkBuffer buffer, VkDeviceSize offset, VkDeviceSize range );
 void VK_BindDescriptorSets( VkCommandBuffer cmd );
+void VK_DescriptorSetsReset( void );
 void VK_WriteWorldDataDescriptor( int binding, VkBuffer buffer, VkDeviceSize range );
 void VK_WorldDataBeginFrame( int frame );
 VkPipeline VK_WorldPipeline( vk_blend_t blend, qboolean depth_write, qboolean depth_equal );
@@ -400,6 +416,17 @@ VkImageView VK_MainDepthSampleView( void );
 void VK_SetColorTarget( vk_image_t *img, vk_target_t kind );
 vk_target_t VK_ColorTarget( void );
 void VK_GetClearColor( vec3_t out );
+
+//
+// vk_graph.c: uses of the images, barriers, transient images
+//
+void VK_GraphUse( VkCommandBuffer cmd, vk_image_t *img, vk_use_t use );
+void VK_GraphDiscard( vk_image_t *img );
+void VK_GraphBeginRendering( VkCommandBuffer cmd, vk_image_t *color, vk_image_t *depth, qboolean stencil );
+void VK_GraphBeginFrame( void );
+vk_image_t *VK_GraphImage( const char *name, VkFormat format, VkImageUsageFlags usage, int shift );
+int VK_GraphGeneration( void );
+void VK_ShutdownGraph( void );
 
 //
 // vk_profile.c: GPU time of each part of the frame (r_vk_gpu_profile)

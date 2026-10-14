@@ -679,6 +679,10 @@ void VK_StreamBeginFrame( void )
 
 	last_time = now;
 
+	// nothing streamed: nothing to do, no staging memory
+	if( !vk_str.count )
+		return;
+
 	// the staging buffers once, so no frame waits for their memory
 	for( int i = 0; i < VK_STREAM_MAX_LOADS; i++ )
 	{

@@ -77,6 +77,17 @@ maximum of each part for the slow frames and for the others, also at
 renderer shutdown, e.g. after `-timedemo`. Off, it costs nothing and
 doesn't change a pixel; on, it only splits the draw batches at the marks.
 
+## Render graph
+
+`vk_graph.c` keeps, for every image of the frame (main colour and depth,
+HDR scene, post-processing images), its last use. A pass declares its
+uses (`VK_GraphUse`: colour or depth target, sampled, storage, copy source
+or destination) and gets the barrier the two uses need, with their own
+stages and accesses, none between two reads in one layout. The transient
+images are asked for by name, format and size relative to the main target
+(`VK_GraphImage`), made again when the window size changes and freed after
+three seconds without use.
+
 ## Enhanced look (`r_vk_quality`)
 
 `r_vk_quality classic`, the default, draws what `ref_gl` draws. With
@@ -132,8 +143,8 @@ menu has the choice ("Rendering quality", classic or enhanced) while
   from the edge shapes (precomputed area and search textures), blending.
   It only touches real edges (0.3 % of the pixels of a de_dust2 view
   against 2.7 % for FXAA) and costs some 0.075 ms more.
-- Cost on the RTX 2080 Ti at 1280x720, `long_de_dust2`: 2175 fps classic,
-  1026 fps enhanced, about 0.53 ms of GPU time a frame (SSAO 0.19, bloom
+- Cost on the RTX 2080 Ti at 1280x720, `long_de_dust2`: 2122 fps classic,
+  1161 fps enhanced (1026 before the render graph's barriers), about 0.53 ms of GPU time a frame (SSAO 0.19, bloom
   0.11, exposure 0.02, tonemap with SMAA, sharpening and the copy 0.22;
   0.14 with FXAA).
   Each effect has its own switch for slower GPUs.

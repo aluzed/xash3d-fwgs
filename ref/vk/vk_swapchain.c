@@ -169,36 +169,7 @@ VkCommandBuffer VK_BeginMainPass( void )
 	if( vk_frame.in_pass )
 		return cmd;
 
-	VK_ImageBarrier( cmd, vk_frame.target, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL );
-	VK_ImageBarrier( cmd, &vk_frame.depth, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL );
-
-	VkRenderingAttachmentInfo color = {
-		.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-		.imageView = vk_frame.target->view,
-		.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
-		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-	};
-
-	VkRenderingAttachmentInfo depth = {
-		.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-		.imageView = vk_frame.depth.view,
-		.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-		.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
-		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-	};
-
-	VkRenderingInfo info = {
-		.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-		.renderArea = { { 0, 0 }, { vk_frame.color.width, vk_frame.color.height } },
-		.layerCount = 1,
-		.colorAttachmentCount = 1,
-		.pColorAttachments = &color,
-		.pDepthAttachment = &depth,
-		.pStencilAttachment = VK_FormatHasStencil( vk_frame.depth_format ) ? &depth : NULL,
-	};
-
-	vkCmdBeginRendering( cmd, &info );
+	VK_GraphBeginRendering( cmd, vk_frame.target, &vk_frame.depth, VK_FormatHasStencil( vk_frame.depth_format ));
 
 	// negative height: GL's bottom-up Y, so GL matrices work unchanged
 	VkViewport viewport = {
@@ -689,6 +660,7 @@ static void VK_BeginCommands( vk_frame_t *frame )
 
 	vkResetCommandPool( vk.device, frame->pool, 0 );
 	vkBeginCommandBuffer( frame->cmd, &begin );
+	VK_DescriptorSetsReset();
 }
 
 static void VK_ClearColor( VkCommandBuffer cmd, float r, float g, float b )
@@ -696,7 +668,7 @@ static void VK_ClearColor( VkCommandBuffer cmd, float r, float g, float b )
 	VkClearColorValue color = { .float32 = { r, g, b, 1.0f } };
 	VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-	VK_ImageBarrier( cmd, &vk_frame.color, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
+	VK_GraphUse( cmd, &vk_frame.color, VK_USE_COPY_DST );
 	vkCmdClearColorImage( cmd, vk_frame.color.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &color, 1, &range );
 }
 
@@ -705,7 +677,7 @@ static void VK_ClearDepth( VkCommandBuffer cmd )
 	VkClearDepthStencilValue value = { .depth = 1.0f, .stencil = 0 };
 	VkImageSubresourceRange range = { vk_frame.depth.aspect, 0, 1, 0, 1 };
 
-	VK_ImageBarrier( cmd, &vk_frame.depth, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
+	VK_GraphUse( cmd, &vk_frame.depth, VK_USE_COPY_DST );
 	vkCmdClearDepthStencilImage( cmd, vk_frame.depth.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &value, 1, &range );
 }
 
@@ -766,7 +738,8 @@ void VK_BeginFrame( qboolean clear_scene )
 	VK_WorldDataBeginFrame( vk_frame.frame_index );
 	VK_CheckTextureParams();
 	VK_FlushUploads(); // textures loaded since the last frame
-	VK_PostBeginFrame(); // may wait for the GPU to rebuild its targets
+	VK_GraphBeginFrame(); // the transient images follow the main target
+	VK_PostBeginFrame();
 
 	VK_BeginCommands( frame );
 	vk_frame.recording = true;
@@ -828,7 +801,7 @@ void VK_EndFrame( void )
 	target = sc->images[vk_frame.image_index];
 
 	VK_BeginLabel( frame->cmd, "present copy" );
-	VK_ImageBarrier( frame->cmd, &vk_frame.color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL );
+	VK_GraphUse( frame->cmd, &vk_frame.color, VK_USE_COPY_SRC );
 	VK_ImageBarrierRaw( frame->cmd, target, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
 
 	// a blit converts RGBA to the swapchain BGRA; the sizes always match
@@ -992,7 +965,7 @@ qboolean VK_ReadPixels( int x, int y, int w, int h, byte *rgba )
 	VK_SetObjectName( VK_OBJECT_TYPE_BUFFER, (uint64_t)buffer, "pixel readback" );
 
 	VK_BeginLabel( frame->cmd, "read pixels" );
-	VK_ImageBarrier( frame->cmd, &vk_frame.color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL );
+	VK_GraphUse( frame->cmd, &vk_frame.color, VK_USE_COPY_SRC );
 
 	VkBufferImageCopy copy = {
 		.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },

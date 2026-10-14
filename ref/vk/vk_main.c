@@ -93,6 +93,7 @@ static void R_Shutdown( void )
 	VK_ShutdownMaterials();
 	VK_ShutdownStream();
 	VK_ShutdownPost();
+	VK_ShutdownGraph();
 	VK_ShutdownTextures();
 	VK_ShutdownFog();
 	VK_ShutdownPipelines();
