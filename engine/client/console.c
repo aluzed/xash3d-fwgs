@@ -2098,7 +2098,7 @@ void Con_DrawVersion( void )
 			|| host.force_draw_version_time > host.realtime;
 
 		// regression captures must not change with the build number
-		if( CL_DemoCaptureIsActive( ))
+		if( CL_DemoCaptureIsActive( ) || host.fixed_frametime > 0.0 )
 			draw_version = false;
 
 		if( !draw_version )

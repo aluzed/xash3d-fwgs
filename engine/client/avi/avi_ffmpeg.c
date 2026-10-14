@@ -350,7 +350,9 @@ qboolean AVI_Think( movie_state_t *Avi )
 		return false;
 
 	const double timebase = (double)Avi->video_ctx->pkt_timebase.den / Avi->video_ctx->pkt_timebase.num;
-	int64_t curtime = round( Platform_DoubleTime() * timebase );
+	// -fixedfps runs every clock on host.realtime, videos included
+	const double now = host.fixed_frametime > 0.0 ? host.realtime : Platform_DoubleTime();
+	int64_t curtime = round( now * timebase );
 
 	if( !Avi->first_time ) // always remember at which timestamp we started playing
 		Avi->first_time = curtime;
@@ -371,7 +373,7 @@ qboolean AVI_Think( movie_state_t *Avi )
 		AVI_StreamAudio( Avi ); // always flush audio buffers
 
 		// recalc time so we always play last possible frame
-		curtime = round( Platform_DoubleTime() * timebase );
+		curtime = round(( host.fixed_frametime > 0.0 ? host.realtime : Platform_DoubleTime( )) * timebase );
 
 		if( Avi->last_time > curtime )
 			break;

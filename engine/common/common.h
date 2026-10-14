@@ -355,6 +355,8 @@ typedef struct host_parm_s
 
 	// default game directory, passed to us from game launcher
 	string default_gamedir;
+
+	double fixed_frametime; // -fixedfps step, 0 when the clocks follow real time
 } host_parm_t;
 
 extern host_parm_t	host;

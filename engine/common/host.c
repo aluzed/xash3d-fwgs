@@ -629,11 +629,17 @@ static qboolean Host_FilterTime( double time )
 	static double	oldtime;
 	double scale = sys_timescale.value;
 
+	// -fixedfps: every clock advances by the same step each frame, so menus
+	// and other real time animations render identically on every run
+	if( host.fixed_frametime > 0.0 )
+		time = host.fixed_frametime;
+
 	host.realtime += time * scale;
 	double dt = host.realtime - oldtime;
 
-	// clamp the fps in multiplayer games
-	if( !Host_Autosleep( dt, scale ))
+	// clamp the fps in multiplayer games, except with -fixedfps where a
+	// skipped frame would still have advanced the clocks
+	if( host.fixed_frametime <= 0.0 && !Host_Autosleep( dt, scale ))
 		return false;
 
 	host.frametime = host.realtime - oldtime;
@@ -1312,6 +1318,10 @@ int EXPORT Host_Main( int argc, char **argv, const char *progname, int bChangeGa
 #ifndef XASH_DEDICATED
 	IN_GyroCheckAvailability();
 #endif
+
+	string fixedfps;
+	if( Sys_GetParmFromCmdLine( "-fixedfps", fixedfps ) && Q_atof( fixedfps ) > 0.0f )
+		host.fixed_frametime = 1.0 / Q_atof( fixedfps );
 
 	string demoname;
 	if( Sys_GetParmFromCmdLine( "-timedemo", demoname ))
