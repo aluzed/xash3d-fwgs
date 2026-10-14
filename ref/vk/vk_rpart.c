@@ -96,6 +96,7 @@ void CL_DrawParticles( double frametime, particle_t *cl_active_particles, float 
 			TriVertex3f( p->org[0] + right[0] - up[0], p->org[1] + right[1] - up[1], p->org[2] + right[2] - up[2] );
 			TriTexCoord2f( 1.0f, 1.0f );
 			TriVertex3f( p->org[0] - right[0] - up[0], p->org[1] - right[1] - up[1], p->org[2] - right[2] - up[2] );
+			r_stats.c_particle_count++;
 		}
 
 		gEngfuncs.CL_ThinkParticle( frametime, p );

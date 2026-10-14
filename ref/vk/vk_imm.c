@@ -542,10 +542,7 @@ void VK_ImmSet3D( qboolean enable )
 		imm.raster.depth_write = VK_TRUE;
 		imm.raster.depth_func = VK_COMPARE_OP_LESS_OR_EQUAL;
 		imm.raster.cull = VK_CULL_MODE_FRONT_BIT;
-		imm.raster.stencil_test = VK_FALSE;
-		imm.raster.stencil_func = VK_COMPARE_OP_ALWAYS;
-		imm.raster.stencil_mask = 0xFFFFFFFF;
-		imm.raster.stencil_fail = imm.raster.stencil_zfail = imm.raster.stencil_zpass = VK_STENCIL_OP_KEEP;
+		imm.raster.stencil_test = VK_FALSE; // glStencilFunc and glStencilOp persist like GL state
 		imm.color_mask = true;
 		imm.blend = false;
 		imm.alpha_test = false;
@@ -760,4 +757,13 @@ void VK_InitImm( void )
 	imm.alpha_ref = 0.0f; // DEFAULT_ALPHATEST
 	imm.color_mask = true;
 	imm.primitive = -1;
+
+	// GL_SetDefaultState with a stencil buffer: each pixel drawn once until
+	// the next clear, what studio shadows rely on
+	imm.raster.stencil_func = VK_COMPARE_OP_EQUAL;
+	imm.raster.stencil_ref = 0;
+	imm.raster.stencil_mask = 0xFFFFFFFF;
+	imm.raster.stencil_fail = VK_STENCIL_OP_KEEP;
+	imm.raster.stencil_zfail = VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+	imm.raster.stencil_zpass = VK_STENCIL_OP_INCREMENT_AND_CLAMP;
 }

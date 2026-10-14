@@ -68,6 +68,19 @@ Commands: `r_vk_meminfo` (GPU memory usage), `texturelist`.
 renderers): the three Half-Life demos run 15-18 % faster than with
 `ref_gl`, the three Counter-Strike demos 48-57 % faster.
 
+`timedemo` also prints the 1 % and 0.1 % lows (average frame rate of the
+slowest frames) and the slowest frame. On the long harness demos
+(`long_c2a5`, `long_de_dust2`, about 2500 frames, 3 runs):
+
+| Demo            | ref_gl avg / 1 % low | ref_vk avg / 1 % low |
+|-----------------|----------------------|----------------------|
+| `long_c2a5`     | 1558 / 35 fps        | 1791 / 43 fps        |
+| `long_de_dust2` | 1733 / 38 fps        | 2169 / 64 fps        |
+
+The lows of both renderers come from a few 30-100 ms frames in pairs
+along the demo, the same with OpenGL: not a renderer cost, still to be
+traced in the engine.
+
 ## Differences with ref_gl and known issues
 
 - Detail textures (`*_detail.txt`) aren't drawn. Half-Life and
@@ -75,8 +88,6 @@ renderers): the three Half-Life demos run 15-18 % faster than with
 - `r_ripple` water simulation isn't supported (off by default in `ref_gl`).
 - Quake-only features: alias models, the Quake sky sphere and clouds.
 - Studio skinning and lighting run on the CPU like `ref_gl`.
-- `r_shadows` draws without `ref_gl`'s stencil test, so overlapping shadow
-  triangles may darken twice.
-- Not checked against `ref_gl` by an automatic capture yet: translucent
-  world water (`sv_wateralpha`), `func_water` entities, player sprays,
-  decals on transparent surfaces.
+- Bullet holes and sprays on alpha tested brush entities (grates) didn't
+  show in the harness scene with either renderer; the decal code is
+  `ref_gl`'s, but this case has no capture.

@@ -1250,6 +1250,8 @@ loc0:
 
 		if( pleaf->efrags )
 			gEngfuncs.R_StoreEfrags( &pleaf->efrags, tr.realframecount );
+
+		r_stats.c_world_leafs++;
 		return;
 	}
 
@@ -1829,6 +1831,8 @@ static void VK_DrawWaterSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 		if( !FBitSet( warp->flags, SURF_DRAWTURB ) || !warp->polys )
 			continue;
 
+		r_stats.c_world_polys++; // R_RenderBrushPoly
+
 		// reset fog color for nonlightmapped water
 		GL_ResetFogColor();
 
@@ -1990,6 +1994,8 @@ static void VK_DrawBrushSurfaces( VkCommandBuffer cmd, msurface_t **surfs, int c
 		// water comes with its own pass
 		if( FBitSet( s->flags, SURF_DRAWTURB|SURF_DRAWSKY ))
 			continue;
+
+		r_stats.c_world_polys++; // R_RenderBrushPoly
 
 		if( st->mode == VK_WORLD_MODE_TEXTURE )
 		{
@@ -2276,7 +2282,13 @@ static void R_DrawWorld( VkCommandBuffer cmd )
 	tr.skychain = NULL;
 	R_ClearSkyBox();
 
+	double start = gEngfuncs.pfnTime();
 	R_RecursiveWorldNode( WORLDMODEL->nodes, RI.frustum.clipFlags );
+	double end = gEngfuncs.pfnTime();
+
+	r_stats.t_world_node = end - start;
+
+	start = gEngfuncs.pfnTime();
 
 	// R_DrawTextureChains clips the sky surfaces first
 	for( msurface_t *s = tr.skychain; s != NULL; s = s->texturechain )
@@ -2286,6 +2298,9 @@ static void R_DrawWorld( VkCommandBuffer cmd )
 
 	if( tr.skychain && !ENGINE_GET_PARM( PARM_DEV_OVERVIEW ))
 		R_DrawSkyBox( cmd );
+
+	end = gEngfuncs.pfnTime();
+	r_stats.t_world_draw = end - start;
 
 	tr.skychain = NULL;
 	gEngfuncs.R_DrawWorldHull();
@@ -2519,6 +2534,16 @@ qboolean R_AddEntity( struct cl_entity_s *clent, int type )
 
 	if( !R_ModelOpaque( clent->curstate.rendermode ) && CL_FxBlend( clent ) <= 0 )
 		return true; // invisible
+
+	switch( type )
+	{
+	case ET_FRAGMENTED:
+		r_stats.c_client_ents++;
+		break;
+	case ET_TEMPENTITY:
+		r_stats.c_active_tents_count++;
+		break;
+	}
 
 	if( type == ET_BEAM )
 	{

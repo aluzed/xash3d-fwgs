@@ -1064,6 +1064,7 @@ static void R_BeamDraw( BEAM *pbeam, float frametime )
 	}
 
 	VK_ImmCull( VK_CULL_MODE_FRONT_BIT );
+	r_stats.c_view_beams_count++;
 }
 
 /*
@@ -1218,6 +1219,7 @@ void CL_DrawBeams( int fTrans, BEAM *active_beams )
 			continue;
 
 		R_BeamDrawCustomEntity( RI.currentbeam );
+		r_stats.c_view_beams_count++;
 	}
 
 	RI.currentbeam = NULL;

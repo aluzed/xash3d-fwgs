@@ -293,6 +293,8 @@ static void R_DrawSpriteQuad( mspriteframe_t *frame, vec3_t org, vec3_t v_right,
 {
 	vec3_t	point;
 
+	r_stats.c_sprite_polys++;
+
 	TriBegin( TRI_QUADS );
 		TriTexCoord2f( 0.0f, 1.0f );
 		VectorMA( org, frame->down * scale, v_up, point );
@@ -399,6 +401,8 @@ void R_DrawSpriteModel( cl_entity_t *e )
 
 	if( R_SpriteOccluded( e, origin, &scale ))
 		return; // sprite culled
+
+	r_stats.c_sprite_models_drawn++;
 
 	if( e->curstate.rendermode == kRenderGlow || e->curstate.rendermode == kRenderTransAdd )
 		R_AllowFog( false );

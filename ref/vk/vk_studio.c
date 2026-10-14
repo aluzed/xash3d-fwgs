@@ -127,13 +127,6 @@ CVAR_DEFINE_AUTO( r_studio_drawelements, "1", FCVAR_GLCONFIG, "use glDrawElement
 CVAR_DEFINE_AUTO( r_studio_builtin_renderer, "0", 0, "use built-in studio model renderer instead of the one provided by client library (debugging)" );
 static cvar_t			*cl_righthand = NULL;
 
-// r_speeds counters of ref_gl
-static struct
-{
-	int c_studio_models_drawn;
-	int c_studio_polys;
-} r_stats;
-
 static r_studio_interface_t	*pStudioDraw;
 static studio_draw_state_t	g_studio;		// global studio state
 
@@ -2614,6 +2607,8 @@ static void R_StudioDrawPointsShadow( void )
 	if( FBitSet( RI.currententity->curstate.effects, EF_NOSHADOW ))
 		return;
 
+	VK_ImmStencilTest( true ); // a no-op without a stencil aspect, like glState.stencilEnabled
+
 	float vec_x = -g_studio.lightvec[0] * 8.0f;
 	float vec_y = -g_studio.lightvec[1] * 8.0f;
 
@@ -2651,6 +2646,8 @@ static void R_StudioDrawPointsShadow( void )
 			VK_ImmEnd();
 		}
 	}
+
+	VK_ImmStencilTest( false );
 }
 
 /*

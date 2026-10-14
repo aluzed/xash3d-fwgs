@@ -267,9 +267,72 @@ static qboolean Mod_ProcessRenderData( model_t *mod, qboolean create, const byte
 	return true;
 }
 
+/*
+=================
+r_speeds (ref_gl/gl_backend.c)
+=================
+*/
+ref_speeds_t r_stats;
+static char r_speeds_msg[MAX_SYSPATH];
+
 static qboolean R_SpeedsMessage( char *out, size_t size )
 {
-	return false;
+	if( gEngfuncs.drawFuncs->R_SpeedsMessage != NULL )
+	{
+		if( gEngfuncs.drawFuncs->R_SpeedsMessage( out, size ))
+			return true;
+		// otherwise pass to default handler
+	}
+
+	if( r_speeds->value <= 0 ) return false;
+	if( !out || !size ) return false;
+
+	Q_strncpy( out, r_speeds_msg, size );
+
+	return true;
+}
+
+static void GL_BackendStartFrame( void )
+{
+	r_speeds_msg[0] = '\0';
+}
+
+static void GL_BackendEndFrame( void )
+{
+	if( r_speeds->value <= 0 || !FBitSet( RI.rvp.flags, RF_DRAW_WORLD ) || !WORLDMODEL )
+		return;
+
+	mleaf_t *curleaf = RI.viewleaf ? RI.viewleaf : WORLDMODEL->leafs;
+
+	switch( (int)r_speeds->value )
+	{
+	case 1:
+		Q_snprintf( r_speeds_msg, sizeof( r_speeds_msg ), "%3i wpoly, %3i apoly\n%3i epoly, %3i spoly",
+			r_stats.c_world_polys, r_stats.c_alias_polys, r_stats.c_studio_polys, r_stats.c_sprite_polys );
+		break;
+	case 2:
+		Q_snprintf( r_speeds_msg, sizeof( r_speeds_msg ),
+			"Renderer: ^1Vulkan^7\n\n"
+			"visible leafs:\n%3i leafs\ncurrent leaf %3i\n"
+			"ReciusiveWorldNode: %3lf secs\nDrawTextureChains %lf",
+			r_stats.c_world_leafs, (int)( curleaf - WORLDMODEL->leafs ), r_stats.t_world_node, r_stats.t_world_draw );
+		break;
+	case 3:
+		Q_snprintf( r_speeds_msg, sizeof( r_speeds_msg ), "%3i alias models drawn\n%3i studio models drawn\n%3i sprites drawn",
+			r_stats.c_alias_models_drawn, r_stats.c_studio_models_drawn, r_stats.c_sprite_models_drawn );
+		break;
+	case 4:
+		Q_snprintf( r_speeds_msg, sizeof( r_speeds_msg ), "%3i static entities\n%3i normal entities\n%3i server entities",
+			r_stats.c_client_ents, tr.draw_list->num_solid_entities + tr.draw_list->num_trans_entities - r_stats.c_client_ents,
+			(int)ENGINE_GET_PARM( PARM_NUMENTITIES ));
+		break;
+	case 5:
+		Q_snprintf( r_speeds_msg, sizeof( r_speeds_msg ), "%3i tempents\n%3i viewbeams\n%3i particles",
+			r_stats.c_active_tents_count, r_stats.c_view_beams_count, r_stats.c_particle_count );
+		break;
+	}
+
+	memset( &r_stats, 0, sizeof( r_stats ));
 }
 
 /*
@@ -425,8 +488,8 @@ const ref_interface_t gReffuncs =
 	.R_EndFrame           = R_EndFrame,
 	.R_PushScene          = R_PushScene,
 	.R_PopScene           = R_PopScene,
-	.GL_BackendStartFrame = R_SimpleStub,
-	.GL_BackendEndFrame   = R_SimpleStub,
+	.GL_BackendStartFrame = GL_BackendStartFrame,
+	.GL_BackendEndFrame   = GL_BackendEndFrame,
 
 	.R_ClearScreen    = R_ClearScreen,
 	.R_AllowFog       = R_AllowFog,

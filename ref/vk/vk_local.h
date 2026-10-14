@@ -672,6 +672,30 @@ void TriCullFace( TRICULLSTYLE mode );
 void GL_Bind( int tmu, unsigned int texnum );
 void GL_SetRenderMode( int mode );
 void R_Set2DMode( qboolean enable );
+
+// r_speeds counters, as ref_gl's ref_speeds_t
+typedef struct
+{
+	uint c_world_polys;
+	uint c_studio_polys;
+	uint c_sprite_polys;
+	uint c_alias_polys;
+	uint c_world_leafs;
+
+	uint c_view_beams_count;
+	uint c_active_tents_count;
+	uint c_alias_models_drawn;
+	uint c_studio_models_drawn;
+	uint c_sprite_models_drawn;
+	uint c_particle_count;
+
+	uint c_client_ents; // entities that moved to client
+	double t_world_node;
+	double t_world_draw;
+} ref_speeds_t;
+
+extern ref_speeds_t r_stats;
+
 void R_DrawCubemapView( const vec3_t origin, const vec3_t angles, int size );
 void R_Set2DOffset( float x, float y );
 void R_DrawStretchPic( float x, float y, float w, float h, float s1, float t1, float s2, float t2, int texnum );
