@@ -55,6 +55,15 @@ stack turns out to matter for the measurements.
   from a different version of this map").
 - 19 bots play the free for all deathmatch on `de_dust2` (`.nav` files from
   the ReHLDS benchmark, same BSP). A Xash3D client joining is still to check.
+- The ReHLDS field server's deathmatch came from CSDM-ReAPI and an AMX Mod X
+  plugin of its own; neither runs on amd64 Xash3D. `scripts/server/csdm` is a
+  Metamod-FWGS plugin on ReGameDLL_CS's API, built against the ReGameDLL_CS
+  sources of `cs_amd64.so` with the definitions of its build:
+  - CSDM spawn files (Arkshine/CSDM, the field server's), CSDM-ReAPI's choice:
+    a random point other than the last one, no living player within 450
+    units; with spawn files a team is never full;
+  - on a kill, the killer's active weapon reloaded, +15 health, on a headshot
+    +30 health, +30 armor and the medkit sound, up to 100.
 
 ## Acceptance criteria
 - A clean checkout gives a running server with one command.
