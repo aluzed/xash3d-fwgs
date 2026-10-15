@@ -357,7 +357,9 @@ def write_mdl( path, name, bones, mesh_bone, mesh, texture, seqs ):
 #  v_smokegrenade.mdl: on bone 36 "Bone02", body around (0.05, 0.1, -2.58),
 #    its top towards +z (-0.088, 0.203, 0.975), radius about 0.95
 #  p_smokegrenade.mdl: on "Cylinder01" (child of "Bip01 R Hand", value
-#    below), body around (0.62, 0, 1.65), its top towards (-0.22, 0, -0.97)
+#    below), its top towards -z; a box on the hand's bone marks the palm,
+#    centred on (0.87, 1.34, 2.71) in Cylinder01's space: the hand holds
+#    the middle of the body there
 #  w_smokegrenade.mdl: lying, radius about 4.6
 HAND = ( 11.37556, 0.0, 0.0, 2.237628, 0.074035, -0.839386 )
 CYLINDER = ( 3.726729, -0.053313, 2.419488, -0.262762, 2.898943, 1.398576 )
@@ -379,8 +381,8 @@ def main():
 		v = place( mesh, s, ( -0.088, 0.203, 0.975 ), ( 0.05, 0.1, -2.58 ), k['grip'] )
 		write_mdl( f'{out}/v_{kind}_part.mdl', f'v_{kind}_part.mdl', [( 'Bone02', -1, ( 0, 0, 0, 0, 0, 0 ))], 0, v, tex, [ 'idle' ])
 
-		s = 1.7 * 0.95 / k['radius']
-		p = place( mesh, s, ( -0.22, 0, -0.97 ), ( 0.62, 0, 1.65 ), k['grip'] )
+		s = 1.5 * 0.95 / k['radius']
+		p = place( mesh, s, ( 0, 0, -1 ), ( 0.87, 1.34, 2.71 ), k['grip'] )
 		write_mdl( f'{out}/p_{kind}.mdl', f'p_{kind}.mdl', [( 'Bip01 R Hand', -1, HAND ), ( 'Cylinder01', 0, CYLINDER )], 1, p, tex, [ 'idle' ])
 
 		# lying along x, resting on the bottom of the thrown entity's box
