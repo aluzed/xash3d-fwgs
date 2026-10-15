@@ -27,11 +27,11 @@ each mode (their own stories).
 - `mp_mode` (server cvar, saved in the server's config) names the mode:
   `match`, `ffa`, `csdm`; `mp_csdm_teams 0|1` picks free for all or team
   deathmatch in `csdm`.
-- Server command `mode <match|ffa|csdm> [ffa|team]`, from the server
+- Server command `sv_mode <match|ffa|csdm> [ffa|team]` (server commands are `sv_`), from the server
   console or rcon: sets `mp_mode`, executes `modes/<mode>.cfg` (and
   `modes/csdm_ffa.cfg` or `modes/csdm_team.cfg`), restarts the map so that
   nothing of the previous mode stays (scores, money, weapons on the
-  ground). `mode` alone prints the current mode and the list.
+  ground). `sv_mode` alone prints the current mode and the list.
 - `modes/<mode>.cfg`: only the cvars of the mode, all of them set, so that
   the order of switches never matters (e.g. `mp_freeforall`,
   `mp_round_infinite`, `mp_forcerespawn`, `mp_startmoney`,
@@ -47,7 +47,7 @@ each mode (their own stories).
   the README lists the command.
 
 ## Tasks
-- [ ] `mp_mode`, `mp_csdm_teams` and the `mode` command in ReGameDLL_CS.
+- [ ] `mp_mode`, `mp_csdm_teams` and the `sv_mode` command in ReGameDLL_CS.
 - [ ] `modes/match.cfg`, `ffa.cfg`, `csdm_ffa.cfg`, `csdm_team.cfg`, every
       mode setting every cvar of the others.
 - [ ] Mode kept over a map change; announced after a switch.
@@ -58,8 +58,8 @@ each mode (their own stories).
       dedicated server, with bots.
 
 ## Acceptance criteria
-- `mode csdm team` on a server in `match` gives team deathmatch with
-  respawn after the restart, with nothing of the match left; `mode match`
+- `sv_mode csdm team` on a server in `match` gives team deathmatch with
+  respawn after the restart, with nothing of the match left; `sv_mode match`
   goes back with the match's rules and money.
 - The mode stays after a `changelevel`.
 - An unknown mode is refused with the list of modes.

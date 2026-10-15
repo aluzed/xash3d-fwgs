@@ -8,8 +8,8 @@ The `csdm` mode of [056](056-server-game-modes.md) offers it in two forms.
 
 ## Goal
 Deathmatch with respawn, chosen by the mode:
-- `mode csdm ffa`: everyone against everyone, as today;
-- `mode csdm team`: terrorists against counter-terrorists, with respawn.
+- `sv_mode csdm ffa`: everyone against everyone, as today;
+- `sv_mode csdm team`: terrorists against counter-terrorists, with respawn.
 
 ## Scope
 In: the two configs, team deathmatch's settings, the plugin's rules in
@@ -37,8 +37,8 @@ weapon menus of CSDM-ReAPI.
 - [ ] Test both with bots.
 
 ## Acceptance criteria
-- `mode csdm team`: teams that can't hurt each other's members, respawn,
-  spawns away from enemies; `mode csdm ffa` as the deathmatch of 034.
+- `sv_mode csdm team`: teams that can't hurt each other's members, respawn,
+  spawns away from enemies; `sv_mode csdm ffa` as the deathmatch of 034.
 
 ## Dependencies
 056 (the mode), 034 (the plugin).

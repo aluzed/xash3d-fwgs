@@ -53,7 +53,7 @@ the match), several overtimes.
   be read), sides switched after round 27, a team reaching 16 wins, 15-15
   ends in a draw.
 - Match end: the winner (or the draw) announced, the scores frozen, no
-  more rounds; the server then waits for a `mode` command or goes to the
+  more rounds; the server then waits for a `sv_mode` command or goes to the
   next map after `mp_match_end_delay` seconds (0: stays).
 - Settings of the mode, those of CS2's `gamemode_competitive.cfg`: start
   money 800, maximum money 16 000, freeze time 15 s, buy time 20 s, round
