@@ -60,7 +60,8 @@ a whole season.
 ## Acceptance criteria
 - A player who dealt the most damage to the enemies is first of their team,
   whatever their frags; at the same damage the higher score (frags) goes
-  first, then the fewest deaths.
+  first, then the fewest deaths. Example: A kills 3 enemies (300 damage),
+  B kills 2 and hurts 2 others by 50 (300 damage): A is above B.
 - The damage shown is the health the enemies lost, as CS2 counts it.
 - Frags unchanged: defuse 3, team kill -1, kill feed and server browser as
   before.
