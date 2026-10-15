@@ -1643,6 +1643,9 @@ void VK_InitRT( void )
 {
 	memset( &vk_rt, 0, sizeof( vk_rt ));
 
+	// for the menus: the ray traced presets and effects need it
+	gEngfuncs.Cvar_FullSet( "r_vk_rt_supported", "0", FCVAR_READ_ONLY );
+
 	if( !vk.caps.rt )
 		return;
 
@@ -1657,6 +1660,7 @@ void VK_InitRT( void )
 	}
 
 	vk_rt.available = true;
+	gEngfuncs.Cvar_FullSet( "r_vk_rt_supported", "1", FCVAR_READ_ONLY );
 	gEngfuncs.Cmd_AddCommand( "r_vk_rtinfo", VK_RTInfo_f, "the ray traced scene of the last frame" );
 	VK_RTLightsInit();
 }
