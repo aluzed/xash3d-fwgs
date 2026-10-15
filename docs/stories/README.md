@@ -75,6 +75,7 @@ the regression harness shows no new diff outside the story's scope.
 | 052 | [Windows installer for Half-Life and Counter-Strike](052-windows-installer.md) | Distribution - once the CI is on |
 | 053 | ["Half-Life 1.5" and "Counter-Strike 1.7"](053-half-life-1.5-and-cs-1.7-names.md) | Distribution |
 | 054 | [Molotov and incendiary grenade](054-molotov-and-incendiary.md) | Game - Counter-Strike |
+| 055 | [Scoreboard sorted by damage](055-scoreboard-by-damage.md) | Game - Counter-Strike |
 
 Phases 0 to 5 deliver a renderer that is a drop-in replacement for `ref_gl`.
 Phases 6 and 7 can be developed in parallel once phase 5 is signed off.
