@@ -25,7 +25,9 @@ weapon), music, a camera per map made by hand.
 ## Design
 - Server: at each moment of 057, the round starts with a longer freeze
   (`mp_match_interlude_time`, 6 s by default) during which the players are
-  held in place in their spawns and cannot buy or move; the end of the
+  held still in their spawns: no movement, no turning, no shooting, no
+  buying, no weapon switch; their inputs are ignored, their view is the
+  interlude's camera, nobody controls their player during it; the end of the
   match spawns the winners in their spawns once more, the losers left as
   spectators for the interlude.
 - A new message `Interlude` (kind: start, half time, overtime, overtime
@@ -43,7 +45,8 @@ weapon), music, a camera per map made by hand.
 - Spectators and dead players see the same interlude.
 
 ## Tasks
-- [ ] Server: the interlude's freeze at the five moments, players held,
+- [ ] Server: the interlude's freeze at the five moments, players held
+      still and their inputs ignored,
       losers kept out at the end; `Interlude` message.
 - [ ] Client: the camera from the players' positions, its travel, the
       checks against the walls.
@@ -52,6 +55,7 @@ weapon), music, a camera per map made by hand.
       bots and `mp_match_rounds 4`.
 
 ## Acceptance criteria
+- During an interlude no player moves, turns or acts, whatever is pressed.
 - At the start, the half time and the overtime's start and switch, both
   teams are seen in their spawns with their names, the camera travelling
   back, for the interlude's length, then the round starts normally.
