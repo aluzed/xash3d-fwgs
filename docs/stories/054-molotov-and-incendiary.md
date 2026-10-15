@@ -28,7 +28,7 @@ it (YaPB) at first.
 ## Status (2026-10-15)
 First version in ReGameDLL_CS and `cs16-client`, the smoke grenade's models
 for both teams. Tested on a local server: bought from the equipment menu
-(item 6, T $400, CT $600), thrown, bursts on the ground into fire spreading in a
+(item 6, T $400, CT $500), thrown, bursts on the ground into fire spreading in a
 ring, burns (100, 80, 60 HP, then the kill feed "killed self with
 molotov"), the incendiary's fire at a distance. Left: the smoke putting it
 out and the air burst seen in play, the test server (its Linux ReGameDLL
@@ -57,6 +57,16 @@ changes team. The buy menu pictures `gfx/vgui/molotov.tga` and
 equipment on 6, molotov / incendiary on 6 (Valve's `titles.txt` still
 sold ammo on 6 and 7). Tested on a local server for both teams.
 
+Models: a bottle with its rag for the terrorists, a canister with its
+lever and pin for the counter-terrorists, made with their textures by
+`cstrike-17/scripts/make_molotov_models.py` (`w_`, `p_` and the view's
+part, in the extras). The view keeps the arms of Valve's
+`v_smokegrenade.mdl`: the client leaves out its bodypart "weapon" and draws
+`v_molotov_part.mdl` / `v_incgrenade_part.mdl` on the grenade's bone, as a
+player's weapon model. The server picks `p_` and `w_` by team, and falls
+back to the smoke grenade's on a server without the extras. Seen in play:
+the view and the hand of both teams.
+
 ## Design
 - Weapon id 2 (`WEAPON_GLOCK`, never used by CS 1.6) for both: the team
   picks the model, the fire's length and the price, like the CS2 pair.
@@ -72,10 +82,11 @@ sold ammo on 6 and 7). Tested on a local server for both teams.
 - Purchase: equipment menu (6 since the ammo isn't bought any more), item 6
   for both teams, after the smoke grenade as in CS2; night vision follows:
   7 for the terrorists, 9 for the counter-terrorists after the defusal kit
-  (7) and the shield (8); console `molotov` / `incgrenade`; $400 / $600 as
+  (7) and the shield (8); console `molotov` / `incgrenade`; $400 / $500 as
   in CS2; one at a time.
-- Models: the smoke grenade's for both until a bottle with a clear licence
-  is found (GameBanana, credited) or made.
+- Models: made here (no licence question), placed where Valve's smoke
+  grenade is in its models; the view's arms stay Valve's, from the
+  player's own files.
 
 ## Tasks
 - [x] Server: `weapon_molotov`, its throw and the projectile with its physics
@@ -88,7 +99,7 @@ sold ammo on 6 and 7). Tested on a local server for both teams.
       each team), buy menu entry and picture, text menus.
 - [ ] Client: kill icon, burst and fire effects.
 - [ ] Test on a local server, then on the test server with players.
-- [ ] Models: a bottle for the terrorists, an incendiary canister for the
+- [x] Models: a bottle for the terrorists, an incendiary canister for the
       counter-terrorists (v_, p_, w_).
 - [ ] Documentation: `cs16-client` README, cvars.
 

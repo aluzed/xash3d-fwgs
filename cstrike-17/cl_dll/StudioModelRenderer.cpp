@@ -41,6 +41,9 @@
 #include "pm_defs.h"
 
 #include "com_weapons.h"
+#include "ammohistory.h"
+#include "weapontype.h"
+#include "pm_shared.h"
 
 extern CGameStudioModelRenderer g_StudioRenderer;
 extern engine_studio_api_t IEngineStudio;
@@ -831,6 +834,37 @@ void CStudioModelRenderer::StudioMergeBones(model_t *pSubModel)
 	}
 }
 
+// Story 054: the molotov and the incendiary grenade are held in the arms of
+// the smoke grenade's view model; its grenade (the bodypart "weapon") is left
+// out and the bottle or the canister (cstrike-17 extras,
+// scripts/make_molotov_models.py) drawn on its bone instead.
+static model_t *MolotovViewPart(studiohdr_t *pHeader, int *pBodypart)
+{
+	WEAPON *pWeapon = gHUD.m_Ammo.GetCurrentWeapon();
+	if (!pWeapon || pWeapon->iId != WEAPON_MOLOTOV || !strstr(pHeader->name, "v_smokegrenade"))
+		return NULL;
+
+	mstudiobodyparts_t *pbodyparts = (mstudiobodyparts_t *)((byte *)pHeader + pHeader->bodypartindex);
+	int i;
+	for (i = 0; i < pHeader->numbodyparts; i++)
+	{
+		if (!stricmp(pbodyparts[i].name, "weapon"))
+			break;
+	}
+	if (i == pHeader->numbodyparts)
+		return NULL;
+
+	int player = (g_iUser1 == OBS_IN_EYE) ? g_iUser2 : gHUD.m_Scoreboard.m_iPlayerNum;
+	bool ct = player > 0 && player <= MAX_PLAYERS && g_PlayerExtraInfo[player].teamnumber == TEAM_CT;
+
+	model_t *pPart = IEngineStudio.Mod_ForName(ct ? "models/v_incgrenade_part.mdl" : "models/v_molotov_part.mdl", 0);
+	if (!pPart || pPart->type != mod_studio)
+		return NULL;
+
+	*pBodypart = i;
+	return pPart;
+}
+
 int CStudioModelRenderer::StudioDrawModel(int flags)
 {
 	bool bChangedRightHand = false;
@@ -946,7 +980,29 @@ int CStudioModelRenderer::StudioDrawModel(int flags)
 
 		IEngineStudio.StudioSetRemapColors(m_nTopColor, m_nBottomColor);
 
+		int weaponBodypart = -1;
+		model_t *pPart = bIsViewModel ? MolotovViewPart(m_pStudioHeader, &weaponBodypart) : NULL;
+
+		m_iSkipBodypart = weaponBodypart;
 		StudioRenderModel(dir);
+		m_iSkipBodypart = -1;
+
+		if (pPart)
+		{
+			// as a player's weapon model: its bone takes the grenade's
+			cl_entity_t saveent = *m_pCurrentEntity;
+
+			m_pStudioHeader = (studiohdr_t *)IEngineStudio.Mod_Extradata(pPart);
+			IEngineStudio.StudioSetHeader(m_pStudioHeader);
+
+			StudioMergeBones(pPart);
+
+			IEngineStudio.StudioSetupLighting(&lighting);
+
+			StudioRenderModel(dir);
+
+			*m_pCurrentEntity = saveent;
+		}
 	}
 
 	if( bChangedRightHand )
@@ -1310,6 +1366,9 @@ void CStudioModelRenderer::StudioRenderFinal_Software(void)
 	{
 		for (i = 0; i < m_pStudioHeader->numbodyparts; i++)
 		{
+			if (i == m_iSkipBodypart)
+				continue;
+
 			IEngineStudio.StudioSetupModel(i, (void **)&m_pBodyPart, (void **)&m_pSubModel);
 			IEngineStudio.StudioDrawPoints();
 		}
@@ -1350,6 +1409,9 @@ void CStudioModelRenderer::StudioRenderFinal_Hardware(void)
 	{
 		for (i = 0; i < m_pStudioHeader->numbodyparts; i++)
 		{
+			if (i == m_iSkipBodypart)
+				continue;
+
 			IEngineStudio.StudioSetupModel(i, (void **)&m_pBodyPart, (void **)&m_pSubModel);
 
 			if (m_fDoInterp)

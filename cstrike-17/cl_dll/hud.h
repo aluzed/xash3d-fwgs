@@ -210,6 +210,8 @@ public:
 	CHudUserCmd(Rebuy);
 	CHudUserCmd(Autobuy);
 
+	WEAPON *GetCurrentWeapon( void ) { return m_pWeapon; }
+
 private:
 	float m_fFade;
 	RGBA  m_rgba;

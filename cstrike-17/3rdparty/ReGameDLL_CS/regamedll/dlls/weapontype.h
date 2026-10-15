@@ -98,7 +98,7 @@ enum ItemCostType
 	NVG_PRICE           = 1250,
 	DEFUSEKIT_PRICE     = 200,
 	MOLOTOV_PRICE       = 400,
-	INCENDIARY_PRICE    = 600,
+	INCENDIARY_PRICE    = 500,
 };
 
 enum AmmoCostType

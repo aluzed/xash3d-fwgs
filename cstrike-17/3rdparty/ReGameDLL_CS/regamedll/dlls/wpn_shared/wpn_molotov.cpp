@@ -3,7 +3,8 @@
 /*
 The molotov (terrorists) and incendiary grenade (counter-terrorists): thrown
 like the other grenades, the bottle is made by Molotov_Throw (molotov.cpp).
-Both use the smoke grenade's models until the bottle has its own.
+The view keeps the smoke grenade's arms, the client puts the bottle or the
+canister in them; Molotov_Model picks the other models by team.
 */
 
 LINK_ENTITY_TO_CLASS(weapon_molotov, CMolotov, CCSPlayerWeapon)
@@ -13,7 +14,7 @@ void CMolotov::Spawn()
 	Precache();
 
 	m_iId = WEAPON_MOLOTOV;
-	SET_MODEL(edict(), MOLOTOV_MODEL_WORLD);
+	SET_MODEL(edict(), Molotov_Model('w', TERRORIST));
 
 	m_iDefaultAmmo = MOLOTOV_DEFAULT_GIVE;
 	m_flStartThrow = 0;
@@ -64,7 +65,7 @@ BOOL CMolotov::Deploy()
 	m_flReleaseThrow = -1;
 	m_fMaxSpeed = MOLOTOV_MAX_SPEED;
 
-	return DefaultDeploy(MOLOTOV_MODEL_VIEW, MOLOTOV_MODEL_PLAYER, SMOKEGRENADE_DRAW, "grenade", UseDecrement() != FALSE);
+	return DefaultDeploy(MOLOTOV_MODEL_VIEW, (char *)Molotov_Model('p', m_pPlayer->m_iTeam), SMOKEGRENADE_DRAW, "grenade", UseDecrement() != FALSE);
 }
 
 void CMolotov::Holster(int skiplocal)

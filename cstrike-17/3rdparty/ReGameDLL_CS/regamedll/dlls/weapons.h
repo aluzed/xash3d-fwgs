@@ -1708,6 +1708,7 @@ public:
 
 
 // molotov (terrorists) and incendiary grenade (counter-terrorists), molotov.cpp
+// the view keeps the smoke grenade's arms: the client draws the bottle in them
 #define MOLOTOV_MODEL_VIEW   "models/v_smokegrenade.mdl"
 #define MOLOTOV_MODEL_PLAYER "models/p_smokegrenade.mdl"
 #define MOLOTOV_MODEL_WORLD  "models/w_smokegrenade.mdl"
@@ -1742,6 +1743,7 @@ public:
 
 void Molotov_RegisterCvars();
 void Molotov_Precache();
+const char *Molotov_Model(char kind, int team);
 float Molotov_ThrowScale();
 void Molotov_Throw(CBasePlayer *pThrower, const Vector &vecSrc, const Vector &vecVelocity);
 void Molotov_SmokeDetonated(const Vector &origin);

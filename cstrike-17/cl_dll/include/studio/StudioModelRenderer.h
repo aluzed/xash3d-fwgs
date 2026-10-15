@@ -79,6 +79,7 @@ public:
 	studiohdr_t *m_pStudioHeader;
 	mstudiobodyparts_t *m_pBodyPart;
 	mstudiomodel_t *m_pSubModel;
+	int m_iSkipBodypart = -1; // a bodypart left out of the draw (the molotov's view)
 	int m_nTopColor;
 	int m_nBottomColor;
 	model_t *m_pChromeSprite;

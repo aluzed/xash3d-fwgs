@@ -7,7 +7,7 @@
 "Cstrike_MolotovPrice"			": $400"
 "Cstrike_MolotovDescription"		": A bottle of fuel that \n bursts into a pool of fire \n where it lands on the ground. \n A smoke grenade puts it out."
 "Cstrike_Incendiary"			"&6 INCENDIARY GRENADE"
-"Cstrike_IncendiaryPrice"		": $600"
+"Cstrike_IncendiaryPrice"		": $500"
 "Cstrike_IncendiaryDescription"	": Bursts into a pool of fire \n where it lands on the ground, \n shorter than a molotov. \n A smoke grenade puts it out."
 }
 }

@@ -166,6 +166,15 @@ inline const char *GetPlayerIdString(bool sameTeam)
 }
 #endif
 
+// a weapon dropped by a player: the molotov's model is its team's
+static const char *GetCSDroppedModelName(CBasePlayer *pPlayer, int item_id)
+{
+	if (item_id == WEAPON_MOLOTOV)
+		return Molotov_Model('w', pPlayer->m_iTeam);
+
+	return GetCSModelName(item_id);
+}
+
 const char *GetCSModelName(int item_id)
 {
 	const char *modelName = nullptr;
@@ -1450,7 +1459,7 @@ CWeaponBox *PackPlayerItem(CBasePlayer *pPlayer, CBasePlayerItem *pItem, bool pa
 	if (!pItem)
 		return nullptr;
 
-	const char *modelName = GetCSModelName(pItem->m_iId);
+	const char *modelName = GetCSDroppedModelName(pPlayer, pItem->m_iId);
 	if (modelName)
 	{
 		Vector vecOrigin   = pPlayer->pev->origin;
@@ -1480,7 +1489,7 @@ void PackPlayerNade(CBasePlayer *pPlayer, CBasePlayerItem *pItem, bool packAmmo)
 		return;
 	}
 
-	const char *modelName = GetCSModelName(pItem->m_iId);
+	const char *modelName = GetCSDroppedModelName(pPlayer, pItem->m_iId);
 	if (modelName)
 	{
 		float flOffset = 0.0f;
@@ -8518,7 +8527,7 @@ CBaseEntity *EXT_FUNC CBasePlayer::__API_HOOK(DropPlayerItem)(const char *pszIte
 			}
 		}
 
-		const char *modelname = GetCSModelName(pWeapon->m_iId);
+		const char *modelname = GetCSDroppedModelName(this, pWeapon->m_iId);
 
 		Vector vecOrigin   = pev->origin + gpGlobals->v_forward * 10;
 		Vector vecAngles   = pev->angles;

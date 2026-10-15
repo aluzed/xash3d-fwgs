@@ -58,11 +58,49 @@ float Molotov_ThrowScale()
 	return clamp(molotov_throw_scale.value, 0.1f, 2.0f);
 }
 
+// The bottle and the canister (cstrike-17 extras, made by
+// scripts/make_molotov_models.py), in the hand ('p') and in the world ('w');
+// the smoke grenade's on a server without them
+static bool s_bMolotovModels;
+
+const char *Molotov_Model(char kind, int team)
+{
+	if (!s_bMolotovModels)
+		return (kind == 'p') ? MOLOTOV_MODEL_PLAYER : MOLOTOV_MODEL_WORLD;
+
+	if (team == CT)
+		return (kind == 'p') ? "models/p_incgrenade.mdl" : "models/w_incgrenade.mdl";
+
+	return (kind == 'p') ? "models/p_molotov.mdl" : "models/w_molotov.mdl";
+}
+
+static bool Molotov_HasFile(const char *name)
+{
+	int length = 0;
+	byte *data = LOAD_FILE_FOR_ME((char *)name, &length);
+	if (!data)
+		return false;
+
+	FREE_FILE(data);
+	return length > 0;
+}
+
 void Molotov_Precache()
 {
 	PRECACHE_MODEL(MOLOTOV_SPRITE);
 	PRECACHE_MODEL(MOLOTOV_BURST_SPRITE);
 	PRECACHE_MODEL(MOLOTOV_MODEL_WORLD);
+
+	s_bMolotovModels = Molotov_HasFile("models/p_molotov.mdl") && Molotov_HasFile("models/w_molotov.mdl")
+		&& Molotov_HasFile("models/p_incgrenade.mdl") && Molotov_HasFile("models/w_incgrenade.mdl");
+
+	if (s_bMolotovModels)
+	{
+		PRECACHE_MODEL("models/p_molotov.mdl");
+		PRECACHE_MODEL("models/w_molotov.mdl");
+		PRECACHE_MODEL("models/p_incgrenade.mdl");
+		PRECACHE_MODEL("models/w_incgrenade.mdl");
+	}
 
 	PRECACHE_SOUND_ARRAY(s_szBreakSounds);
 	PRECACHE_SOUND_ARRAY(s_szBurnSounds);
@@ -502,6 +540,8 @@ void Molotov_Throw(CBasePlayer *pThrower, const Vector &vecSrc, const Vector &ve
 
 	pBottle->pev->classname = MAKE_STRING("molotov_projectile");
 	pBottle->Spawn();
+	SET_MODEL(pBottle->edict(), Molotov_Model('w', pThrower->m_iTeam));
+	UTIL_SetSize(pBottle->pev, Vector(-1, -1, -1), Vector(1, 1, 1));
 
 	UTIL_SetOrigin(pBottle->pev, vecSrc);
 	pBottle->pev->velocity = vecVelocity;
