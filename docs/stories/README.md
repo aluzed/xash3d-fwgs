@@ -146,6 +146,8 @@ Then 045-048 (parallel snapshot encoding): snapshots gathered first with the
 game's custom delta encoders recorded as masks, encoded on the workers,
 byte-identical to the original code; 13 µs saved per frame with 32 players,
 no race under TSan, no crash over map changes with Metamod and a plugin.
+Played on the test server with every option on (2 workers, CSDM, 19 bots)
+and validated on 2026-10-15.
 Next: 050, field validation with players.
 
 Not carried over:
