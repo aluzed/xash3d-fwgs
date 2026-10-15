@@ -539,7 +539,13 @@ COM_FileSize
 */
 int GAME_EXPORT COM_FileSize( const char *filename )
 {
-	return FS_FileSize( filename, false );
+	// GoldSrc game code passes DOS paths, like COM_LoadFileForMe gets them
+	// (ReGameDLL_CS checks its .nav files against "maps\\<map>.bsp")
+	string name;
+	Q_strncpy( name, filename, sizeof( name ));
+	COM_FixSlashes( name );
+
+	return FS_FileSize( name, false );
 }
 
 /*
