@@ -27,6 +27,7 @@ GNU General Public License for more details.
 #include "common.h"
 #include "jobs.h"
 #include "sv_profile.h"
+#include "host_scheduler.h"
 #include "base_cmd.h"
 #include "client.h"
 #include "server.h"
@@ -335,21 +336,27 @@ void Host_EndGame( qboolean abort, const char *message, ... )
 Host_CalcSleep
 ==================
 */
+static qboolean Host_IsHibernating( void )
+{
+	int players, bots;
+
+	if( !Host_IsDedicated( ) || !sv_hibernate_when_empty.value )
+		return false;
+
+	SV_GetPlayerCount( &players, &bots );
+
+	if( sv_hibernate_when_empty_include_bots.value )
+		players += bots;
+
+	return players == 0;
+}
+
 static int Host_CalcSleep( void )
 {
 	if( Host_IsDedicated( ))
 	{
-		if( sv_hibernate_when_empty.value )
-		{
-			int players, bots;
-			SV_GetPlayerCount( &players, &bots );
-
-			if( sv_hibernate_when_empty_include_bots.value )
-				players += bots;
-
-			if( players == 0 )
-				return sv_hibernate_when_empty_sleep.value;
-		}
+		if( Host_IsHibernating( ))
+			return sv_hibernate_when_empty_sleep.value;
 
 		// let the dedicated server some sleep
 		return host_sleeptime.value;
@@ -621,6 +628,25 @@ static qboolean Host_Autosleep( double dt, double scale )
 
 /*
 ===================
+Host_SchedulerRate
+
+frames per second the scheduler paces, 0 to leave it to Host_Autosleep
+===================
+*/
+static double Host_SchedulerRate( void )
+{
+	if( !Host_IsDedicated( ) || !Host_SchedulerEnabled( ) || host.fixed_frametime > 0.0 )
+		return 0.0;
+
+	// an empty server sleeps long between frames, as without the scheduler
+	if( Host_IsHibernating( ))
+		return 0.0;
+
+	return bound( MIN_FPS, sys_ticrate.value, MAX_FPS_HARD );
+}
+
+/*
+===================
 Host_FilterTime
 
 Returns false if the time is too short to run a frame
@@ -640,8 +666,9 @@ static qboolean Host_FilterTime( double time )
 	double dt = host.realtime - oldtime;
 
 	// clamp the fps in multiplayer games, except with -fixedfps where a
-	// skipped frame would still have advanced the clocks
-	if( host.fixed_frametime <= 0.0 && !Host_Autosleep( dt, scale ))
+	// skipped frame would still have advanced the clocks, and frames paced
+	// by the scheduler, which come on time
+	if( host.fixed_frametime <= 0.0 && !Host_SchedulerActive() && !Host_Autosleep( dt, scale ))
 		return false;
 
 	host.frametime = host.realtime - oldtime;
@@ -1110,6 +1137,7 @@ static void Host_InitCommon( int argc, char **argv, const char *progname, qboole
 	// share developer level across all dlls
 	Cvar_DirectSetValue( &host_developer, developer );
 	Cvar_RegisterVariable( &sys_ticrate );
+	Host_SchedulerInit();
 
 	int ticrate;
 	if( Sys_GetIntFromCmdLine( "-sys_ticrate", &ticrate ))
@@ -1370,6 +1398,8 @@ int EXPORT Host_Main( int argc, char **argv, const char *progname, int bChangeGa
 	// main window message loop
 	while( host.status != HOST_CRASHED )
 	{
+		Host_SchedulerWait( Host_SchedulerRate( ));
+
 		double newtime = Platform_DoubleTime();
 		COM_Frame( newtime - oldtime );
 		oldtime = newtime;

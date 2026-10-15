@@ -12,6 +12,9 @@
 #   MAP=de_dust2  PORT=27016  MAXPLAYERS=20  TICRATE=1000
 #   RCON_PASSWORD     rcon password (default: none, rcon off)
 #   NO_BUILD=1        start the installed engine as it is
+#   SPIN_US=200       busy-wait before each tick (burns CPU, only for cores
+#                     dedicated to the server; 0 to sleep)
+#   FEATURES=0        every option of the stories off, for comparisons
 #   METAMOD=0         load the game library without Metamod
 
 set -e
@@ -33,6 +36,14 @@ fi
 
 set -- -game cstrike -port "${PORT:-27016}" +maxplayers "${MAXPLAYERS:-20}" \
 	-sys_ticrate "${TICRATE:-1000}" "$@"
+
+# Options of the dedicated server stories, every one on
+if [ "${FEATURES:-1}" = 1 ]; then
+	set -- "$@" \
+		+sys_scheduler 1 +sys_spin_us "${SPIN_US:-200}"
+else
+	set -- "$@" +sys_scheduler 0
+fi
 [ "${METAMOD:-1}" = 1 ] && set -- -dll addons/metamod/metamod_amd64.so "$@"
 [ -n "${RCON_PASSWORD:-}" ] && set -- "$@" +rcon_password "$RCON_PASSWORD"
 
