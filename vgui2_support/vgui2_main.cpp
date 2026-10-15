@@ -287,12 +287,12 @@ static bool TextEntryHasFocus( void )
 	return name && strstr( name, "TextEntry" ) != NULL;
 }
 
-static int VGUI2_KeyEvent( int sdl_key, int down )
+static int VGUI2_KeyEvent( int key, int down )
 {
-	if( !g_ivgui || !sdl_key )
+	if( !g_ivgui || !key )
 		return 0;
 
-	const vgui2::KeyCode code = g_system->KeyCode_VirtualKeyToVGUI( sdl_key );
+	const vgui2::KeyCode code = g_system->KeyCode_VirtualKeyToVGUI( key );
 
 	if( down )
 	{

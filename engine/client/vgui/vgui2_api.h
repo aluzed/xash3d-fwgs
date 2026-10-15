@@ -70,7 +70,7 @@ typedef struct vgui2_engine_s
 	const char *(*KeyBinding)( int key );
 	int (*KeyFromName)( const char *name );
 	int (*KeyIsDown)( int key );
-	int (*KeyToSDL)( int key ); // the SDL2 keycode of an engine key, 0 if it has none
+	int (*KeyToSystem)( int key ); // the SDL2 keycode of an engine key (a virtual key on Windows), 0 if it has none
 	void (*GetVideoMode)( int *width, int *height, int *bpp );
 
 	double (*Time)( void );
@@ -93,7 +93,7 @@ typedef struct vgui2_module_s
 	void (*Paint)( void ); // in 2D mode, after the HUD
 
 	// input, each returns non-zero when VGUI2 took it
-	int (*KeyEvent)( int sdl_key, int down );
+	int (*KeyEvent)( int key, int down ); // an SDL2 keycode, a virtual key on Windows: what the vgui2 library takes
 	int (*MouseButton)( int button, int down, int double_click ); // 0 left, 1 right, 2 middle, 3 and 4 the side buttons
 	int (*MouseWheel)( int delta );
 	void (*MouseMove)( int x, int y );

@@ -61,7 +61,11 @@ static int Sys_ModuleName( HANDLE process, char *name, void *address, int len )
 		GetModuleInformation( process, moduleArray[i], &info, sizeof( MODULEINFO ));
 
 		if( address > info.lpBaseOfDll && (DWORD64)address < (DWORD64)info.lpBaseOfDll + (DWORD64)info.SizeOfImage )
-			return GetModuleBaseName( process, moduleArray[i], name, len );
+		{
+			// the offset in the module, for the libraries without symbols
+			int n = GetModuleBaseName( process, moduleArray[i], name, len );
+			return n + Q_snprintf( name + n, len - n, "+0x%zx", (size_t)((byte *)address - (byte *)info.lpBaseOfDll ));
+		}
 	}
 
 	return Q_snprintf( name, len, "???" );

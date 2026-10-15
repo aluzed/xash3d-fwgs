@@ -178,10 +178,79 @@ static int VGUI2_KeyIsDown( int key )
 	return Key_IsDown( key );
 }
 
+#if XASH_WIN32
+// the vgui2 library of Windows takes virtual keys, as GoldSrc's window gets them
+static int VGUI2_KeyToSystem( int key )
+{
+	if( key >= K_F1 && key <= K_F12 )
+		return 0x70 + key - K_F1; // VK_F1
+
+	switch( key )
+	{
+	case K_TAB: return 0x09;
+	case K_ENTER: return 0x0d;
+	case K_ESCAPE: return 0x1b;
+	case K_SPACE: return 0x20;
+	case K_BACKSPACE: return 0x08;
+	case K_DEL: return 0x2e;
+	case K_CAPSLOCK: return 0x14;
+	case K_SCROLLLOCK: return 0x91;
+	case K_PAUSE: return 0x13;
+	case K_INS: return 0x2d;
+	case K_HOME: return 0x24;
+	case K_PGUP: return 0x21;
+	case K_END: return 0x23;
+	case K_PGDN: return 0x22;
+	case K_RIGHTARROW: return 0x27;
+	case K_LEFTARROW: return 0x25;
+	case K_DOWNARROW: return 0x28;
+	case K_UPARROW: return 0x26;
+	case K_KP_NUMLOCK: return 0x90;
+	case K_KP_SLASH: return 0x6f;
+	case K_KP_MUL: return 0x6a;
+	case K_KP_MINUS: return 0x6d;
+	case K_KP_PLUS: return 0x6b;
+	case K_KP_ENTER: return 0x0d;
+	case K_KP_END: return 0x61; // VK_NUMPAD1
+	case K_KP_DOWNARROW: return 0x62;
+	case K_KP_PGDN: return 0x63;
+	case K_KP_LEFTARROW: return 0x64;
+	case K_KP_5: return 0x65;
+	case K_KP_RIGHTARROW: return 0x66;
+	case K_KP_HOME: return 0x67;
+	case K_KP_UPARROW: return 0x68;
+	case K_KP_PGUP: return 0x69;
+	case K_KP_INS: return 0x60;
+	case K_KP_DEL: return 0x6e;
+	case K_CTRL: return 0x11;
+	case K_SHIFT: return 0x10;
+	case K_ALT: return 0x12;
+	case K_WIN: return 0x5b;
+	// the punctuation of a US keyboard, VK_OEM_*
+	case ';': return 0xba;
+	case '=': return 0xbb;
+	case ',': return 0xbc;
+	case '-': return 0xbd;
+	case '.': return 0xbe;
+	case '/': return 0xbf;
+	case '`': return 0xc0;
+	case '[': return 0xdb;
+	case '\\': return 0xdc;
+	case ']': return 0xdd;
+	case '\'': return 0xde;
+	}
+
+	// letters and digits: their uppercase character
+	if(( key >= '0' && key <= '9' ) || ( key >= 'a' && key <= 'z' ))
+		return Q_toupper( key );
+
+	return 0;
+}
+#else
 // SDL2 keycodes: printable keys are their character, the others their scancode | 1 << 30
 #define SDLK_SC( scancode ) (( scancode ) | ( 1 << 30 ))
 
-static int VGUI2_KeyToSDL( int key )
+static int VGUI2_KeyToSystem( int key )
 {
 	if( key >= K_F1 && key <= K_F12 )
 		return SDLK_SC( 58 + key - K_F1 );
@@ -235,6 +304,7 @@ static int VGUI2_KeyToSDL( int key )
 
 	return 0;
 }
+#endif
 
 static void VGUI2_GetVideoMode( int *width, int *height, int *bpp )
 {
@@ -302,7 +372,7 @@ static const vgui2_engine_t vgui2_engine =
 	Key_GetBinding,
 	VGUI2_KeyFromName,
 	VGUI2_KeyIsDown,
-	VGUI2_KeyToSDL,
+	VGUI2_KeyToSystem,
 	VGUI2_GetVideoMode,
 	VGUI2_Time,
 	VGUI2_PlaySound,
@@ -388,7 +458,7 @@ qboolean VGui2_KeyEvent( int key, int down )
 		return false; // VGui2_MouseEvent had them
 
 	// the console key and escape keep their meaning
-	const qboolean taken = vgui2.dllFuncs.KeyEvent( VGUI2_KeyToSDL( key ), down ) != 0;
+	const qboolean taken = vgui2.dllFuncs.KeyEvent( VGUI2_KeyToSystem( key ), down ) != 0;
 	return taken && key != '`' && key != '~' && key != K_ESCAPE;
 }
 

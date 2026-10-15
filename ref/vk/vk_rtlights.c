@@ -596,7 +596,7 @@ static void VK_RTLights_f( void )
 {
 	static const char *types[] = { "point", "spot", "surface" };
 	const int count = gEngfuncs.Cmd_Argc() > 1 ? Q_atoi( gEngfuncs.Cmd_Argv( 1 )) : 16;
-	vk_rtl_near_t *near;
+	vk_rtl_near_t *nearest;
 	int n = 0;
 
 	if( !rtl.num_lights )
@@ -605,27 +605,27 @@ static void VK_RTLights_f( void )
 		return;
 	}
 
-	near = Mem_Malloc( r_temppool, rtl.num_lights * sizeof( *near ));
+	nearest = Mem_Malloc( r_temppool, rtl.num_lights * sizeof( *nearest ));
 	for( int i = 0; i < rtl.num_lights; i++ )
 	{
 		vec3_t d;
 
 		VectorSubtract( rtl.lights[i].origin, RI.rvp.vieworigin, d );
-		near[n++] = (vk_rtl_near_t){ i, VectorLength( d ) };
+		nearest[n++] = (vk_rtl_near_t){ i, VectorLength( d ) };
 	}
 
-	qsort( near, n, sizeof( *near ), VK_RTLNearCompare );
+	qsort( nearest, n, sizeof( *nearest ), VK_RTLNearCompare );
 	gEngfuncs.Con_Printf( "%d lights (%d styled), nearest the view:\n", rtl.num_lights, rtl.num_styled );
 
 	for( int i = 0; i < n && i < count; i++ )
 	{
-		const vk_rt_glight_t *l = &rtl.lights[near[i].light];
+		const vk_rt_glight_t *l = &rtl.lights[nearest[i].light];
 
-		gEngfuncs.Con_Printf( "%5.0f  %-7s %-20s at %.0f %.0f %.0f  colour %.0f %.0f %.0f  style %d\n", near[i].dist, types[l->type],
-			rtl.names[near[i].light], l->origin[0], l->origin[1], l->origin[2], l->color[0], l->color[1], l->color[2], l->style );
+		gEngfuncs.Con_Printf( "%5.0f  %-7s %-20s at %.0f %.0f %.0f  colour %.0f %.0f %.0f  style %d\n", nearest[i].dist, types[l->type],
+			rtl.names[nearest[i].light], l->origin[0], l->origin[1], l->origin[2], l->color[0], l->color[1], l->color[2], l->style );
 	}
 
-	Mem_Free( near );
+	Mem_Free( nearest );
 }
 
 void VK_RTLightsInit( void )

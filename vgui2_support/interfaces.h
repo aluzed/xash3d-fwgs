@@ -190,6 +190,21 @@ public:
 	virtual void SetProportionalBase( int width, int height ) = 0;
 	virtual void GetHDProportionalBase( int &width, int &height ) = 0;
 	virtual void SetHDProportionalBase( int width, int height ) = 0;
+#if _WIN32
+	// hw.dll's order, read from its BaseUISurface vtable (MSVC RTTI): the
+	// second SetNotifyIcon of hw.so isn't one there, MSVC would group the
+	// overloads and move every slot after the first one
+	virtual void Unknown106( int a ) = 0; // empty in hw.dll, names unknown
+	virtual void Unknown107( int a ) = 0;
+	virtual void Unknown108( int a, int b, int c ) = 0;
+	virtual bool SetFullscreenMode( int width, int height, int bpp ) = 0;
+	virtual void SetWindowedMode() = 0;
+	virtual void Unknown111( int a ) = 0; // 111
+	virtual void Unknown112( int a ) = 0;
+	virtual void DrawPrintChar( int x, int y, int wide, int tall, float s0, float t0, float s1, float t1 ) = 0;
+	virtual bool SetWatchForComputerUse( bool state ) = 0;
+	virtual double GetTimeSinceLastUse() = 0;
+#else
 	virtual void SetFullscreenMode( int width, int height, int bpp ) = 0;
 	virtual void SetWindowedMode() = 0;
 	virtual int Unknown109( int a, int b ) = 0; // folded with empty functions in hw.so, names unknown
@@ -202,6 +217,7 @@ public:
 	virtual double GetTimeSinceLastUse() = 0;
 	virtual bool VGUI2MouseControl() = 0;
 	virtual void SetVGUI2MouseControl( bool state ) = 0;
+#endif
 };
 
 class IClientPanel // implemented by every panel, here by the engine's root panels
@@ -447,7 +463,7 @@ public:
 	virtual bool GetCommandLineParamValue( const char *paramName, char *value, int valueBufferSize ) = 0;
 	virtual bool DeleteRegistryKey( const char *keyName ) = 0;
 	virtual const char *GetDesktopFolderPath() = 0;
-	virtual KeyCode KeyCode_VirtualKeyToVGUI( int keyCode ) = 0; // an SDL2 keycode on Linux
+	virtual KeyCode KeyCode_VirtualKeyToVGUI( int keyCode ) = 0; // an SDL2 keycode on Linux, a virtual key on Windows
 	virtual int KeyCode_VGUIToVirtualKey( KeyCode keyCode ) = 0;
 };
 

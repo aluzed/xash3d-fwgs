@@ -128,7 +128,6 @@ virtual function does nothing and returns 0, except the one that makes a
 browser. The HTML panels stay empty instead of keeping a dangling browser.
 */
 #define NULL_VTABLE_SIZE 256
-#define CHROME_CREATE_BROWSER 15 // IHTMLChromeController slot, read from vgui2::HTML::HTML
 
 struct null_object_t
 {
@@ -139,6 +138,67 @@ static void *null_controller_vtable[NULL_VTABLE_SIZE];
 static void *null_browser_vtable[NULL_VTABLE_SIZE];
 static null_object_t null_controller = { null_controller_vtable };
 static null_object_t null_browser = { null_browser_vtable };
+
+#if _WIN32
+/*
+MSVC's virtual functions are __thiscall: the callee pops the arguments, so
+every slot needs a function of its own size. The sizes, in 4 bytes words,
+are those of chromehtml.dll's CHTMLController and of the IHTMLSerializer
+its slot 14 makes (one destructor slot, not gcc's two).
+*/
+#define CHROME_CREATE_BROWSER 14
+
+static const unsigned char controller_args[] = { 1, 2, 0, 0, 5, 3, 2, 0, 3, 1, 0, 2, 1, 1, 1 };
+static const unsigned char browser_args[] = { 0, 0, 2, 2, 7, 0, 0, 0, 0, 1, 1, 1, 2, 1, 2, 2, 2, 1, 1, 1, 1, 1, 2, 1, 1, 0, 1, 2 };
+
+struct null_methods_t
+{
+	int Args0() { return 0; }
+	int Args1( int ) { return 0; }
+	int Args2( int, int ) { return 0; }
+	int Args3( int, int, int ) { return 0; }
+	int Args4( int, int, int, int ) { return 0; }
+	int Args5( int, int, int, int, int ) { return 0; }
+	int Args6( int, int, int, int, int, int ) { return 0; }
+	int Args7( int, int, int, int, int, int, int ) { return 0; }
+	void *CreateBrowser( int ) { return &null_browser; }
+};
+
+template<typename T> static void *MethodAddress( T method )
+{
+	void *address;
+
+	static_assert( sizeof( method ) == sizeof( address ), "a method of a class without bases is its address" );
+	memcpy( &address, &method, sizeof( address ));
+	return address;
+}
+
+static void FillNullVtable( void **vtable, const unsigned char *args, size_t count )
+{
+	void *const methods[] = {
+		MethodAddress( &null_methods_t::Args0 ), MethodAddress( &null_methods_t::Args1 ),
+		MethodAddress( &null_methods_t::Args2 ), MethodAddress( &null_methods_t::Args3 ),
+		MethodAddress( &null_methods_t::Args4 ), MethodAddress( &null_methods_t::Args5 ),
+		MethodAddress( &null_methods_t::Args6 ), MethodAddress( &null_methods_t::Args7 ),
+	};
+
+	for( size_t i = 0; i < NULL_VTABLE_SIZE; i++ )
+		vtable[i] = methods[i < count ? args[i] : 0];
+}
+
+static void *NullChromeController( void )
+{
+	if( !null_controller_vtable[0] )
+	{
+		FillNullVtable( null_controller_vtable, controller_args, sizeof( controller_args ));
+		FillNullVtable( null_browser_vtable, browser_args, sizeof( browser_args ));
+		null_controller_vtable[CHROME_CREATE_BROWSER] = MethodAddress( &null_methods_t::CreateBrowser );
+	}
+
+	return &null_controller;
+}
+#else
+#define CHROME_CREATE_BROWSER 15 // IHTMLChromeController slot, read from vgui2::HTML::HTML
 
 static int NullMethod( void *self )
 {
@@ -162,6 +222,7 @@ static void *NullChromeController( void )
 
 	return &null_controller;
 }
+#endif
 
 struct texture_t
 {
@@ -321,6 +382,18 @@ public:
 	void SetProportionalBase( int w, int h ) override { proportional_base[0] = w; proportional_base[1] = h; }
 	void GetHDProportionalBase( int &w, int &h ) override { w = hd_proportional_base[0]; h = hd_proportional_base[1]; }
 	void SetHDProportionalBase( int w, int h ) override { hd_proportional_base[0] = w; hd_proportional_base[1] = h; }
+#if _WIN32
+	void Unknown106( int a ) override { }
+	void Unknown107( int a ) override { }
+	void Unknown108( int a, int b, int c ) override { }
+	bool SetFullscreenMode( int w, int h, int bpp ) override { return false; }
+	void SetWindowedMode() override { }
+	void Unknown111( int a ) override { }
+	void Unknown112( int a ) override { }
+	void DrawPrintChar( int x, int y, int wide, int tall, float s0, float t0, float s1, float t1 ) override;
+	bool SetWatchForComputerUse( bool state ) override { return false; }
+	double GetTimeSinceLastUse() override { return 0.0; }
+#else
 	void SetFullscreenMode( int w, int h, int bpp ) override { }
 	void SetWindowedMode() override { }
 	int Unknown109( int a, int b ) override { return 0; }
@@ -333,6 +406,7 @@ public:
 	double GetTimeSinceLastUse() override { return 0.0; }
 	bool VGUI2MouseControl() override { return mouse_control; }
 	void SetVGUI2MouseControl( bool state ) override { mouse_control = state; }
+#endif
 
 	// IGameUIFuncs
 	bool IsKeyDown( const char *keyname, bool &isdown ) override;
@@ -917,10 +991,10 @@ KeyCode CSurface::GetVGUI2KeyCodeForBind( const char *bind )
 	for( int key = 0; key < 256; key++ )
 	{
 		const char *b = g_engine->KeyBinding( key );
-		int sdl;
+		int code;
 
-		if( b && !strcasecmp( b, bind ) && ( sdl = g_engine->KeyToSDL( key )))
-			return g_system->KeyCode_VirtualKeyToVGUI( sdl );
+		if( b && !strcasecmp( b, bind ) && ( code = g_engine->KeyToSystem( key )))
+			return g_system->KeyCode_VirtualKeyToVGUI( code );
 	}
 
 	return 0; // KEY_NONE

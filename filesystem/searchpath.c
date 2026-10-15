@@ -570,7 +570,11 @@ static void FS_ValidateDirectories( const char *path, qboolean *has_base_dir, qb
 
 	for( int i = 0; i < dirs.numstrings; i++ )
 	{
-		if( !FS_SysFolderExists( dirs.strings[i] ))
+		char buf[MAX_SYSPATH];
+
+		// the names are relative to path, not to the current directory
+		Q_snprintf( buf, sizeof( buf ), "%s/%s", path, dirs.strings[i] );
+		if( !FS_SysFolderExists( buf ))
 			continue;
 
 		if( !Q_stricmp( fs_basedir, dirs.strings[i] ))
