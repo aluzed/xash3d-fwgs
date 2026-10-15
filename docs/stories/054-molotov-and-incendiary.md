@@ -34,6 +34,11 @@ molotov"), the incendiary's fire at a distance. Left: the smoke putting it
 out and the air burst seen in play, the test server (its Linux ReGameDLL
 needs the change too), the bottle model, a kill icon.
 
+The fire's damage went through the bullets' flinch: halved speed four
+times a second and at times a knockback, the player could not run out of
+it. A burn now only slows to 85% and never pushes (`CBasePlayer::TakeDamage`),
+to be played again.
+
 Looked at from above on de_dust2's bomb site A (`molotov_at 1152 2464 200`,
 `r_vk_debug_view "1152 2464 520 89 90"`, `sv_novis 1`): the first pool,
 150 units on a sparse ring, poured off the site's ledge and looked faint
@@ -58,7 +63,10 @@ equipment on 6, molotov / incendiary on 6 (Valve's `titles.txt` still
 sold ammo on 6 and 7). Tested on a local server for both teams.
 
 Models: a bottle with its rag for the terrorists, a canister with its
-lever and pin for the counter-terrorists, made with their textures by
+lever and pin for the counter-terrorists (since 2026-10-16 a straight
+AN-M14 canister: crimped rims, screwed fuse, the spoon along the body, olive
+drab with a red band and stencils, 1024 texture; the first one read as an
+untextured grenade), made with their textures by
 `cstrike-17/scripts/make_molotov_models.py` (`w_`, `p_` and the view's
 part, in the extras). The view keeps the arms of Valve's
 `v_smokegrenade.mdl`: the client leaves out its bodypart "weapon" and draws

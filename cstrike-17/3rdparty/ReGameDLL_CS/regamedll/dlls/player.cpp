@@ -1282,7 +1282,14 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
 			}
 		}
 
-		if (!ShouldDoLargeFlinch(m_LastHitGroup, iGunType))
+		if (bitsDamageType & DMG_BURN)
+		{
+			// story 054: the molotov's fire hurts four times a second; a
+			// bullet's flinch each time would pin the player in it, so the
+			// fire only slows a little and never pushes
+			TakeDamageImpulse(pAttack, 0.0f, 0.85f);
+		}
+		else if (!ShouldDoLargeFlinch(m_LastHitGroup, iGunType))
 		{
 			TakeDamageImpulse(pAttack, 0.0f, 0.5f);
 

@@ -179,50 +179,166 @@ def molotov_texture():
 	px[ys0:] = c
 	return Image.fromarray(( np.clip( px, 0, 1 ) * 255 ).astype( np.uint8 ))
 
-# the incendiary grenade: a grey canister with orange bands, its fuse, lever
-# and pin (as make_buy_images.py)
-CAN_Y = [ 0.0, 0.08, 0.3, 0.45, 1.6, 2.0, 2.15, 2.30, 2.55, 2.62, 2.95, 3.0 ]
-CAN_R = [ 0.58, 0.64, 0.64, 0.64, 0.64, 0.64, 0.64, 0.55, 0.30, 0.24, 0.24, 0.18 ]
+# the incendiary grenade: a straight steel canister as the AN-M14's, crimped
+# rims at both ends, a flat lid under its screwed fuse, the spoon lever
+# curved over the fuse and lying along the body, the pin and its ring;
+# painted olive drab with a red band, stencilled, worn at its edges
+ITEX = 1024
+CAN_TOP = 2.94
+CAN_Y = [ 0.0, 0.03, 0.07, 0.13, 0.16, 0.20, 1.20, 2.14, 2.18, 2.22, 2.30, 2.34, 2.36, 2.38, 2.39, 2.52, 2.54, 2.56, 2.84, 2.88, 2.92, 2.94 ]
+CAN_R = [ 0.56, 0.62, 0.645, 0.65, 0.625, 0.63, 0.63, 0.63, 0.625, 0.65, 0.645, 0.60, 0.52, 0.34, 0.30, 0.30, 0.27, 0.24, 0.24, 0.21, 0.12, 0.0 ]
+
+def ribbon( points, width, thickness, v0, v1, u0, u1 ):
+	# a flat strip along a polyline in the y-z plane (the lever), its width
+	# along x, a box section
+	pts = [ np.array( p, float ) for p in points ]
+	verts, norms, uvs, tris = [], [], [], []
+	side = np.array([ 1.0, 0.0, 0.0 ])
+	corners = [( -1, -1 ), ( 1, -1 ), ( 1, 1 ), ( -1, 1 ), ( -1, -1 )]
+	for i, p in enumerate( pts ):
+		d = pts[min( i + 1, len( pts ) - 1 )] - pts[max( i - 1, 0 )]
+		d /= np.linalg.norm( d )
+		up = np.cross( side, d )
+		w = width[i] if hasattr( width, '__len__' ) else width
+		for j, ( a, b ) in enumerate( corners ):
+			verts.append( tuple( p + side * a * w * 0.5 + up * b * thickness * 0.5 ))
+			nn = side * a * 0.3 + up * b
+			norms.append( tuple( nn / np.linalg.norm( nn )))
+			uvs.append(( u0 + ( u1 - u0 ) * j / 4, v0 + ( v1 - v0 ) * i / ( len( pts ) - 1 )))
+	for i in range( len( pts ) - 1 ):
+		for j in range( 4 ):
+			a = i * 5 + j
+			b = a + 5
+			tris.append(( a, a + 1, b + 1 ))
+			tris.append(( a, b + 1, b ))
+	return verts, norms, uvs, tris
 
 def incendiary_mesh():
-	can = lathe( CAN_Y, CAN_R, 14, 0.0, 0.62 )
-	lever = box(( 0, 1.85, -0.70 ), ( 0.13, 0.95, 0.04 ), 0.66, 0.80, 0.0, 0.5 )
-	lever_top = box(( 0, 2.9, -0.45 ), ( 0.13, 0.05, 0.26 ), 0.66, 0.80, 0.5, 1.0 )
+	can = lathe( CAN_Y, CAN_R, 28, 0.0, 0.62 )
+	# the spoon: from the striker over the top of the fuse, down along the body
+	path = [( 0, 2.90, 0.10 ), ( 0, 2.97, -0.08 ), ( 0, 2.96, -0.26 ), ( 0, 2.86, -0.42 ), ( 0, 2.66, -0.55 ),
+		( 0, 2.42, -0.63 ), ( 0, 2.24, -0.675 ), ( 0, 1.90, -0.67 ), ( 0, 1.50, -0.665 ), ( 0, 1.15, -0.655 ), ( 0, 0.95, -0.64 )]
+	width = [ 0.20, 0.24, 0.26, 0.27, 0.28, 0.28, 0.27, 0.25, 0.23, 0.21, 0.18 ]
+	lever = ribbon( path, width, 0.05, 0.66, 0.96, 0.0, 0.45 )
+	# the pin through the fuse, its ring hanging on the side
+	pin = tube([( -0.30, 2.70, -0.02 ), ( 0.36, 2.70, -0.02 )], 0.028, 6, 0.66, 0.70, 0.55, 1.0 )
 	ring = []
-	for i in range( 11 ):
-		t = 2 * math.pi * i / 10
-		ring.append(( 0.30 + 0.0 * math.cos( t ), 2.75 + 0.20 * math.cos( t ), -0.25 + 0.20 * math.sin( t )))
-	pin = tube( ring, 0.035, 4, 0.82, 0.9, 0.0, 1.0 )
-	return merge([ can, lever, lever_top, pin ])
+	for i in range( 25 ):
+		t = 2 * math.pi * i / 24
+		ring.append(( 0.36 + 0.03 * math.sin( t ), 2.46 + 0.24 * math.cos( t ), -0.02 + 0.22 * math.sin( t )))
+	pull = tube( ring, 0.032, 6, 0.72, 0.96, 0.55, 1.0 )
+	return merge([ can, lever, pin, pull ])
+
+def value_noise( rng, h, w, cell ):
+	# smooth noise, cells of `cell` pixels, wrapping around in x
+	gy, gx = h // cell + 2, max( 1, w // cell )
+	g = rng.random(( gy, gx ))
+	y = np.arange( h ) / cell
+	x = np.arange( w ) / cell
+	y0 = y.astype( int ); x0 = x.astype( int ) % gx
+	fy = ( y - np.floor( y ))[:, None]; fx = ( x - np.floor( x ))[None, :]
+	fy = fy * fy * ( 3 - 2 * fy ); fx = fx * fx * ( 3 - 2 * fx )
+	x1 = ( x0 + 1 ) % gx
+	a = g[y0][:, x0]; b = g[y0][:, x1]; c = g[y0 + 1][:, x0]; d = g[y0 + 1][:, x1]
+	return ( a * ( 1 - fx ) + b * fx ) * ( 1 - fy ) + ( c * ( 1 - fx ) + d * fx ) * fy
+
+def fractal( rng, h, w, cells ):
+	n = np.zeros(( h, w )); total = 0
+	for i, c in enumerate( cells ):
+		k = 0.5 ** i
+		n += value_noise( rng, h, w, c ) * k; total += k
+	return n / total
+
+def stencil( text, height_px, aspect ):
+	# white text on black, its height `height_px`, squeezed vertically by
+	# `aspect` (the body's texels are not square), mirrored: u runs round
+	# the body from right to left seen from outside
+	from PIL import ImageFont
+	font = ImageFont.load_default( size = height_px )
+	box = font.getbbox( text )
+	im = Image.new( 'L', ( box[2] - box[0] + 8, box[3] - box[1] + 8 ))
+	ImageDraw.Draw( im ).text(( 4 - box[0], 4 - box[1] ), text, fill = 255, font = font )
+	im = im.resize(( im.width, max( 1, int( im.height * aspect ))), Image.LANCZOS ).transpose( Image.FLIP_LEFT_RIGHT )
+	return np.array( im ) / 255.0
 
 def incendiary_texture():
-	px = np.zeros(( TEX, TEX, 3 ))
-	y = np.arange( TEX )[:, None] / TEX
-	x = np.arange( TEX )[None, :] / TEX
-	h = 3.0 * ( 1 - y / 0.62 )
-	metal = np.array([ 0.42, 0.44, 0.42 ])
-	shade = 0.8 + 0.2 * np.cos( 2 * math.pi * ( x - 0.3 ))
-	streak = np.exp( -(( x - 0.30 ) / 0.04 ) ** 2 ) * 0.5
-	col = metal[None, None, :] * shade[..., None] * np.ones(( TEX, 1, 1 ))
-	band = ((( h > 1.65 ) & ( h < 1.95 )) | (( h > 0.25 ) & ( h < 0.40 )))[..., None] * np.ones(( 1, TEX, 1 ))
-	col = np.where( band > 0, np.array([ 0.85, 0.32, 0.06 ]) * shade[..., None], col )
-	top = ( h > 2.3 )[..., None] * np.ones(( 1, TEX, 1 ))
-	col = np.where( top > 0, np.array([ 0.62, 0.62, 0.64 ]) * shade[..., None], col )
-	col = col + streak[..., None] * np.array([ 0.8, 0.8, 0.8 ])
-	px[:] = col
-	# printed marks
-	rng = np.random.default_rng( 5 )
-	for row in range( 3 ):
-		yy = int((( 1 - ( 1.25 - row * 0.15 ) / 3.0 ) * 0.62 ) * TEX )
-		xx = 20
-		while xx < 90:
-			w = int( rng.integers( 3, 8 ))
-			px[yy:yy + 2, xx:xx + w] = [ 0.85, 0.80, 0.70 ]
-			xx += w + 2
-	# steel of the lever, the pin
-	ys0 = int( 0.64 * TEX )
-	vv = np.arange( TEX - ys0 )[:, None] / ( TEX - ys0 )
-	px[ys0:] = np.array([ 0.60, 0.61, 0.63 ]) * ( 0.85 + 0.15 * np.cos( vv * 9 ))[..., None]
+	S = ITEX
+	rng = np.random.default_rng( 14 )
+	px = np.zeros(( S, S, 3 ))
+	body_rows = int( 0.62 * S )
+	y = np.arange( body_rows )[:, None] / S
+	h = CAN_TOP * ( 1 - y / 0.62 ) * np.ones(( 1, S )) # height on the canister
+	# texels per unit around and along the body: the stencils are squeezed
+	around = S / ( 2 * math.pi * 0.63 )
+	along = 0.62 * S / CAN_TOP
+
+	grain = fractal( rng, body_rows, S, [ 96, 40, 14, 5 ])
+	fine = fractal( rng, body_rows, S, [ 4, 2 ])
+	streaks = value_noise( rng, body_rows, S, 6 ).mean( 0, keepdims = True ) * np.ones(( body_rows, 1 ))
+
+	paint = np.array([ 0.27, 0.30, 0.20 ])   # olive drab
+	red = np.array([ 0.58, 0.07, 0.05 ])
+	steel = np.array([ 0.52, 0.53, 0.52 ])
+	col = paint[None, None, :] * ( 0.80 + 0.30 * grain + 0.08 * ( streaks - 0.5 ))[..., None]
+
+	band = ( h > 1.66 ) & ( h < 2.02 )
+	thin = ( h > 1.52 ) & ( h < 1.58 )
+	col = np.where(( band | thin )[..., None], red[None, None, :] * ( 0.85 + 0.25 * grain )[..., None], col )
+
+	# stencils, twice around so one side always shows
+	mark = np.zeros(( body_rows, S ))
+	aspect = along / around
+	for text, hc, size in (( 'INCENDIARY', 1.30, 0.17 ), ( 'AN-M14  TH3', 1.06, 0.12 ), ( 'LOT 7-26', 0.70, 0.09 )):
+		st = stencil( text, int( size * around ), aspect )
+		r0 = int(( 1 - hc / CAN_TOP ) * 0.62 * S - st.shape[0] / 2 )
+		for uc in ( 0.25, 0.75 ):
+			c0 = int( uc * S - st.shape[1] / 2 )
+			mark[r0:r0 + st.shape[0], c0:c0 + st.shape[1]] = np.maximum( mark[r0:r0 + st.shape[0], c0:c0 + st.shape[1]], st )
+	mark *= np.clip( 0.55 + 0.9 * fine, 0, 1 ) # sprayed, uneven
+	col = col * ( 1 - mark[..., None] ) + np.array([ 0.86, 0.80, 0.52 ])[None, None, :] * mark[..., None]
+
+	# bare steel: the rims, the lid and the fuse
+	rim = ( h < 0.20 ) | (( h > 2.14 ) & ( h < 2.36 ))
+	top = h >= 2.36
+	metal = steel[None, None, :] * ( 0.75 + 0.35 * grain + 0.15 * ( fine - 0.5 ))[..., None]
+	col = np.where( rim[..., None], metal, col )
+	col = np.where( top[..., None], metal * np.where(( h > 2.54 )[..., None], 0.78, 1.0 ), col )
+	# the crimps, dark grooves
+	for hg in ( 0.16, 2.18, 2.36, 2.54 ):
+		col *= 1 - 0.55 * np.exp( -(( h - hg ) / 0.012 ) ** 2 )[..., None]
+	# threads on the collar
+	threads = ( h > 2.39 ) & ( h < 2.52 )
+	col *= np.where( threads, 0.85 + 0.15 * np.sin( h * 260 ), 1.0 )[..., None]
+
+	# wear: paint chipped near the rims and the band's edges, scratches
+	edge = np.exp( -np.minimum( np.abs( h - 0.20 ), np.abs( h - 2.14 )) / 0.10 )
+	chips = ( fractal( rng, body_rows, S, [ 12, 5, 2 ]) + 0.35 * edge ) > 0.90
+	painted = ~( rim | top )
+	col = np.where(( chips & painted )[..., None], metal * 1.1, col )
+	for _ in range( 70 ):
+		r = int( rng.integers( 0, body_rows )); c = int( rng.integers( 0, S ))
+		if not painted[r, c]:
+			continue
+		ln = int( rng.integers( 8, 60 )); ang = rng.uniform( -0.5, 0.5 )
+		for t in range( ln ):
+			rr = int( r + t * math.sin( ang )); cc = ( c + t ) % S
+			if 0 <= rr < body_rows and painted[rr, cc]:
+				col[rr, cc] = col[rr, cc] * 0.5 + metal[rr, cc] * 0.6
+	# grime towards the bottom
+	col *= ( 1 - 0.25 * np.clip(( 0.9 - h ) / 0.9, 0, 1 ) * ( 0.6 + 0.4 * grain ))[..., None]
+	px[:body_rows] = col
+
+	# below: the lever (painted, worn at its edges) and the pin (steel)
+	lv0 = int( 0.64 * S )
+	rows = S - lv0
+	g2 = fractal( rng, rows, S, [ 32, 10, 3 ])
+	lever = paint[None, None, :] * ( 0.85 + 0.3 * g2 )[..., None]
+	u = np.arange( S )[None, :] / S * np.ones(( rows, 1 ))
+	ledge = ( np.abs(( u / 0.45 * 4 ) % 1 - 0.5 ) > 0.45 ) | ( g2 > 0.74 )
+	lever = np.where( ledge[..., None], steel * ( 0.8 + 0.3 * g2 )[..., None], lever )
+	pinc = np.array([ 0.70, 0.70, 0.68 ]) * ( 0.8 + 0.3 * g2 )[..., None]
+	px[lv0:] = np.where(( u < 0.5 )[..., None], lever, pinc )
+	px[body_rows:lv0] = steel
 	return Image.fromarray(( np.clip( px, 0, 1 ) * 255 ).astype( np.uint8 ))
 
 # --- placement --------------------------------------------------------------
