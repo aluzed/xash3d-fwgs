@@ -859,6 +859,20 @@ void CL_DrawCharacterLen( cl_font_t *font, int number, int *width, int *height )
 void CL_DrawStringLen( cl_font_t *font, const char *s, int *width, int *height, int flags );
 int CL_DrawStringf( cl_font_t *font, float x, float y, const rgba_t color, int flags, const char *fmt, ... ) FORMAT_CHECK( 6 );
 
+//
+// cl_unifont.c
+//
+typedef struct
+{
+	int   texture;
+	float width, height; // of the cell in font texels, as wrect_t sizes are
+	float advance;       // font texels
+} cl_glyph_t;
+
+void CL_InitUnicodeFont( void );
+void CL_ShutdownUnicodeFont( void );
+const cl_glyph_t *CL_UnicodeGlyph( const cl_font_t *font, uint32_t codepoint );
+
 
 //
 // cl_game.c
@@ -1135,6 +1149,7 @@ void Con_DrawConsole( void );
 void Con_DrawVersion( void );
 int Con_UtfProcessChar( int in );
 int Con_UtfProcessCharForce( int in );
+uint32_t Con_UtfLastCodepoint( void );
 int Con_UtfMoveLeft( char *str, int pos );
 int Con_UtfMoveRight( char *str, int pos, int length );
 void Con_DefaultColor( int r, int g, int b, qboolean gameui );

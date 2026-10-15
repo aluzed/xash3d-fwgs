@@ -189,8 +189,44 @@ static int CL_CalcTabStop( const cl_font_t *font, int x )
 	return stop;
 }
 
+// a UTF-8 character outside of the font's codepage: drawn from cl_unifont.c
+static const cl_glyph_t *CL_FallbackGlyph( const cl_font_t *font, int number, int flags )
+{
+	uint32_t codepoint;
+
+	if( number != '?' || !FBitSet( flags, FONT_DRAW_UTF8 ) || !cls.accept_utf8 )
+		return NULL;
+
+	codepoint = Con_UtfLastCodepoint();
+	if( codepoint < 0x80 )
+		return NULL;
+
+	return CL_UnicodeGlyph( font, codepoint );
+}
+
+static int CL_DrawGlyph( float x, float y, const cl_glyph_t *glyph, const rgba_t color, cl_font_t *font, int flags )
+{
+	float w = glyph->width * font->scale;
+	float h = glyph->height * font->scale;
+
+	if( FBitSet( flags, FONT_DRAW_HUD ))
+		SPR_AdjustSize( &x, &y, &w, &h );
+
+	if( !FBitSet( flags, FONT_DRAW_NORENDERMODE ))
+		CL_SetFontRendermode( font );
+
+	if( !FBitSet( flags, FONT_DRAW_NOCOLOR ))
+		CL_SetFontColor( font, color );
+
+	ref.dllFuncs.R_DrawStretchPic( x, y, w, h, 0.0f, 0.0f, 1.0f, 1.0f, glyph->texture );
+
+	return Q_rint( glyph->advance * font->scale );
+}
+
 int CL_DrawCharacter( float x, float y, int number, const rgba_t color, cl_font_t *font, int flags )
 {
+	const cl_glyph_t *glyph;
+
 	if( !font || !font->valid || y < -font->charHeight )
 		return 0;
 
@@ -207,6 +243,9 @@ int CL_DrawCharacter( float x, float y, int number, const rgba_t color, cl_font_
 	if( FBitSet( flags, FONT_DRAW_UTF8 ))
 		number = Con_UtfProcessChar( number & 255 );
 	else number &= 255;
+
+	if(( glyph = CL_FallbackGlyph( font, number, flags )) != NULL )
+		return CL_DrawGlyph( x, y, glyph, color, font, flags );
 
 	if( !number || !font->charWidths[number])
 		return 0;
@@ -379,7 +418,9 @@ void CL_DrawStringLen( cl_font_t *font, const char *s, int *width, int *height, 
 
 		if( number )
 		{
-			draw_len += font->charWidths[number];
+			const cl_glyph_t *glyph = CL_FallbackGlyph( font, number, flags );
+
+			draw_len += glyph ? Q_rint( glyph->advance * font->scale ) : font->charWidths[number];
 
 			if( width )
 			{

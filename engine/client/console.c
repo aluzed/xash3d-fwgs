@@ -646,12 +646,21 @@ Con_UtfProcessChar
 Convert utf char to current font's single-byte encoding
 ============================
 */
+static uint32_t con_utf_codepoint; // of the character Con_UtfProcessCharForce returned last
+
+uint32_t Con_UtfLastCodepoint( void )
+{
+	return con_utf_codepoint;
+}
+
 int Con_UtfProcessCharForce( int in )
 {
 	// TODO: get rid of global state where possible
 	static utfstate_t state = { 0 };
 
 	uint32_t ch = Q_DecodeUTF8( &state, in );
+
+	con_utf_codepoint = ch;
 
 	if( g_codepage == 1251 )
 		return Q_UnicodeToCP1251( ch );
@@ -801,6 +810,7 @@ void Con_Init( void )
 	Cvar_RegisterVariable( &con_notifytime );
 	Cvar_RegisterVariable( &con_fontsize );
 	Cvar_RegisterVariable( &con_charset );
+	CL_InitUnicodeFont();
 	Cvar_RegisterVariable( &con_fontscale );
 	Cvar_RegisterVariable( &con_fontrender );
 	Cvar_RegisterVariable( &con_fontnum );
@@ -853,6 +863,7 @@ void Con_Shutdown( void )
 	con.buffer = NULL;
 	con.lines = NULL;
 	Con_SaveHistory( &con.history );
+	CL_ShutdownUnicodeFont();
 }
 
 /*

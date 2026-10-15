@@ -174,7 +174,7 @@ def build(bld):
 	bld(name = 'engine_includes', export_includes = '. common common/imagelib', use = 'filesystem_includes')
 
 	libs = ['engine_includes', 'public', 'zlib', 'werror', 'backtrace_custom', 'library_suffix', 'build_vcs', 'mbedtls', 'yy_thunks']
-	includes = ['server', 'client', 'client/vgui', 'common/soundlib', 'platform']
+	includes = ['server', 'client', 'client/vgui', 'common/soundlib', 'platform', '../3rdparty/stb']
 
 	# basic build: dedicated only
 	source = bld.path.ant_glob(['common/*.c', 'common/imagelib/*.c', 'common/soundlib/*.c', 'server/*.c', 'common/http/*.c'])
