@@ -28,6 +28,7 @@ GNU General Public License for more details.
 #include "jobs.h"
 #include "sv_profile.h"
 #include "host_scheduler.h"
+#include "async_log.h"
 #include "base_cmd.h"
 #include "client.h"
 #include "server.h"
@@ -1138,6 +1139,7 @@ static void Host_InitCommon( int argc, char **argv, const char *progname, qboole
 	Cvar_DirectSetValue( &host_developer, developer );
 	Cvar_RegisterVariable( &sys_ticrate );
 	Host_SchedulerInit();
+	AsyncLog_Init();
 
 	int ticrate;
 	if( Sys_GetIntFromCmdLine( "-sys_ticrate", &ticrate ))
@@ -1462,5 +1464,6 @@ void Host_ShutdownWithReason( const char *reason )
 
 	// restore filter
 	Sys_RestoreCrashHandler();
+	AsyncLog_Shutdown(); // what the log writer still has, before the last lines
 	Sys_CloseLog( reason );
 }

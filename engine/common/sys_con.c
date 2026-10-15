@@ -14,6 +14,7 @@ GNU General Public License for more details.
 */
 
 #include "common.h"
+#include "async_log.h"
 #if XASH_ANDROID
 #include <android/log.h>
 #endif
@@ -349,8 +350,11 @@ void Sys_PrintLog( const char *pMsg )
 			logtime_len = 0;
 		}
 
-		Sys_WriteLogfile( s_ld.logfileno, logtime, logtime_len, log_msg );
-		Sys_FlushLogfile();
+		if( !AsyncLog_WriteConsole( s_ld.logfileno, logtime, logtime_len, log_msg ))
+		{
+			Sys_WriteLogfile( s_ld.logfileno, logtime, logtime_len, log_msg );
+			Sys_FlushLogfile();
+		}
 	}
 }
 

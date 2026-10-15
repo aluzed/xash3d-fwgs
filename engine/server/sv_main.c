@@ -923,8 +923,8 @@ void SV_Init( void )
 	Cvar_RegisterVariable( &sv_airmove );
 #if !XASH_DEDICATED
 	Cvar_RegisterVariable( &sv_fps );
-	Cvar_RegisterVariable( &sv_snapshot_spread );
 #endif // !XASH_DEDICATED
+	Cvar_RegisterVariable( &sv_snapshot_spread );
 	Cvar_RegisterVariable( &showtriggers );
 	Cvar_RegisterVariable( &sv_aim );
 	Cvar_RegisterVariable( &sv_allow_autoaim );

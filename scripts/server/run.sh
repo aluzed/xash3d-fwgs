@@ -41,9 +41,9 @@ set -- -game cstrike -port "${PORT:-27016}" +maxplayers "${MAXPLAYERS:-20}" \
 if [ "${FEATURES:-1}" = 1 ]; then
 	set -- "$@" \
 		+sys_scheduler 1 +sys_spin_us "${SPIN_US:-200}" \
-		+sv_snapshot_spread 1
+		+sv_snapshot_spread 1 +sv_log_async 1
 else
-	set -- "$@" +sys_scheduler 0 +sv_snapshot_spread 0
+	set -- "$@" +sys_scheduler 0 +sv_snapshot_spread 0 +sv_log_async 0
 fi
 [ "${METAMOD:-1}" = 1 ] && set -- -dll addons/metamod/metamod_amd64.so "$@"
 [ -n "${RCON_PASSWORD:-}" ] && set -- "$@" +rcon_password "$RCON_PASSWORD"

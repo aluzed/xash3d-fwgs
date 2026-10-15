@@ -15,6 +15,7 @@ GNU General Public License for more details.
 
 #include "common.h"
 #include "server.h"
+#include "async_log.h"
 
 void Log_Open( void )
 {
@@ -74,7 +75,12 @@ void Log_Open( void )
 		return;
 	}
 
-	if( fp ) svs.log.file = fp;
+	if( fp )
+	{
+		svs.log.file = fp;
+		AsyncLog_BeginFile( szTestFile ); // the writer thread appends to it
+	}
+
 	Log_Printf( "Log file started (file \"%s\") (game \"%s\") (version \"%i/" XASH_VERSION "/%d\")\n",
 	szTestFile, Info_ValueForKey( svs.serverinfo, "*gamedir" ), PROTOCOL_VERSION, Q_buildnum() );
 }
@@ -84,6 +90,7 @@ void Log_Close( void )
 	if( svs.log.file )
 	{
 		Log_Printf( "Log file closed\n" );
+		AsyncLog_EndFile( );
 		FS_Close( svs.log.file );
 	}
 	svs.log.file = NULL;
@@ -130,7 +137,9 @@ void Log_Printf( const char *fmt, ... )
 		if( svs.log.file && mp_logfile.value )
 		{
 			SV_ProfileBegin( SVP_LOG_WRITE );
-			FS_Printf( svs.log.file, "%s", string );
+			if( AsyncLog_IsFileAsync( ))
+				AsyncLog_WriteFile( string );
+			else FS_Printf( svs.log.file, "%s", string );
 			SV_ProfileEnd( SVP_LOG_WRITE );
 		}
 	}
