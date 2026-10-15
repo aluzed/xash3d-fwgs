@@ -17,6 +17,7 @@ GNU General Public License for more details.
 #include "common.h"
 #include "const.h"
 #include "server.h"
+#include "net_thread.h"
 #include "net_encode.h"
 
 // challenges are valid for two consecutive windows of this size (max lifetime ~10s).
@@ -518,6 +519,9 @@ static void SV_ConnectClient( netadr_t from )
 	Info_SetValueForKeyf( protinfo, "challenge", sizeof( protinfo ), "%d", challenge );
 	if( FBitSet( newcl->extensions, NET_EXT_NETCHAN_COOKIE ))
 		Info_SetValueForKeyf( protinfo, "cookie", sizeof( protinfo ), "%016"PRIx64, netchan_cookie );
+
+	// its packets must get through the network thread from the first one
+	NetThread_ClientConnecting( &from );
 
 	// send the connect packet to the client
 	Netchan_OutOfBandPrint( NS_SERVER, from, S2C_CONNECTION" %s", protinfo );

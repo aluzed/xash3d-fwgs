@@ -20,6 +20,7 @@ GNU General Public License for more details.
 #include "ipv6text.h"
 #include "net_ws_private.h"
 #include "net_replay.h"
+#include "net_thread.h"
 #include "server.h" // sv_cheats
 
 #if XASH_SDL == 2
@@ -1434,6 +1435,19 @@ qboolean NET_GetPacket( netsrc_t sock, netadr_t *from, byte *data, size_t *lengt
 
 static qboolean NET_GetPacket_( netsrc_t sock, netadr_t *from, byte *data, size_t *length )
 {
+	if( sock == NS_SERVER && NetThread_IsRunning( ))
+	{
+		NET_AdjustLag();
+
+		if( NET_GetLoopPacket( sock, from, data, length ))
+			return NET_LagPacket( true, sock, from, length, data );
+
+		if( NetThread_Pop( from, data, length ))
+			return NET_LagPacket( true, sock, from, length, data );
+
+		return NET_LagPacket( false, sock, from, length, data );
+	}
+
 	NET_AdjustLag();
 
 	if( NET_GetLoopPacket( sock, from, data, length ))
@@ -1917,9 +1931,13 @@ void NET_Config( qboolean multiplayer, qboolean changeport )
 			NET_DetermineLocalAddress();
 			bFirst = false;
 		}
+
+		NetThread_Start( net.ip_sockets[NS_SERVER], net.ip6_sockets[NS_SERVER] );
 	}
 	else
 	{
+		NetThread_Stop( ); // before its sockets are closed
+
 		// shut down any existing sockets
 		for( int i = 0; i < NS_COUNT; i++ )
 		{
@@ -2075,6 +2093,7 @@ void NET_Init( void )
 
 	net.sequence_number = 1;
 	net.initialized = true;
+	NetThread_Init( );
 	Con_Reportf( "Base networking initialized.\n" );
 }
 

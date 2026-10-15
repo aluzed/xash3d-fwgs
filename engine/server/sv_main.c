@@ -15,6 +15,7 @@ GNU General Public License for more details.
 
 #include "common.h"
 #include "server.h"
+#include "net_thread.h"
 #include "net_encode.h"
 #include "platform/platform.h"
 
@@ -550,6 +551,8 @@ static void SV_ReadPackets( void )
 	sv_client_t	*cl;
 	int		i;
 	size_t		curSize;
+
+	NetThread_BeginFrame( );
 
 	while( NET_GetPacket( NS_SERVER, &net_from, net_message_buffer, &curSize ))
 	{

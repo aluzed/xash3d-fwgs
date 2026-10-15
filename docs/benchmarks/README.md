@@ -60,7 +60,8 @@ The ticks still missed are frames longer than a tick: the bots' AI
 ## Floods, 19 bots (2026-10-15)
 
 50 000 packets per second from 4096 addresses (`flood.py`), all the options
-of 038-044 on, no network thread yet (story 040).
+of 038-044 on, no network thread (`-nonetthread`). With the thread: see
+[story 040](../stories/040-network-receive-thread.md).
 
 | Flood | fps | tick p99 | frame avg | `read_packets` avg / p99 / max | CPU |
 |---|---|---|---|---|---|

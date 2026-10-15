@@ -278,6 +278,7 @@ typedef struct ipfilter_s
 } ipfilter_t;
 
 static ipfilter_t *ipfilter = NULL;
+static int ipfilter_version; // bumped on every change, read by the network thread (story 040)
 
 static int SV_FilterToString( char *dest, size_t size, qboolean config, ipfilter_t *f )
 {
@@ -332,6 +333,7 @@ static void SV_RemoveIPFilter( ipfilter_t *toremove, qboolean removeAll, qboolea
 			*back = f->next;
 
 			Mem_Free( f );
+			ipfilter_version++;
 
 			if( !removeAll )
 				break;
@@ -352,6 +354,7 @@ qboolean SV_CheckIP( netadr_t *adr )
 		{
 			*back = entry->next;
 			Mem_Free( entry );
+			ipfilter_version++;
 			continue;
 		}
 
@@ -429,6 +432,7 @@ static void SV_AddIP_f( void )
 	newfilter->next = ipfilter;
 
 	ipfilter = newfilter;
+	ipfilter_version++;
 
 	for( int i = 0; i < svs.maxclients; i++ )
 	{
@@ -555,6 +559,32 @@ static void SV_ShutdownIPFilter( void )
 	}
 
 	ipfilter = NULL;
+	ipfilter_version++;
+}
+
+/*
+=================
+SV_IPFilterVersion
+
+changes whenever the IP filter list does
+=================
+*/
+int SV_IPFilterVersion( void )
+{
+	return ipfilter_version;
+}
+
+/*
+=================
+SV_IPFilterList
+
+calls func for every IP filter entry; endTime is in host.realtime, 0 when permanent
+=================
+*/
+void SV_IPFilterList( void (*func)( const netadr_t *adr, uint prefixlen, double endTime, void *ctx ), void *ctx )
+{
+	for( const ipfilter_t *f = ipfilter; f; f = f->next )
+		func( &f->adr, f->prefixlen, f->endTime, ctx );
 }
 
 void SV_InitFilter( void )

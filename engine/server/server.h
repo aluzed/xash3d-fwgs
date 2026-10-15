@@ -603,6 +603,8 @@ void SV_RequestMissingResources( void );
 //
 void SV_InitFilter( void );
 qboolean SV_CheckIP( netadr_t *adr );
+int SV_IPFilterVersion( void );
+void SV_IPFilterList( void (*func)( const netadr_t *adr, uint prefixlen, double endTime, void *ctx ), void *ctx );
 qboolean SV_CheckID( const char *id );
 
 //

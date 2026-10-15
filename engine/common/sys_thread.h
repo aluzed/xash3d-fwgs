@@ -159,4 +159,15 @@ static inline void Sys_CondSignal( sys_cond_t *c ) { pthread_cond_signal( c ); }
 static inline void Sys_CondBroadcast( sys_cond_t *c ) { pthread_cond_broadcast( c ); }
 #endif
 
+// Relaxed atomics for flags and counters shared between threads
+#if XASH_WIN32 && !defined( __GNUC__ )
+static inline uint32_t Sys_AtomicLoad( volatile uint32_t *p ) { return *p; }
+static inline void Sys_AtomicStore( volatile uint32_t *p, uint32_t v ) { *p = v; }
+static inline void Sys_AtomicAdd( volatile uint32_t *p, uint32_t v ) { InterlockedExchangeAdd( (volatile LONG *)p, v ); }
+#else
+static inline uint32_t Sys_AtomicLoad( volatile uint32_t *p ) { return __atomic_load_n( p, __ATOMIC_RELAXED ); }
+static inline void Sys_AtomicStore( volatile uint32_t *p, uint32_t v ) { __atomic_store_n( p, v, __ATOMIC_RELAXED ); }
+static inline void Sys_AtomicAdd( volatile uint32_t *p, uint32_t v ) { __atomic_fetch_add( p, v, __ATOMIC_RELAXED ); }
+#endif
+
 #endif // SYS_THREAD_H
