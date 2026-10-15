@@ -103,3 +103,8 @@ static inline socklen_t NET_SockAddrLen( const struct sockaddr_storage *addr )
 net_gai_state_t NET_StringToSockaddr( const char *s, struct sockaddr_storage *sadr, qboolean nonblocking, int family );
 void NET_NetadrToSockadr( netadr_t *a, struct sockaddr_storage *s );
 void NET_SockadrToNetadr( const struct sockaddr_storage *s, netadr_t *a );
+
+// long server packets in parts, numbered on the main thread (story 041)
+qboolean NET_NeedsSplit( netsrc_t sock, size_t len, size_t splitsize );
+int NET_NextSplitSequence( void );
+int NET_SendSplit( int net_socket, const char *buf, size_t len, int flags, const struct sockaddr_storage *to, size_t tolen, size_t splitsize, int sequence, qboolean verbose );

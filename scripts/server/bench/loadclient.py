@@ -29,6 +29,11 @@ import time
 
 PROTOCOL_VERSION = 49
 OOB_HEADER = b"\xff\xff\xff\xff"
+# with the split extension, the server splits datagrams over cl_dlmax bytes
+# (NET_SendLong): -2, a sequence number, a word with the part's index (high
+# byte) and the count of parts, then the part
+SPLIT_HEADER = b"\xfe\xff\xff\xff"
+NET_EXT_SPLITSIZE = 1
 
 CLC_NOP = 1
 CLC_MOVE = 2
@@ -259,6 +264,30 @@ class Netchan:
         return None
 
 
+class SplitReassembler:
+    """Joins the parts of the server's split datagrams, latest datagram only."""
+
+    def __init__(self):
+        self.sequence = None
+        self.parts = {}
+
+    def add(self, packet):
+        if len(packet) < 10:
+            return None
+        sequence, packet_id = struct.unpack_from("<iH", packet, 4)
+        index, count = packet_id >> 8, packet_id & 0xFF
+        if sequence != self.sequence:
+            self.sequence = sequence
+            self.parts = {}
+        self.parts[index] = packet[10:]
+        if count == 0 or len(self.parts) < count:
+            return None
+        whole = b"".join(self.parts[i] for i in range(count) if i in self.parts)
+        self.sequence = None
+        self.parts = {}
+        return whole
+
+
 def find_spawncount(buf):
     """svc_serverdata, byte aligned after the svc_prints that may precede it."""
     marker = bytes([SVC_SERVERDATA]) + struct.pack("<i", PROTOCOL_VERSION)
@@ -271,7 +300,7 @@ def find_spawncount(buf):
 # --- Client --------------------------------------------------------------------
 
 class Client:
-    def __init__(self, index, server, cmdrate, updaterate, stats, play=False):
+    def __init__(self, index, server, cmdrate, updaterate, stats, play=False, split=False):
         self.index = index
         self.server = server
         self.cmdrate = cmdrate
@@ -298,6 +327,8 @@ class Client:
         self.last_ack = 0
         self.input_latency = []
         self.play = play
+        self.split = split
+        self.splits = SplitReassembler()
         self.join_at = None
         self.next_fire = 0.0
         self.fire_until = 0.0
@@ -321,6 +352,11 @@ class Client:
         self.state_since = now
 
     def on_packet(self, packet, now):
+        if packet[:4] == SPLIT_HEADER:
+            packet = self.splits.add(packet)
+            if packet is None:
+                return
+
         if packet[:4] == OOB_HEADER:
             self.on_oob(packet[4:], now)
             return
@@ -371,9 +407,11 @@ class Client:
             return
         if words[0] == "challenge" and self.state == "challenge":
             challenge = int(words[1])
-            protinfo = f"\\uuid\\{random.getrandbits(128):032x}\\qport\\{self.qport}\\ext\\0"
+            # like a real client with --split: datagrams over 1200 bytes come in parts
+            ext, dlmax = (NET_EXT_SPLITSIZE, 1200) if self.split else (0, 64000)
+            protinfo = f"\\uuid\\{random.getrandbits(128):032x}\\qport\\{self.qport}\\ext\\{ext}"
             userinfo = (f"\\name\\load{self.index:02d}\\rate\\100000\\cl_updaterate\\{self.updaterate}"
-                        f"\\cl_lw\\1\\cl_lc\\1\\cl_dlmax\\64000\\model\\gsg9\\_vgui_menus\\0")
+                        f"\\cl_lw\\1\\cl_lc\\1\\cl_dlmax\\{dlmax}\\model\\gsg9\\_vgui_menus\\0")
             self.send_oob(f'connect {PROTOCOL_VERSION} {challenge} "{protinfo}" "{userinfo}"\n')
             self.set_state("connect", now)
         elif words[0] == "client_connect" and self.state == "connect":
@@ -526,6 +564,8 @@ def main():
                         help="wall clock time (epoch seconds) at which measuring starts, instead of --warmup")
     parser.add_argument("--duration", type=float, default=30.0, help="measured seconds")
     parser.add_argument("--output", help="write the JSON summary to this file")
+    parser.add_argument("--split", action="store_true",
+                        help="ask for split datagrams over 1200 bytes, like a real client")
     parser.add_argument("--play", action="store_true",
                         help="join a team for real (close the message of the day first), so that "
                              "the clients spawn as players; without it they stay dead")
@@ -534,7 +574,7 @@ def main():
     host, port = args.server.rsplit(":", 1)
     server = (socket.gethostbyname(host), int(port))
     stats = {"ingame": 0, "failed": 0}
-    clients = [Client(i + 1, server, args.cmdrate, args.updaterate, stats, args.play)
+    clients = [Client(i + 1, server, args.cmdrate, args.updaterate, stats, args.play, args.split)
                for i in range(args.clients)]
 
     sel = selectors.DefaultSelector()

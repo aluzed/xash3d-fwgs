@@ -21,6 +21,7 @@ GNU General Public License for more details.
 #include "net_ws_private.h"
 #include "net_replay.h"
 #include "net_thread.h"
+#include "net_send_thread.h"
 #include "server.h" // sv_cheats
 
 #if XASH_SDL == 2
@@ -1475,6 +1476,73 @@ static qboolean NET_GetPacket_( netsrc_t sock, netadr_t *from, byte *data, size_
 
 /*
 ==================
+NET_NeedsSplit, NET_NextSplitSequence, NET_SendSplit
+
+splits a long server packet in parts of splitsize bytes; the network send
+thread (story 041) sends the parts of the packets the main thread numbered
+==================
+*/
+qboolean NET_NeedsSplit( netsrc_t sock, size_t len, size_t splitsize )
+{
+#ifdef NET_USE_FRAGMENTS
+	return splitsize > sizeof( SPLITPACKET ) && sock == NS_SERVER && len > splitsize;
+#else
+	return false;
+#endif
+}
+
+int NET_NextSplitSequence( void )
+{
+	net.sequence_number++;
+	if( net.sequence_number <= 0 )
+		net.sequence_number = 1;
+	return net.sequence_number;
+}
+
+int NET_SendSplit( int net_socket, const char *buf, size_t len, int flags, const struct sockaddr_storage *to, size_t tolen, size_t splitsize, int sequence, qboolean verbose )
+{
+	char		packet[SPLITPACKET_MAX_SIZE];
+	int body_size = splitsize - sizeof( SPLITPACKET );
+
+	SPLITPACKET *pPacket = (SPLITPACKET *)packet;
+	pPacket->sequence_number = sequence;
+	pPacket->net_id = NET_HEADER_SPLITPACKET;
+	int packet_number = 0;
+	int total_sent = 0;
+	int packet_count = (len + body_size - 1) / body_size;
+
+	while( len > 0 )
+	{
+		int size = Q_min( body_size, len );
+		pPacket->packet_id = (packet_number << 8) + packet_count;
+		memcpy( packet + sizeof( SPLITPACKET ), buf + ( packet_number * body_size ), size );
+
+		if( verbose && net_showpackets.value == 3.0f )
+		{
+			netadr_t	adr;
+
+			memset( &adr, 0, sizeof( adr ));
+			NET_SockadrToNetadr( to, &adr );
+
+			Con_Printf( "Sending split %i of %i with %i bytes and seq %i to %s\n",
+				packet_number + 1, packet_count, size, sequence, NET_AdrToString( adr ));
+		}
+
+		int ret = sendto( net_socket, packet, size + sizeof( SPLITPACKET ), flags, (const struct sockaddr *)to, tolen );
+		if( ret < 0 ) return ret; // error
+
+		if( ret >= size )
+			total_sent += size;
+		len -= size;
+		packet_number++;
+		Platform_NanoSleep( 100 * 1000 );
+	}
+
+	return total_sent;
+}
+
+/*
+==================
 NET_SendLong
 
 Fragment long packets, send short directly
@@ -1482,59 +1550,12 @@ Fragment long packets, send short directly
 */
 static int NET_SendLong( netsrc_t sock, int net_socket, const char *buf, size_t len, int flags, const struct sockaddr_storage *to, size_t tolen, size_t splitsize )
 {
-#ifdef NET_USE_FRAGMENTS
 	// do we need to break this packet up?
-	if( splitsize > sizeof( SPLITPACKET ) && sock == NS_SERVER && len > splitsize )
-	{
-		char		packet[SPLITPACKET_MAX_SIZE];
-		int body_size = splitsize - sizeof( SPLITPACKET );
+	if( NET_NeedsSplit( sock, len, splitsize ))
+		return NET_SendSplit( net_socket, buf, len, flags, to, tolen, splitsize, NET_NextSplitSequence( ), true );
 
-		net.sequence_number++;
-		if( net.sequence_number <= 0 )
-			net.sequence_number = 1;
-
-		SPLITPACKET *pPacket = (SPLITPACKET *)packet;
-		pPacket->sequence_number = net.sequence_number;
-		pPacket->net_id = NET_HEADER_SPLITPACKET;
-		int packet_number = 0;
-		int total_sent = 0;
-		int packet_count = (len + body_size - 1) / body_size;
-
-		while( len > 0 )
-		{
-			int size = Q_min( body_size, len );
-			pPacket->packet_id = (packet_number << 8) + packet_count;
-			memcpy( packet + sizeof( SPLITPACKET ), buf + ( packet_number * body_size ), size );
-
-			if( net_showpackets.value == 3.0f )
-			{
-				netadr_t	adr;
-
-				memset( &adr, 0, sizeof( adr ));
-				NET_SockadrToNetadr( to, &adr );
-
-				Con_Printf( "Sending split %i of %i with %i bytes and seq %i to %s\n",
-					packet_number + 1, packet_count, size, net.sequence_number, NET_AdrToString( adr ));
-			}
-
-			int ret = sendto( net_socket, packet, size + sizeof( SPLITPACKET ), flags, (const struct sockaddr *)to, tolen );
-			if( ret < 0 ) return ret; // error
-
-			if( ret >= size )
-				total_sent += size;
-			len -= size;
-			packet_number++;
-			Platform_NanoSleep( 100 * 1000 );
-		}
-
-		return total_sent;
-	}
-	else
-#endif
-	{
-		// no fragmenantion for client connection
-		return sendto( net_socket, buf, len, flags, (const struct sockaddr *)to, tolen );
-	}
+	// no fragmenantion for client connection
+	return sendto( net_socket, buf, len, flags, (const struct sockaddr *)to, tolen );
 }
 
 /*
@@ -1580,6 +1601,15 @@ void NET_SendPacketEx( netsrc_t sock, size_t length, const void *data, netadr_t 
 	}
 
 	NET_NetadrToSockadr( &to, &addr );
+
+	if( sock == NS_SERVER && NetSend_IsRunning( ))
+	{
+		// the send thread splits it with the number it gets here
+		qboolean split = NET_NeedsSplit( sock, length, splitsize );
+
+		NetSend_Push( net_socket, &addr, NET_SockAddrLen( &addr ), data, length, split ? splitsize : 0, split ? NET_NextSplitSequence( ) : 0 );
+		return;
+	}
 
 	int ret = NET_SendLong( sock, net_socket, data, length, 0, &addr, NET_SockAddrLen( &addr ), splitsize );
 
@@ -1933,10 +1963,13 @@ void NET_Config( qboolean multiplayer, qboolean changeport )
 		}
 
 		NetThread_Start( net.ip_sockets[NS_SERVER], net.ip6_sockets[NS_SERVER] );
+		NetSend_Start( );
 	}
 	else
 	{
-		NetThread_Stop( ); // before its sockets are closed
+		// before their sockets are closed
+		NetSend_Stop( );
+		NetThread_Stop( );
 
 		// shut down any existing sockets
 		for( int i = 0; i < NS_COUNT; i++ )
@@ -2094,6 +2127,7 @@ void NET_Init( void )
 	net.sequence_number = 1;
 	net.initialized = true;
 	NetThread_Init( );
+	NetSend_Init( );
 	Con_Reportf( "Base networking initialized.\n" );
 }
 

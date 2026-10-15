@@ -9,6 +9,7 @@
 #   CLIENTS=32       load clients (loadclient.py --play), 0 for none
 #   BOTS=0           bots (bot_quota)
 #   UPDATERATE=100   cl_updaterate and cmdrate of the load clients
+#   SPLIT=1          load clients ask for split datagrams, like real clients
 #   FLOOD=           a2s, challenge or junk: 50 000 packets/s from 4096 addresses
 #   FEATURES=1       options of the dedicated server stories on (run.sh)
 #   WARMUP=20  DURATION=30  PORT=27018  MAP=de_dust2
@@ -65,7 +66,7 @@ console() {
 sleep 10
 
 if [ "$CLIENTS" -gt 0 ]; then
-	python3 "$HERE/loadclient.py" --server "127.0.0.1:$PORT" --clients "$CLIENTS" --play \
+	python3 "$HERE/loadclient.py" --server "127.0.0.1:$PORT" --clients "$CLIENTS" --play ${SPLIT:+--split} \
 		--cmdrate "$UPDATERATE" --updaterate "$UPDATERATE" \
 		--measure-at $(( $(date +%s) + WARMUP + 2 )) --duration "$DURATION" \
 		--output "$OUT/clients.json" > /dev/null 2> "$OUT/clients.log" &
