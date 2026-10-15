@@ -79,3 +79,64 @@ Story 023 is offline tooling and can start as soon as 022's material layout
 is frozen.
 Phase 8 (stories 030-032) is client DLL and menu work, independent of the
 renderer phases: it only needs 2D drawing (010).
+
+# Dedicated server multithreading (034-050)
+
+Goal: **a steadier and faster server tick** on the Xash3D FWGS dedicated
+server, by bringing over the work of the multithreaded ReHLDS fork
+([aluzed/ReHLDS, `feature/multithreading`](https://github.com/aluzed/ReHLDS/tree/feature/multithreading),
+stories MT-001 to MT-702): remove waste from the main loop, and move work that
+does not touch the game DLL off the main thread. The code cannot be merged:
+ReHLDS is a C++ reverse of HLDS, Xash3D an independent C engine. Each story
+names its ReHLDS counterpart, whose design and measurements it starts from.
+
+## Ground rules
+
+1. **Measure first.** No optimisation lands without before/after numbers from
+   the profiler (035) and the load harness (036), on the server of 034.
+2. **The main thread owns the game.** Game DLL and Metamod code only ever runs
+   on the main thread; workers only touch engine data.
+3. **Byte-identical output.** For the same inputs, the server sends the same
+   bytes with every option on or off (037).
+4. **Everything is switchable.** Each change has a cvar or command line switch
+   and keeps the original code path; options stay off until the field
+   validation (050), then turn on by default.
+5. **Refactor, then thread.** A parallelisation is preceded by a
+   single-threaded refactor that isolates the work (045 before 046-047).
+6. Protocol, delta encoding and game DLL interfaces are untouched (ground
+   rule 1 above).
+
+## Roadmap
+
+| # | Story | ReHLDS | Phase |
+|---|-------|--------|-------|
+| 034 | [Dedicated server baseline: Metamod, bots and CSDM](034-dedicated-server-baseline.md) | MT-702 setup | 0 - Measure |
+| 035 | [Per-phase frame profiler](035-frame-profiler.md) | MT-002 | 0 - Measure |
+| 036 | [Load test harness for the Xash3D protocol](036-load-test-harness.md) | MT-003 | 0 - Measure |
+| 037 | [Byte-exact replay and race checks](037-regression-replay-and-race-checks.md) | MT-004 | 0 - Measure |
+| 038 | [Deadline-based frame scheduler](038-deadline-frame-scheduler.md) | MT-101, MT-103 | 1 - Tick |
+| 039 | [Spread client snapshots over the frames](039-snapshot-spreading.md) | MT-106 | 1 - Tick |
+| 040 | [Network receive thread and early filtering](040-network-receive-thread.md) | MT-302, MT-303, MT-102 | 2 - Network |
+| 041 | [Network send thread](041-network-send-thread.md) | MT-304, MT-105 | 2 - Network |
+| 042 | [Server browser answers on the network thread](042-a2s-answers-on-network-thread.md) | MT-305 | 2 - Network |
+| 043 | [Log files written on their own thread](043-async-log-writer.md) | MT-301 | 2 - Network |
+| 044 | [Client of a game packet found by address](044-client-lookup-by-address.md) | MT-104 | 2 - Network |
+| 045 | [Split `SV_SendClientMessages` into gather, encode and transmit](045-split-send-client-messages.md) | MT-401 | 3 - Snapshots |
+| 046 | [Thread-safe delta encoding](046-thread-safe-delta-encoding.md) | MT-402, MT-203 | 3 - Snapshots |
+| 047 | [Parallel snapshot encoding on the job system](047-parallel-snapshot-encoding.md) | MT-403 | 3 - Snapshots |
+| 048 | [Metamod plugins and the threaded encoding](048-plugin-compatibility-guard.md) | MT-404 | 3 - Snapshots |
+| 049 | [Configuration, documentation and launch script](049-configuration-and-docs.md) | MT-701 | 4 - Rollout |
+| 050 | [Field validation](050-field-validation.md) | MT-702 | 4 - Rollout |
+
+Order: 034 → 035 → 038 → 039 (re-measure) → 036 → 037 → 040 → 041, 042,
+043, 044 → 045 → 046 → 047 → 048 → 049 → 050. The ReHLDS numbers say where
+the gains were: the scheduler and snapshot spreading gave the steady tick, the
+network thread the flood protection; parallel encoding saved little on real
+servers and waits for numbers from this engine.
+
+Not carried over:
+- MT-306 (Steam calls on demand): Xash3D has no Steam server API.
+- MT-201, MT-202 (thread audit, worker pool): the job system of 029 exists;
+  the audit of the encode path is part of 046.
+- MT-501, MT-601 (parallel netchan decoding, file transfers): measured not worth
+  it on ReHLDS; reconsidered only with numbers from this engine.
