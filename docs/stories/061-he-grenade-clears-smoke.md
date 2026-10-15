@@ -31,6 +31,34 @@ This set is a new game, not a Counter-Strike 1.6 kept as it was: heavier
 than 1.6 is accepted when the effect needs it (benchmarked on older GPUs,
 not aimed at Atom or Intel integrated graphics).
 
+## Status (2026-10-15)
+Done, `cl_dll/events/smoke_volume.cpp`: a grid of 24 unit cells filled
+from the grenade by distance (a priority queue, walls stop it, 460 cells: a
+dome of about 145 units, 230 for a light smoke), one puff per cell from
+`sprites/smoke_puff.spr` (four thick puffs in a 512 sheet,
+`scripts/make_smoke_puff.py`; Valve's gas puff is at most 25% opaque),
+lit from above, sorted back to front, drawn with the TriAPI. An HE grenade
+(`SmokeBlast`, `mp_smoke_blast_radius 180`) empties the cells within 80%
+of its radius, thins the rest, throws the puffs out; 1.5 s later the smoke
+flows back from the outside in over 2.5 s. ReGameDLL_CS's bots see through
+the hole. Seed in the event: every client builds the same volume.
+`cl_smoke_volume 0` gives Valve's 20 puffs back; `cl_smoke_debug 1` prints
+and enables `smoke_test`, `smoke_blast_test`, `smoke_stats`.
+
+ref_vk, found on the way (the same smoke was a fine grey cloud on ref_gl):
+- the client's transparent triangles came after whatever state the last
+  entity left: ref_gl's 3D state is set before them now;
+- alpha blending into the linear HDR scene let ( 1 - a )^(1/2.2) of the
+  background through instead of GL's ( 1 - a ): the alpha is converted;
+- with `r_vk_quality rt` the rays relit the surface behind the smoke and
+  painted it over the smoke: the HDR scene's alpha now carries the rays'
+  share of the pixel, lessened by what translucent sprites and smoke cover,
+  and the rays and the occlusion follow it.
+
+Tested on de_dust2 with ref_gl and ref_vk (classic, enhanced, rt): the
+smoke opaque, the hole, the refill. Left: YaPB (its own smoke test), more
+than one smoke on an older GPU (net_graph 4), bullets thinning a smoke.
+
 ## Design
 - The smoke becomes a volume, as CS2's: a grid of cells (about 16 units)
   filled from the grenade outwards over its first second, the filling
@@ -59,14 +87,15 @@ not aimed at Atom or Intel integrated graphics).
   noted as a limit.
 
 ## Tasks
-- [ ] Server: `SmokeBlast` when an HE grenade goes off near an active
-      smoke.
-- [ ] Client: the smoke as a volume of cells filling the place, drawn as
+- [x] Server: `SmokeBlast` when an HE grenade goes off (sent always: the
+      clients look for their smokes in reach).
+- [x] Client: the smoke as a volume of cells filling the place, drawn as
       many small puffs; its fade and end unchanged.
-- [ ] Client: the blast's hole, held, refilled from the neighbours.
+- [x] Client: the blast's hole, held, refilled from the outside in.
 - [ ] Performance: several smokes at once on ref_vk and ref_gl, measured
       (net_graph 4) on this machine and an older GPU.
-- [ ] Bots of ReGameDLL_CS seeing through the hole; YaPB looked at.
+- [x] Bots of ReGameDLL_CS seeing through the hole.
+- [ ] YaPB looked at.
 - [ ] Test: a smoke on de_dust2's mid, an HE in it, from outside and from
       inside; timings tuned against CS2 (captures).
 

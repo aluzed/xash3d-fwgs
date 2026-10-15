@@ -120,6 +120,8 @@ cvar_t refill_bpammo_weapons = { "mp_refill_bpammo_weapons", "2", 0, 2.0f, nullp
 cvar_t buy_ammo = { "mp_buy_ammo", "0", 0, 0.0f, nullptr }; // 1: ammo can be bought again (primammo, secammo, buyammo1, buyammo2)
 // the scoreboard sorted by the damage dealt to the enemies (story 055)
 cvar_t scoreboard_damage = { "mp_scoreboard_damage", "1", 0, 1.0f, nullptr }; // 0: nothing sent, the clients sort by frags
+// an HE grenade opens the smokes around it for a moment (story 061)
+cvar_t smoke_blast_radius = { "mp_smoke_blast_radius", "180", 0, 180.0f, nullptr }; // 0: smokes ignore the blasts
 cvar_t freeforall            = { "mp_freeforall", "0", FCVAR_SERVER, 0.0f, nullptr };
 cvar_t auto_join_team        = { "mp_auto_join_team", "0", 0, 0.0f, nullptr };
 cvar_t max_teamkills         = { "mp_max_teamkills", "3", 0, 3.0f, nullptr };
@@ -406,6 +408,7 @@ void EXT_FUNC GameDLLInit()
 	CVAR_REGISTER(&refill_bpammo_weapons);
 	CVAR_REGISTER(&buy_ammo);
 	CVAR_REGISTER(&scoreboard_damage);
+	CVAR_REGISTER(&smoke_blast_radius);
 	CVAR_REGISTER(&freeforall);
 	CVAR_REGISTER(&auto_join_team);
 	CVAR_REGISTER(&max_teamkills);

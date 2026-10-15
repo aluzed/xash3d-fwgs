@@ -236,6 +236,7 @@ extern int gmsgDeathMsg;
 extern int gmsgScoreAttrib;
 extern int gmsgScoreInfo;
 extern int gmsgScoreDmg;
+extern int gmsgSmokeBlast;
 extern int gmsgTeamInfo;
 extern int gmsgTeamScore;
 extern int gmsgGameMode;

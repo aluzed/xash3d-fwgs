@@ -28,6 +28,7 @@
 #include "events.h"
 
 #include "com_model.h"
+#include "smoke_volume.h"
 
 #define SMOKE_CLOUDS 20
 
@@ -35,7 +36,12 @@ void EV_CreateSmoke(event_args_s *args)
 {
 	TEMPENTITY *pTemp;
 
-	if( !args->bparam2 ) //first explosion
+	if( !args->bparam2 && SmokeVolume_Enabled( )) //first explosion: the volume of story 061
+	{
+		// iparam1: the seed sent by the server, bparam1: a light smoke
+		SmokeVolume_Create( args->origin, args->iparam1, args->bparam1 != 0 );
+	}
+	else if( !args->bparam2 ) //first explosion
 	{
 		const model_t *pGasModel = gEngfuncs.GetSpritePointer(gHUD.m_hGasPuff);
 

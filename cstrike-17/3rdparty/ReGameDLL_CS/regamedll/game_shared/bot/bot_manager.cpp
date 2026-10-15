@@ -343,6 +343,62 @@ bool CBotManager::IsInsideSmokeCloud(const Vector *pos)
 	return false;
 }
 
+// Story 061: the holes HE grenades open in the smokes, as the clients draw
+// them: open for SMOKE_BLAST_HOLD seconds, then closing over
+// SMOKE_BLAST_REFILL seconds
+const float SMOKE_BLAST_HOLD = 1.5f;
+const float SMOKE_BLAST_REFILL = 2.5f;
+const int MAX_SMOKE_BLASTS = 8;
+
+static struct
+{
+	Vector origin;
+	float radius;
+	float time;
+} s_smokeBlasts[MAX_SMOKE_BLASTS];
+
+static int s_nextSmokeBlast;
+
+void CBotManager::OnSmokeBlast(const Vector &origin, float radius)
+{
+	s_smokeBlasts[s_nextSmokeBlast].origin = origin;
+	s_smokeBlasts[s_nextSmokeBlast].radius = radius;
+	s_smokeBlasts[s_nextSmokeBlast].time = gpGlobals->time;
+	s_nextSmokeBlast = (s_nextSmokeBlast + 1) % MAX_SMOKE_BLASTS;
+}
+
+// the length of the line of sight inside the open holes
+static float SmokeBlastOpenLength(const Vector &from, const Vector &sightDir, float sightLength)
+{
+	float open = 0.0f;
+
+	for (auto &blast : s_smokeBlasts)
+	{
+		const float age = gpGlobals->time - blast.time;
+		if (blast.radius <= 0.0f || age < 0.0f || age > SMOKE_BLAST_HOLD + SMOKE_BLAST_REFILL)
+			continue;
+
+		float radius = blast.radius;
+		if (age > SMOKE_BLAST_HOLD)
+			radius *= 1.0f - (age - SMOKE_BLAST_HOLD) / SMOKE_BLAST_REFILL;
+
+		// the chord of the segment in the hole's sphere
+		Vector toCentre = blast.origin - from;
+		const float along = DotProduct(toCentre, sightDir);
+		const float distSq = toCentre.LengthSquared() - along * along;
+		if (distSq >= radius * radius)
+			continue;
+
+		const float half = Q_sqrt(radius * radius - distSq);
+		const float start = Q_max(along - half, 0.0f);
+		const float end = Q_min(along + half, sightLength);
+		if (end > start)
+			open += end - start;
+	}
+
+	return open;
+}
+
 // Return true if line intersects smoke volume
 // Determine the length of the line of sight covered by each smoke cloud,
 // and sum them (overlap is additive for obstruction).
@@ -462,6 +518,10 @@ bool CBotManager::IsLineBlockedBySmoke(const Vector *from, const Vector *to)
 			}
 		}
 	}
+
+	// the part of it in a hole opened by an HE grenade is clear
+	if (totalSmokedLength > 0.0f)
+		totalSmokedLength = Q_max(0.0f, totalSmokedLength - SmokeBlastOpenLength(*from, sightDir, sightLength));
 
 	// define how much smoke a bot can see thru
 	const float maxSmokedLength = 0.7f * smokeRadius;

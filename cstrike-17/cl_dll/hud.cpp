@@ -35,6 +35,7 @@
 #include "camera.h"
 
 #include "draw_util.h"
+#include "events/smoke_volume.h"
 
 #if _WIN32
 #define strncasecmp _strnicmp
@@ -286,6 +287,8 @@ void CHud :: Init( void )
 	HOOK_COMMAND_FUNC( "special", __CmdFunc_InputCommandSpecial, );
 	HOOK_COMMAND_FUNC( "gunsmoke", __CmdFunc_GunSmoke, );
 
+	SmokeVolume_Init();
+
 #ifdef __ANDROID__
 	HOOK_COMMAND_FUNC( "evdev_mouseopen", __CmdFunc_MouseSucksOpen );
 	HOOK_COMMAND_FUNC( "evdev_mouseclose", __CmdFunc_MouseSucksClose );
@@ -456,6 +459,7 @@ CHud :: ~CHud()
 void CHud :: VidInit( void )
 {
 	static bool firstinit = true;
+	SmokeVolume_Reset();
 	m_scrinfo.iSize = sizeof( m_scrinfo );
 	GetScreenInfo( &m_scrinfo );
 

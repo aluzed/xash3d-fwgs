@@ -255,6 +255,23 @@ void CGrenade::__API_HOOK(Explode3)(TraceResult *pTrace, int bitsDamageType)
 {
 	float flRndSound; // sound randomizer
 
+	// story 061: the blast opens the smokes around it for a moment; every
+	// client carves its smoke volumes, the bots see through the hole
+	if (smoke_blast_radius.value > 0.0f)
+	{
+		const int radius = clamp(int(smoke_blast_radius.value), 1, 1024);
+
+		MESSAGE_BEGIN(MSG_ALL, gmsgSmokeBlast);
+			WRITE_COORD(pev->origin.x);
+			WRITE_COORD(pev->origin.y);
+			WRITE_COORD(pev->origin.z);
+			WRITE_SHORT(radius);
+		MESSAGE_END();
+
+		if (TheBots)
+			TheBots->OnSmokeBlast(pev->origin, radius);
+	}
+
 	pev->model = iStringNull; // invisible
 	pev->solid = SOLID_NOT;   // intangible
 	pev->takedamage = DAMAGE_NO;
@@ -623,7 +640,9 @@ void CGrenade::__API_HOOK(SG_Detonate)()
 	flags = FEV_RELIABLE;
 #endif
 
-	PLAYBACK_EVENT_FULL(flags, nullptr, m_usEvent, 0, m_vSmokeDetonate, (float *)&g_vecZero, 0, 0, 0, 1, m_bLightSmoke, FALSE);
+	// iparam1: the seed of the smoke's volume (story 061), the same for
+	// every client
+	PLAYBACK_EVENT_FULL(flags, nullptr, m_usEvent, 0, m_vSmokeDetonate, (float *)&g_vecZero, 0, 0, RANDOM_LONG(1, 32767), 1, m_bLightSmoke, FALSE);
 
 	pev->velocity.x = RANDOM_FLOAT(-175, 175);
 	pev->velocity.y = RANDOM_FLOAT(-175, 175);
