@@ -38,10 +38,13 @@ dome of about 145 units, 230 for a light smoke), one puff per cell from
 `sprites/smoke_puff.spr` (four thick puffs in a 512 sheet,
 `scripts/make_smoke_puff.py`; Valve's gas puff is at most 25% opaque),
 lit from above, sorted back to front, drawn with the TriAPI. An HE grenade
-(`SmokeBlast`, `mp_smoke_blast_radius 300`: with 180 the edge of the
-cloud stayed, played) empties the cells within 90% of its radius, thins the
-rest, throws the puffs out up to 160 units; 1.5 s later the smoke flows back
-from the outside in over 2.5 s. A smoke lasts 17 s as CS2's (the server's
+(`SmokeBlast`: origin, `mp_smoke_blast_radius 200`, the yaw from the
+thrower to the blast) empties an oval long along the throw (1.6 times the
+radius, 0.65 across, 0.9 up and down) so that one sees through the smoke
+while its sides keep some of it, thins the outer third, throws the puffs
+out up to 130 units; 1.5 s later the smoke flows back from the outside in
+over 2.5 s. Played: a sphere of 180 left the edge of the cloud, of 300
+emptied all of it and went mostly to the sides. A smoke lasts 17 s as CS2's (the server's
 too, for the bots and the molotov): from 13 s its cells dissolve, the outer
 layers first, each over 1.5 s, while the whole cloud lightens; a fade of
 every puff together kept it dense to the end. ReGameDLL_CS's bots see through

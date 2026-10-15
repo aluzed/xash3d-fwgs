@@ -19,8 +19,9 @@ General Public License for more details.
 // number of cells, so a smoke blocked on one side flows further on the
 // other. Drawn as one soft puff per cell, sorted back to front.
 //
-// An HE grenade (SmokeBlast: origin, radius) empties the cells around it
-// and throws their puffs outwards; after a moment the smoke flows back in,
+// An HE grenade (SmokeBlast: origin, radius, yaw) empties the cells in an
+// oval around it, long along the throw so that one can see through the
+// smoke, and throws their puffs outwards; after a moment the smoke flows back in,
 // from the outside of the hole to its centre. The smoke's own end (it thins
 // from 13 seconds, the outer layers first, and is gone at 17, or the round
 // ends) never moves.
@@ -66,7 +67,10 @@ const float FADE_END = 17.0f;        // and is gone, as the server's
 const float CELL_FADE = 1.5f;        // seconds for one cell to dissolve
 const float BLAST_HOLD = 1.5f;       // the hole stays open, then
 const float BLAST_REFILL = 2.5f;     // the smoke flows back in
-const float BLAST_PUSH = 160.0f;     // how far a puff is thrown at most
+const float BLAST_PUSH = 130.0f;     // how far a puff is thrown at most
+const float BLAST_ALONG = 1.6f;      // the oval of a blast, in its radius: along the throw
+const float BLAST_SIDE = 0.65f;      // across it
+const float BLAST_UP = 0.9f;         // and up and down
 const float PUFF_SIZE = 44.0f;       // half the size of a puff
 const float PUFF_ALPHA = 0.9f;
 
@@ -292,32 +296,43 @@ float Removed( const Cell &c, float now )
 	return c.removed * ( 1.0f - Smoothstep(( now - c.refillStart ) / APPEAR_TIME ));
 }
 
-void Blast( Smoke &smoke, const Vector &origin, float radius, float now )
+// how far a point is in the oval of a blast: 0 at its centre, 1 on its edge
+float BlastDistance( const Vector &rel, float radius, float yaw )
+{
+	const float a = yaw * ( 3.14159265f / 180.0f );
+	const float ca = cosf( a ), sa = sinf( a );
+	const float along = ( rel.x * ca + rel.y * sa ) / ( radius * BLAST_ALONG );
+	const float side = ( rel.y * ca - rel.x * sa ) / ( radius * BLAST_SIDE );
+	const float up = rel.z / ( radius * BLAST_UP );
+	return sqrtf( along * along + side * side + up * up );
+}
+
+void Blast( Smoke &smoke, const Vector &origin, float radius, float yaw, float now )
 {
 	bool reached = false;
 	for( Cell &c : smoke.cells )
 	{
 		const Vector rel = c.pos - origin;
 		const float d = rel.Length();
-		if( d >= radius )
+		const float k = BlastDistance( rel, radius, yaw );
+		if( k >= 1.0f )
 			continue;
 
-		// blown away in the middle, thinned over the last tenth of the
-		// radius: a puff is half a cell wide around its cell, the cells left
-		// at the edge must not close the hole again
-		const float depth = Smoothstep(( radius - d ) / ( 0.1f * radius ));
+		// blown away in the middle, thinned over the outer third of the
+		// oval: the sides of a smoke around the blast keep a little of it
+		const float depth = Smoothstep(( 1.0f - k ) / 0.35f );
 		const float now_removed = Removed( c, now );
 		if( depth <= now_removed )
 			continue;
 
 		c.removed = depth;
 		c.blastTime = now;
-		c.push = ( d > 1.0f ? rel * ( 1.0f / d ) : Vector( 0.0f, 0.0f, 1.0f )) * ( BLAST_PUSH * ( 1.0f - d / radius ));
+		c.push = ( d > 1.0f ? rel * ( 1.0f / d ) : Vector( 0.0f, 0.0f, 1.0f )) * ( BLAST_PUSH * ( 1.0f - k ));
 		reached = true;
 	}
 
 	if( cl_smoke_debug && cl_smoke_debug->value )
-		gEngfuncs.Con_Printf( "smoke blast at %.0f %.0f %.0f radius %.0f: %s\n", origin.x, origin.y, origin.z, radius, reached ? "opened" : "no smoke in reach" );
+		gEngfuncs.Con_Printf( "smoke blast at %.0f %.0f %.0f radius %.0f yaw %.0f: %s\n", origin.x, origin.y, origin.z, radius, yaw, reached ? "opened" : "no smoke in reach" );
 
 	if( !reached )
 		return;
@@ -328,8 +343,8 @@ void Blast( Smoke &smoke, const Vector &origin, float radius, float now )
 	{
 		if( c.removed <= 0.0f || c.blastTime != now )
 			continue;
-		const float d = ( c.pos - origin ).Length();
-		const float inward = 1.0f - ( d < radius ? d / radius : 1.0f );
+		const float k = BlastDistance( c.pos - origin, radius, yaw );
+		const float inward = 1.0f - ( k < 1.0f ? k : 1.0f );
 		c.refillStart = now + BLAST_HOLD + BLAST_REFILL * inward;
 	}
 }
@@ -342,8 +357,9 @@ int MsgFunc_SmokeBlast( const char *pszName, int iSize, void *pbuf )
 	origin.y = reader.ReadCoord();
 	origin.z = reader.ReadCoord();
 	const float radius = reader.ReadShort();
+	const float yaw = reader.ReadAngle();
 
-	SmokeVolume_Blast( origin, radius );
+	SmokeVolume_Blast( origin, radius, yaw );
 	return 1;
 }
 
@@ -402,7 +418,7 @@ void SmokeBlastTest_f( void )
 	if( !cl_smoke_debug || !cl_smoke_debug->value )
 		return;
 
-	SmokeVolume_Blast( s_testPoint + Vector( 0.0f, 0.0f, 24.0f ), 300.0f );
+	SmokeVolume_Blast( s_testPoint + Vector( 0.0f, 0.0f, 24.0f ), 200.0f, v_angles[1] );
 }
 
 } // namespace
@@ -436,11 +452,11 @@ void SmokeVolume_Create( const Vector &origin, int seed, bool light )
 	s_smokes.push_back( std::move( smoke ));
 }
 
-void SmokeVolume_Blast( const Vector &origin, float radius )
+void SmokeVolume_Blast( const Vector &origin, float radius, float yaw )
 {
 	const float now = gEngfuncs.GetClientTime();
 	for( Smoke &smoke : s_smokes )
-		Blast( smoke, origin, radius, now );
+		Blast( smoke, origin, radius, yaw, now );
 }
 
 void SmokeVolume_Draw( void )

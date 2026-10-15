@@ -121,7 +121,7 @@ cvar_t buy_ammo = { "mp_buy_ammo", "0", 0, 0.0f, nullptr }; // 1: ammo can be bo
 // the scoreboard sorted by the damage dealt to the enemies (story 055)
 cvar_t scoreboard_damage = { "mp_scoreboard_damage", "1", 0, 1.0f, nullptr }; // 0: nothing sent, the clients sort by frags
 // an HE grenade opens the smokes around it for a moment (story 061)
-cvar_t smoke_blast_radius = { "mp_smoke_blast_radius", "300", 0, 300.0f, nullptr }; // 0: smokes ignore the blasts
+cvar_t smoke_blast_radius = { "mp_smoke_blast_radius", "200", 0, 200.0f, nullptr }; // 0: smokes ignore the blasts
 cvar_t freeforall            = { "mp_freeforall", "0", FCVAR_SERVER, 0.0f, nullptr };
 cvar_t auto_join_team        = { "mp_auto_join_team", "0", 0, 0.0f, nullptr };
 cvar_t max_teamkills         = { "mp_max_teamkills", "3", 0, 3.0f, nullptr };

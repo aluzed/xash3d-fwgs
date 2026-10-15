@@ -95,7 +95,7 @@ public:
 	void DestroyAllGrenades();
 
 	bool IsLineBlockedBySmoke(const Vector *from, const Vector *to);			// return true if line intersects smoke volume
-	void OnSmokeBlast(const Vector &origin, float radius);					// an HE grenade opened the smokes around it (story 061)
+	void OnSmokeBlast(const Vector &origin, float radius, float yaw);					// an HE grenade opened the smokes around it (story 061)
 	bool IsInsideSmokeCloud(const Vector *pos);									// return true if position is inside a smoke cloud
 
 private:

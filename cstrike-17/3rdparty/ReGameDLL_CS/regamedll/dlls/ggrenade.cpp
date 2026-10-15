@@ -255,21 +255,30 @@ void CGrenade::__API_HOOK(Explode3)(TraceResult *pTrace, int bitsDamageType)
 {
 	float flRndSound; // sound randomizer
 
-	// story 061: the blast opens the smokes around it for a moment; every
-	// client carves its smoke volumes, the bots see through the hole
+	// story 061: the blast opens the smokes around it for a moment, an oval
+	// long along the throw (from the thrower to the blast) so that one sees
+	// through; every client carves its smoke volumes, the bots see through
+	// the hole
 	if (smoke_blast_radius.value > 0.0f)
 	{
 		const int radius = clamp(int(smoke_blast_radius.value), 1, 1024);
+
+		Vector dir = pev->velocity;
+		CBaseEntity *pThrower = CBaseEntity::Instance(pev->owner);
+		if (pThrower)
+			dir = pev->origin - pThrower->pev->origin;
+		const float yaw = (dir.x == 0.0f && dir.y == 0.0f) ? 0.0f : UTIL_VecToYaw(dir);
 
 		MESSAGE_BEGIN(MSG_ALL, gmsgSmokeBlast);
 			WRITE_COORD(pev->origin.x);
 			WRITE_COORD(pev->origin.y);
 			WRITE_COORD(pev->origin.z);
 			WRITE_SHORT(radius);
+			WRITE_ANGLE(yaw);
 		MESSAGE_END();
 
 		if (TheBots)
-			TheBots->OnSmokeBlast(pev->origin, radius);
+			TheBots->OnSmokeBlast(pev->origin, radius, yaw);
 	}
 
 	pev->model = iStringNull; // invisible

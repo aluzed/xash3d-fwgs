@@ -344,25 +344,30 @@ bool CBotManager::IsInsideSmokeCloud(const Vector *pos)
 }
 
 // Story 061: the holes HE grenades open in the smokes, as the clients draw
-// them: open for SMOKE_BLAST_HOLD seconds, then closing over
-// SMOKE_BLAST_REFILL seconds
+// them: an oval long along the throw, open for SMOKE_BLAST_HOLD seconds,
+// then closing over SMOKE_BLAST_REFILL seconds
 const float SMOKE_BLAST_HOLD = 1.5f;
 const float SMOKE_BLAST_REFILL = 2.5f;
+const float SMOKE_BLAST_ALONG = 1.6f; // the oval, in the blast's radius
+const float SMOKE_BLAST_SIDE = 0.65f;
+const float SMOKE_BLAST_UP = 0.9f;
 const int MAX_SMOKE_BLASTS = 8;
 
 static struct
 {
 	Vector origin;
 	float radius;
+	float yaw;
 	float time;
 } s_smokeBlasts[MAX_SMOKE_BLASTS];
 
 static int s_nextSmokeBlast;
 
-void CBotManager::OnSmokeBlast(const Vector &origin, float radius)
+void CBotManager::OnSmokeBlast(const Vector &origin, float radius, float yaw)
 {
 	s_smokeBlasts[s_nextSmokeBlast].origin = origin;
 	s_smokeBlasts[s_nextSmokeBlast].radius = radius;
+	s_smokeBlasts[s_nextSmokeBlast].yaw = yaw;
 	s_smokeBlasts[s_nextSmokeBlast].time = gpGlobals->time;
 	s_nextSmokeBlast = (s_nextSmokeBlast + 1) % MAX_SMOKE_BLASTS;
 }
@@ -378,22 +383,37 @@ static float SmokeBlastOpenLength(const Vector &from, const Vector &sightDir, fl
 		if (blast.radius <= 0.0f || age < 0.0f || age > SMOKE_BLAST_HOLD + SMOKE_BLAST_REFILL)
 			continue;
 
-		float radius = blast.radius;
+		float scale = 1.0f;
 		if (age > SMOKE_BLAST_HOLD)
-			radius *= 1.0f - (age - SMOKE_BLAST_HOLD) / SMOKE_BLAST_REFILL;
-
-		// the chord of the segment in the hole's sphere
-		Vector toCentre = blast.origin - from;
-		const float along = DotProduct(toCentre, sightDir);
-		const float distSq = toCentre.LengthSquared() - along * along;
-		if (distSq >= radius * radius)
+			scale = 1.0f - (age - SMOKE_BLAST_HOLD) / SMOKE_BLAST_REFILL;
+		if (scale <= 0.0f)
 			continue;
 
-		const float half = Q_sqrt(radius * radius - distSq);
-		const float start = Q_max(along - half, 0.0f);
-		const float end = Q_min(along + half, sightLength);
+		// the chord of the segment in the hole's oval: in the oval's own
+		// axes, divided by its half lengths, it is a unit sphere
+		const float a = blast.yaw * (M_PI / 180.0f);
+		const float ca = Q_cos(a), sa = Q_sin(a);
+		const float ra = blast.radius * SMOKE_BLAST_ALONG * scale;
+		const float rs = blast.radius * SMOKE_BLAST_SIDE * scale;
+		const float ru = blast.radius * SMOKE_BLAST_UP * scale;
+		auto toOval = [&](const Vector &v) {
+			return Vector((v.x * ca + v.y * sa) / ra, (v.y * ca - v.x * sa) / rs, v.z / ru);
+		};
+
+		const Vector p = toOval(from - blast.origin);
+		const Vector d = toOval(sightDir * sightLength);
+		const float qa = DotProduct(d, d);
+		const float qb = 2.0f * DotProduct(p, d);
+		const float qc = DotProduct(p, p) - 1.0f;
+		const float disc = qb * qb - 4.0f * qa * qc;
+		if (qa <= 0.0f || disc <= 0.0f)
+			continue;
+
+		const float root = Q_sqrt(disc);
+		const float start = Q_max((-qb - root) / (2.0f * qa), 0.0f);
+		const float end = Q_min((-qb + root) / (2.0f * qa), 1.0f);
 		if (end > start)
-			open += end - start;
+			open += (end - start) * sightLength;
 	}
 
 	return open;

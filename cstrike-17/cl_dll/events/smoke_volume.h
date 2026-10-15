@@ -13,5 +13,5 @@ void SmokeVolume_Init( void );
 void SmokeVolume_Reset( void );
 bool SmokeVolume_Enabled( void );
 void SmokeVolume_Create( const Vector &origin, int seed, bool light );
-void SmokeVolume_Blast( const Vector &origin, float radius );
+void SmokeVolume_Blast( const Vector &origin, float radius, float yaw );
 void SmokeVolume_Draw( void );

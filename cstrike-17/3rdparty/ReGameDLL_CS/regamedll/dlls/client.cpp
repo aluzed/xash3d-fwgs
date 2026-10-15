@@ -168,7 +168,7 @@ void LinkUserMessages()
 	gmsgScoreAttrib   = REG_USER_MSG("ScoreAttrib", 2);
 	gmsgScoreInfo     = REG_USER_MSG("ScoreInfo", 9);
 	gmsgScoreDmg      = REG_USER_MSG("ScoreDmg", 5);
-	gmsgSmokeBlast    = REG_USER_MSG("SmokeBlast", 8);
+	gmsgSmokeBlast    = REG_USER_MSG("SmokeBlast", 9);
 	gmsgTeamInfo      = REG_USER_MSG("TeamInfo", -1);
 	gmsgTeamScore     = REG_USER_MSG("TeamScore", -1);
 	gmsgGameMode      = REG_USER_MSG("GameMode", 1);
