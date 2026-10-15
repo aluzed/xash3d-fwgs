@@ -25,6 +25,15 @@ threads).
 Files are opened and closed on the main thread: the file system's search
 paths aren't thread safe, a `file_t` read by one thread at a time is.
 
+## Watching the workers
+
+Each worker adds the time it spends in jobs to a counter only it writes;
+`Job_Activity` hands the counters out without the lock. `net_graph 4`
+turns them into a gauge per worker, refreshed every quarter second, and
+the average load; hollow squares are the workers the CPU could have but
+that don't run (`-jobthreads`, the default of 4). See
+[client-hud.md](client-hud.md).
+
 ## Measured, left on the main thread
 
 Map loads on an SSD with warm caches (`client connected at`, amd64,

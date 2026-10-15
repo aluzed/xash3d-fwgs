@@ -28,6 +28,24 @@ If you like Xash3D FWGS, consider supporting individual engine maintainers. By s
 * Ogg Vorbis (`.ogg`) & Ogg Opus (`.opus`) audio formats support.
 * [A set of small improvements](Documentation/), without broken compatibility.
 
+## What this fork adds
+This fork ([aluzed/xash3d-fwgs](https://github.com/aluzed/xash3d-fwgs)) keeps the network protocol, the game library interfaces and the simulation untouched: its clients play on any GoldSrc or Xash3D server. On top of upstream it adds:
+
+* **A Vulkan renderer, `ref_vk`** ([Documentation/ref-vk.md](Documentation/ref-vk.md)). First a drop-in replacement for `ref_gl`, checked frame by frame against it; then, opt-in:
+  * HDR, tonemapping, bloom, SSAO, FXAA/SMAA, sharpening;
+  * PBR materials and 4K texture packs (KTX2, streamed mip levels), see [Documentation/hd-textures.md](Documentation/hd-textures.md);
+  * hardware ray tracing: shadows of entities, ambient occlusion, reflections and ray traced lighting from the map's own lights, denoised;
+  * presets (classic, low, medium, high, ultra) chosen in the video options, which also say what a preset needs (the Vulkan renderer, a GPU and driver that trace rays).
+* **A job system** ([Documentation/job-system.md](Documentation/job-system.md)): worker threads for work that doesn't touch the game (studio model vertices, texture streaming, lightmap directions). The game, prediction and the network stay on the main thread.
+* **`net_graph 4`**: the text of `net_graph 3`, the time the main thread works a frame and the load of each worker thread ([Documentation/client-hud.md](Documentation/client-hud.md)).
+* **Unicode text in the HUD**: characters the bitmap fonts don't have (Japanese, Chinese, Korean player names...) are drawn from a TrueType font of the system ([Documentation/client-hud.md](Documentation/client-hud.md)).
+* **Steam's current Counter-Strike client library** with its VGUI2 interface ([Documentation/vgui2.md](Documentation/vgui2.md)).
+* **A customizable Counter-Strike crosshair** with an options page, presets and share codes, in the [cs16-client](https://github.com/aluzed/cs16-client) fork and its menu.
+* **A multithreaded dedicated server**: deadline frame scheduler, network threads, parallel snapshot encoding, all switchable ([Documentation/dedicated-server-tuning.md](Documentation/dedicated-server-tuning.md)).
+* **Native Windows builds**, 32 and 64-bit, with MSVC ([docs/building-vulkan-renderer.md](docs/building-vulkan-renderer.md#windows)). Ray tracing on AMD needs the 64-bit build: AMD's 32-bit Vulkan driver has none.
+
+The work is planned and recorded as stories in [docs/stories](docs/stories/README.md).
+
 ## Installation & Running
 0) Get Xash3D FWGS binaries: you can use [testing](https://github.com/FWGS/xash3d-fwgs/releases/tag/continuous) build or you can compile engine from source code.
 1) Copy engine binaries to some directory.

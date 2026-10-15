@@ -163,3 +163,51 @@ them after every run, so it never changes the player's settings.
   for that map.
 - `CL_LoadProgs: failed to get address of ... proc` — optional client
   exports.
+
+## Windows
+
+Native builds with MSVC (Visual Studio Build Tools 2026) and waf, no
+container. Both architectures are built, in separate trees:
+
+- **x86** runs Valve's 32-bit game libraries, Steam's Counter-Strike
+  client with its VGUI2 included (`Documentation/vgui2.md`). AMD's 32-bit
+  Vulkan driver has no ray tracing.
+- **x64** runs `hlsdk-portable` and `cs16-client` built as 64-bit, with
+  ray tracing on AMD and NVIDIA.
+
+Dependencies:
+
+- SDL2 2.32 development package for Visual C++, unpacked as `SDL2_VC/`
+  at the top of the tree (`lib/x86` and `lib/x64`), not versioned.
+- The Vulkan SDK for `glslc`, its `Bin` directory in `PATH` before waf.
+- `3rdparty/yy-thunks/YY_Thunks_for_WinXP.obj` for the x86 build.
+
+```
+# x86, into build/
+waf.bat configure -s SDL2_VC -T release --enable-utils --enable-tui --enable-vk
+waf.bat build install --destdir=C:\xash-dev\win32
+
+# x64, into build-x64/, with its own lock file
+set WAFLOCK=.lock-waf-x64
+waf.bat configure -o build-x64 -s SDL2_VC -T release -8 --msvc_targets=x64 --enable-utils --enable-tui --enable-vk
+waf.bat build install --destdir=C:\xash-dev\win64
+```
+
+Copy `SDL2.dll` of the matching architecture next to `xash3d.exe`.
+
+Running with the Steam install as read-only data, the writable files
+(configuration, screenshots in `<game>\scrshots`, demos) in the build
+directory:
+
+```
+set XASH3D_BASEDIR=C:\xash-dev\win64
+xash3d.exe -rodir "C:\Program Files (x86)\Steam\steamapps\common\Half-Life" -game cstrike
+```
+
+Counter-Strike without any Valve library (64-bit): build `cs16-client`
+(CMake, `-G "Visual Studio 18 2026" -A x64 -DENABLE_YY_THUNKS=OFF`) and copy
+`client_amd64.dll` and `menu_amd64.dll` to `cstrike\cl_dlls`, `mp_amd64.dll`
+(ReGameDLL_CS) and `yapb_amd64.dll` to `cstrike\dlls` of the engine's
+directory; the game data still comes from the Steam install through
+`-rodir`. Such a client joins Xash3D servers; GoldSrc servers that check
+Steam tickets refuse it.

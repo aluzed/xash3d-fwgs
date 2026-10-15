@@ -12,7 +12,14 @@ are untouched: a client using `ref_vk` plays on any server.
 - A Vulkan 1.3 device with dynamic rendering, synchronization2, descriptor
   indexing (partially bound, update after bind), buffer device address.
   BC texture compression is used when present. Developed and tested on
-  NVIDIA (RTX 2080 Ti); other vendors are untested so far.
+  NVIDIA (RTX 2080 Ti) under Linux and on AMD (RX 7900 XTX) under Windows.
+- Ray tracing: `VK_KHR_acceleration_structure` and `VK_KHR_ray_query`
+  (and `VK_KHR_ray_tracing_pipeline` for the debug view). AMD's 32-bit
+  Windows driver exposes none of them while its 64-bit one does: the
+  32-bit engine (needed for Valve's 32-bit game libraries) renders without
+  ray tracing there, the 64-bit one (with `hlsdk-portable` or
+  `cs16-client`) with it. The log says which: `ray tracing: no` or
+  `ray tracing: query + pipeline` for each device.
 - SDL2 with Vulkan support for the window.
 - To build: the Vulkan headers come as a git submodule
   (`3rdparty/Vulkan-Headers`), SMAA as well (`3rdparty/smaa`); shaders are
@@ -26,7 +33,9 @@ are untouched: a client using `ref_vk` plays on any server.
 ./waf build install
 ```
 
-The renderer is installed as `libref_vk.so` next to `libref_gl.so`. See
+The renderer is installed as `libref_vk.so` next to `libref_gl.so`
+(`ref_vk.dll` on Windows, built with MSVC: see the Windows section of
+`docs/building-vulkan-renderer.md`). See
 `docs/building-vulkan-renderer.md` for the development setup and the
 regression harness.
 
@@ -66,6 +75,7 @@ Vulkan specific:
 | `r_vk_texture_stream` | `1` | stream the mip levels of KTX2 material maps, 0 loads them whole |
 | `r_vk_texture_upload` | `512` | megabytes a second of streamed maps sent to the GPU |
 | `r_vk_threads` | `1` | make the vertices of studio models on the engine's worker threads, 0 on the main thread |
+| `r_vk_rt_supported` | | read only: 1 when the device and its driver trace rays (for the menus) |
 | `r_vk_rt` | `0` | build acceleration structures of the scene every frame (ray tracing GPUs, no restart) |
 | `r_vk_rt_debug` | `0` | cheat: the scene traced from the camera, 1 albedo, 2 normals, 3 instances, 4 depth against the raster view (red where they differ), 5 albedo with the view model, 6 studio models only, red when online the rays leave them out |
 | `r_vk_debug_view` | `""` | cheat: `"x y z pitch yaw"`, the main view drawn from there (regression captures) |
@@ -104,6 +114,24 @@ With 31 bots in view (de_dust2, classic look), the main thread's time in
 the renderer goes from 1.55 to 1.00 ms a frame, the models' from 1.32 to
 0.81 ms (`r_vk_gpu_profile` prints the main thread's time between its
 marks too).
+
+The order inside `VK_ImmFlush` matters: the batch is copied into the
+dynamic ring first, then the reserved ranges learn their place, and only
+then may a job write them. The other way round, a worker could write a
+model's vertices before the copy put the batch's stale ones over them:
+triangles flashed across the screen for a frame, often the yellow of the
+tracers, only at full frame rate (fixed in f4c4dc48; captures slow the
+frames down and never showed it). `ref_vk` also declares `gl_Position`
+invariant in its vertex shaders, so a surface's lightmap and detail passes,
+drawn with other pipelines, find the depth its first pass wrote.
+
+`net_graph 4` shows what the workers do (see
+`Documentation/client-hud.md`). Playing Counter-Strike 1.6 at 120-200 fps
+on a desktop CPU, they are busy under 0.5 % of the time and the main
+thread works 0.3 to 0.7 ms a frame: CS models are a few hundred triangles,
+and the join often runs the jobs itself before a worker takes them. Story
+051 (low priority) is to measure heavier scenes and decide what the
+threaded path becomes.
 
 ## Render graph
 
@@ -158,11 +186,25 @@ final pixels; the HUD, menus and console are drawn over them as usual.
 `rt` adds the ray traced effects below, and renders as `enhanced` on GPUs
 without ray queries. Everything changes at once at runtime, no restart.
 
-`r_vk_preset` sets a look's settings at once; the video options menu
-offers it as "Rendering quality" while `ref_vk` is loaded, with check
-boxes for the four ray traced effects. A setting changed afterwards makes
-it `custom`; the preset saved in the configuration isn't applied again at
-startup, the settings saved with it are.
+`r_vk_preset` sets a look's settings at once. A setting changed afterwards
+makes it `custom`; the preset saved in the configuration isn't applied
+again at startup, the settings saved with it are.
+
+The video options (Configuration, Video, Video options, in Half-Life's and
+Counter-Strike's menus) have a "Vulkan renderer" section under the test
+image: "Rendering quality" picks the preset, applied at once, and four
+check boxes switch the ray traced shadows, ambient occlusion, reflections
+and lighting. A status line says what is missing:
+
+| Status line | Section |
+|-------------|---------|
+| Ray tracing available | everything can be changed |
+| No ray tracing on this GPU or driver | the ray traced effects are greyed; High and Ultra look like Medium |
+| Needs the Vulkan renderer: Video modes, Renderer, Vulkan | greyed (OpenGL or the software renderer is loaded) |
+
+The menu knows whether rays can be traced from `r_vk_rt_supported`, a
+read-only variable `ref_vk` sets to 1 when the device and its driver trace
+rays.
 
 | Preset    | What it sets                                                                      |
 |-----------|-----------------------------------------------------------------------------------|
