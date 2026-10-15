@@ -41,6 +41,7 @@ Name: "custom"; Description: "Custom"; Flags: iscustom
 [Components]
 Name: "hl"; Description: "Half-Life (needed by Counter-Strike too)"; Types: full hl custom; Flags: fixed
 Name: "cs"; Description: "Counter-Strike, with bots"; Types: full custom
+Name: "server"; Description: "Dedicated servers (Half-Life, Counter-Strike)"; Types: full custom
 
 [Tasks]
 Name: "desktopicon"; Description: "Desktop shortcuts"; GroupDescription: "Shortcuts:"
@@ -54,13 +55,18 @@ Source: "{code:GetGameDir}\cstrike\*"; DestDir: "{app}\cstrike"; Excludes: "*.dl
   Flags: external recursesubdirs createallsubdirs ignoreversion; ExternalSize: 310000000; Components: cs
 ; the engine and Half-Life's libraries
 Source: "installer.ico"; DestDir: "{app}"; Flags: ignoreversion; Components: hl
-Source: "stage\*"; DestDir: "{app}"; Excludes: "\cstrike\*"; Flags: recursesubdirs createallsubdirs ignoreversion; Components: hl
+Source: "stage\*"; DestDir: "{app}"; Excludes: "\cstrike\*,\xash-dedicated.exe"; Flags: recursesubdirs createallsubdirs ignoreversion; Components: hl
+; the dedicated server, next to the client: same filesystem and game libraries
+Source: "stage\xash-dedicated.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: server
 ; Counter-Strike's libraries, its extras and bots
 Source: "stage\cstrike\*"; DestDir: "{app}\cstrike"; Flags: recursesubdirs createallsubdirs ignoreversion; Components: cs
 
 [Icons]
 Name: "{group}\Half-Life"; Filename: "{app}\xash3d.exe"; Parameters: "-game valve"; WorkingDir: "{app}"; IconFilename: "{app}\valve\game.ico"; Components: hl
 Name: "{group}\Counter-Strike"; Filename: "{app}\xash3d.exe"; Parameters: "-game cstrike -dll @yapb"; WorkingDir: "{app}"; IconFilename: "{app}\cstrike\game.ico"; Components: cs
+; the options of the dedicated server stories (038-048), as scripts/server/run.sh
+Name: "{group}\Counter-Strike server"; Filename: "{app}\xash-dedicated.exe"; Parameters: "-game cstrike -dll @yapb -port 27015 +maxplayers 20 +sys_scheduler 1 +sv_snapshot_spread 1 +sv_log_async 1 +sv_client_lookup_cache 1 -netthread +sv_a2s_cache 1 -netsend +map de_dust2"; WorkingDir: "{app}"; IconFilename: "{app}\cstrike\game.ico"; Components: server and cs
+Name: "{group}\Half-Life server"; Filename: "{app}\xash-dedicated.exe"; Parameters: "-game valve -port 27016 +maxplayers 16 +map crossfire"; WorkingDir: "{app}"; IconFilename: "{app}\valve\game.ico"; Components: server
 Name: "{group}\Uninstall Xash3D FWGS"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\Half-Life (Xash3D)"; Filename: "{app}\xash3d.exe"; Parameters: "-game valve"; WorkingDir: "{app}"; IconFilename: "{app}\valve\game.ico"; Components: hl; Tasks: desktopicon
 Name: "{userdesktop}\Counter-Strike (Xash3D)"; Filename: "{app}\xash3d.exe"; Parameters: "-game cstrike -dll @yapb"; WorkingDir: "{app}"; IconFilename: "{app}\cstrike\game.ico"; Components: cs; Tasks: desktopicon

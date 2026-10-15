@@ -2,8 +2,8 @@
 
 `Setup.exe` for Windows 10 and 11, 64-bit, made with Inno Setup (story
 [052](../../../docs/stories/052-windows-installer.md)). It installs the
-64-bit engine with Half-Life (`hlsdk-portable`) and Counter-Strike
-(`cs16-client`, ReGameDLL_CS, YaPB) and copies the game data from the
+64-bit engine and dedicated server with Half-Life (`halflife-15`) and
+Counter-Strike (`cstrike-17`: client, menus, ReGameDLL_CS, YaPB) and copies the game data from the
 player's Steam folder; the shortcuts then start the games with nothing else
 to install.
 
@@ -11,33 +11,25 @@ to install.
 |------|-|
 | `stage.ps1` | gathers the files into `stage\` |
 | `xash3d.iss` | the installer: wizard, Steam folder detection, copy, shortcuts, uninstaller |
+| `server-cstrike.cfg`, `server-valve.cfg` | the dedicated servers' settings |
 | `license.txt` | the licenses of what it installs, shown by the wizard |
 | `make_icon.py` | draws `installer.ico` and `wizard-small-*.bmp` (Pillow) |
 
 ## Building
 
-1. Build and install the 64-bit engine (`docs/building-vulkan-renderer.md`,
-   Windows), `hlsdk-portable` and `cs16-client` for x64:
+Everything comes from this repository (`Documentation/monorepo.md`):
+`stage.ps1` builds the 64-bit engine, the dedicated server, `halflife-15`
+and `cstrike-17`, then gathers them with SDL2 and the MSVC runtime; Inno
+Setup 6 (`winget install JRSoftware.InnoSetup`) packs them.
 
-   ```
-   cmake -S hlsdk-portable -B build -G "Visual Studio 18 2026" -A x64 -D64BIT=ON
-   cmake --build build --config Release
-   cmake --install build --config Release --prefix C:\xash-dev\stage-hl
+```
+powershell -File stage.ps1            # -NoBuild: only gather the last builds
+iscc /DVersion=0.21 xash3d.iss
+```
 
-   cmake -S cs16-client -B build -G "Visual Studio 18 2026" -A x64 -DENABLE_YY_THUNKS=OFF
-   cmake --build build --config Release
-   cmake --install build --config Release --prefix C:\xash-dev\stage-cs
-   ```
-
-2. Stage, then compile with Inno Setup 6
-   (`winget install JRSoftware.InnoSetup`):
-
-   ```
-   powershell -File stage.ps1 -Engine C:\xash-dev\win64 -Hlsdk C:\xash-dev\stage-hl -Cs16 C:\xash-dev\stage-cs
-   iscc /DVersion=0.21 xash3d.iss
-   ```
-
-   The installer is `output\Xash3D-FWGS-Setup-<version>.exe`.
+It needs Visual Studio 2026 Build Tools (C++, CMake), Python, Rust, the
+Vulkan SDK and `SDL2_VC` at the top of the tree, as the builds do. The
+installer is `output\Xash3D-FWGS-Setup-<version>.exe`.
 
 ## What it does
 
@@ -58,6 +50,12 @@ to install.
 - Shortcuts: "Half-Life" (`-game valve`), "Counter-Strike"
   (`-game cstrike -dll @yapb`, which loads the bots before the game
   library).
+- Dedicated servers (component "server"): `xash-dedicated.exe` next to the
+  client, shortcuts "Counter-Strike server" (port 27015, YaPB bots, the
+  options of the dedicated server stories, `server-cstrike.cfg` as
+  `cstrike\server.cfg`) and "Half-Life server" (port 27016,
+  `server-valve.cfg`). Windows asks to let them through its firewall on
+  their first start.
 - The uninstaller asks before removing what the player made.
 
 Silent install, as used in tests:
