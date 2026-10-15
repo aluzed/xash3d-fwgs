@@ -70,4 +70,6 @@ each mode (their own stories).
 ## Risks / notes
 - Some cvars only take effect at a restart or a new map: the switch always
   restarts the map.
-- Bots (YaPB) need nothing per mode, they follow `mp_freeforall`.
+- Bots (YaPB) only in `ffa` and `csdm` (their configs set `yb_quota`);
+  `match` is for players only, its config sets `yb_quota 0` and kicks the
+  bots.
