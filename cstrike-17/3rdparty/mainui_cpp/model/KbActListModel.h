@@ -81,6 +81,9 @@ public:
 				if( !pfile )
 					break;
 
+				if( IsRemovedCommand( e.bind ))
+					continue;
+
 				FormatLabel( token, e.display, sizeof( e.display ));
 
 				if( m_view == VIEW_BINDINGS )
@@ -124,6 +127,14 @@ public:
 	bool IsLineUsable( int line ) const
 	{
 		return entries.IsValidIndex( line ) && entries[line].bind[0] != 0;
+	}
+
+	// ammo isn't bought any more (mp_buy_ammo 0): a weapon comes with all
+	// of it, so Valve's kb_act.lst and kb_def.lst lose these actions
+	static bool IsRemovedCommand( const char *command )
+	{
+		return !stricmp( command, "buyammo1" ) || !stricmp( command, "buyammo2" )
+			|| !stricmp( command, "primammo" ) || !stricmp( command, "secammo" );
 	}
 
 	// Walk all keys, return up to two bound to `command` (in input order, then swapped).

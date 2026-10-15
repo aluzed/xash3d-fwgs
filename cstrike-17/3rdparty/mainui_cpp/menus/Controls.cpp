@@ -140,6 +140,9 @@ void CMenuControls::ResetKeysList( void )
 			key[1] = '\0';
 		}
 
+		if( CMenuKbActListModel::IsRemovedCommand( token ))
+			continue;
+
 		snprintf( cmd, sizeof( cmd ), "bind \"%s\" \"%s\"\n", key, token );
 		EngFuncs::ClientCmd( true, cmd );
 	}
