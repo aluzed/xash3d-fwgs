@@ -29,6 +29,8 @@
 #include "draw_util.h"
 #include "vgui_parser.h"
 #include "eventscripts.h"
+#include "ammohistory.h"
+#include "weapontype.h"
 
 hud_player_info_t   g_PlayerInfoList[MAX_PLAYERS+1]; // player info from the engine
 extra_player_info_t	g_PlayerExtraInfo[MAX_PLAYERS+1]; // additional player info sent directly to the client dll
@@ -617,7 +619,16 @@ int CHudScoreboard :: MsgFunc_TeamInfo( const char *pszName, int iSize, void *pb
 		else teamNumber = TEAM_UNASSIGNED;
 
 		strncpy( g_PlayerExtraInfo[cl].teamname, teamName, MAX_TEAM_NAME );
+		bool changed = g_PlayerExtraInfo[cl].teamnumber != teamNumber;
 		g_PlayerExtraInfo[cl].teamnumber = teamNumber;
+
+		// the molotov's icons follow the team: incendiary for the CTs
+		if( changed && cl == m_iPlayerNum )
+		{
+			WEAPON *molotov = gWR.GetWeapon( WEAPON_MOLOTOV );
+			if( molotov && molotov->iId )
+				gWR.LoadWeaponSprites( molotov );
+		}
 	}
 
 	// rebuild the list of teams

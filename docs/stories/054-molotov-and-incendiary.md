@@ -46,6 +46,17 @@ Debug (sv_cheats): `molotov_here` (at the feet), `molotov_at x y z`,
 `mp_molotov_debug 1`. Seen from noclip above the map, `sv_novis 1` is
 needed: the flames are entities, sent only inside the player's view.
 
+Icons and menus: the weapon list shows Valve's own MOLOTOV icon, left over
+from Condition Zero in Steam's `640hud17`/`640hud18` (nothing to ship), and
+for the counter-terrorists an INCENDIARY icon drawn by
+`cstrike-17/scripts/make_hud_incendiary.py` (`640hud_cs17.spr`,
+`weapon_incgrenade.txt`); the client reloads the icons when its player
+changes team. The buy menu pictures `gfx/vgui/molotov.tga` and
+`incgrenade.tga` are rendered by `make_buy_images.py`. The text buy menus
+(`_vgui_menus 0`) are written by the server as the VGUI ones: no ammo,
+equipment on 6, molotov / incendiary on 6 (Valve's `titles.txt` still
+sold ammo on 6 and 7). Tested on a local server for both teams.
+
 ## Design
 - Weapon id 2 (`WEAPON_GLOCK`, never used by CS 1.6) for both: the team
   picks the model, the fire's length and the price, like the CS2 pair.
@@ -73,10 +84,12 @@ needed: the flames are entities, sent only inside the player's view.
       lifetime, smoke puts it out; the killer and weapon in death notices.
 - [x] Server: purchase (menu entries, `molotov` command, team prices),
       round reset, drop on death, `mp_` cvars.
-- [ ] Client: weapon prediction, HUD (weapon list, ammo, selection),
-      buy menu entry, kill icon, burst and fire effects.
+- [x] Client: weapon prediction, HUD (weapon list, selection, the icon of
+      each team), buy menu entry and picture, text menus.
+- [ ] Client: kill icon, burst and fire effects.
 - [ ] Test on a local server, then on the test server with players.
-- [ ] Bottle model for the terrorists (v_, p_, w_), credited.
+- [ ] Models: a bottle for the terrorists, an incendiary canister for the
+      counter-terrorists (v_, p_, w_).
 - [ ] Documentation: `cs16-client` README, cvars.
 
 ## Acceptance criteria

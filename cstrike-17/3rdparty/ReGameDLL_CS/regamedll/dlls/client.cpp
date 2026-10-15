@@ -429,6 +429,118 @@ void EXT_FUNC __API_HOOK(ShowVGUIMenu)(CBasePlayer *pPlayer, int MenuType, int B
 		ShowMenu(pPlayer, BitMask, -1, 0, szOldMenu);
 }
 
+// The text buy menus, for the players without VGUI menus (_vgui_menus 0):
+// Valve's titles.txt has no molotov and still sells ammo, so the menus of
+// story 054 are written here, as the VGUI ones of the client.
+static void ShowBuyMenuText(CBasePlayer *pPlayer, int MenuType, int BitMask, const char *pszText)
+{
+#ifdef REGAMEDLL_ADD
+	if (CSGameRules()->ShouldSkipShowMenu() || (pPlayer->m_bVGUIMenus && !pPlayer->CSPlayer()->m_bForceShowMenu))
+#else
+	if (pPlayer->m_bVGUIMenus)
+#endif
+	{
+		ShowVGUIMenu(pPlayer, MenuType, BitMask, (char *)"");
+		return;
+	}
+
+	// a user message carries less than 192 bytes: the text goes in parts
+	const size_t len = Q_strlen(pszText);
+	const size_t step = 160;
+	for (size_t i = 0; i < len; i += step)
+	{
+		char part[step + 1];
+		Q_strncpy(part, pszText + i, step);
+		part[step] = '\0';
+		ShowMenu(pPlayer, BitMask, -1, (i + step < len) ? TRUE : FALSE, part);
+	}
+}
+
+static void ShowBuyMenu(CBasePlayer *pPlayer)
+{
+	if (buy_ammo.value != 0.0f)
+	{
+		ShowVGUIMenu(pPlayer, VGUI_Menu_Buy, (MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7 | MENU_KEY_8 | MENU_KEY_0), "#Buy");
+		return;
+	}
+
+	ShowBuyMenuText(pPlayer, VGUI_Menu_Buy, (MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_0),
+		"\\yBuy Item\\w\n\n"
+		"1. Handgun\n"
+		"2. Shotgun\n"
+		"3. Sub-Machine Gun\n"
+		"4. Rifle\n"
+		"5. Machine Gun\n\n"
+		"6. Equipment\n\n"
+		"0. Exit");
+}
+
+static void ShowBuyItemMenu(CBasePlayer *pPlayer)
+{
+	char text[512];
+	int keys = (MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7 | MENU_KEY_0);
+	int len = Q_snprintf(text, sizeof(text),
+		"\\yBuy Equipment\\R$   Cost\n\n"
+		"\\w1. Kevlar Vest\\y\\R%d\n"
+		"\\w2. Kevlar Vest & Helmet\\y\\R%d\n"
+		"\\w3. Flashbang\\y\\R%d\n"
+		"\\w4. HE Grenade\\y\\R%d\n"
+		"\\w5. Smoke Grenade\\y\\R%d\n",
+		KEVLAR_PRICE, ASSAULTSUIT_PRICE, FLASHBANG_PRICE, HEGRENADE_PRICE, SMOKEGRENADE_PRICE);
+
+	if (pPlayer->m_iTeam == CT)
+	{
+		// the defuse kit is greyed out without a bomb target, as Valve's menu
+		const bool bomb = CSGameRules()->m_bMapHasBombTarget;
+		keys |= MENU_KEY_8 | MENU_KEY_9;
+		if (!bomb)
+			keys &= ~MENU_KEY_7;
+
+		Q_snprintf(text + len, sizeof(text) - len,
+			"\\w6. Incendiary Grenade\\y\\R%d\n"
+			"%s7. Defuse Kit\\y\\R%d\n"
+			"\\w8. Tactical Shield\\y\\R%d\n"
+			"\\w9. NightVision Goggles\\y\\R%d\n\n"
+			"\\w0. Exit",
+			INCENDIARY_PRICE, bomb ? "\\w" : "\\d", DEFUSEKIT_PRICE, SHIELDGUN_PRICE, NVG_PRICE);
+	}
+	else
+	{
+		Q_snprintf(text + len, sizeof(text) - len,
+			"\\w6. Molotov\\y\\R%d\n"
+			"\\w7. NightVision Goggles\\y\\R%d\n\n"
+			"\\w0. Exit",
+			MOLOTOV_PRICE, NVG_PRICE);
+	}
+
+	ShowBuyMenuText(pPlayer, VGUI_Menu_Buy_Item, keys, text);
+	pPlayer->m_iMenu = Menu_BuyItem;
+}
+
+// the keys of the text equipment menu, to the items of BuyItem
+static int BuyItemMenuSlot(CBasePlayer *pPlayer, int slot)
+{
+	if (slot >= MENU_SLOT_ITEM_VEST && slot <= MENU_SLOT_ITEM_SMOKEGREN)
+		return slot;
+
+	if (slot == 6)
+		return MENU_SLOT_ITEM_MOLOTOV;
+
+	if (pPlayer->m_iTeam == CT)
+	{
+		switch (slot)
+		{
+		case 7: return MENU_SLOT_ITEM_DEFUSEKIT;
+		case 8: return MENU_SLOT_ITEM_SHIELD;
+		case 9: return MENU_SLOT_ITEM_NVG;
+		}
+	}
+	else if (slot == 7)
+		return MENU_SLOT_ITEM_NVG;
+
+	return 0;
+}
+
 NOXREF int CountTeams()
 {
 	int iNumCT = 0, iNumTerrorist = 0;
@@ -3016,6 +3128,10 @@ void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *pa
 			{
 				if (canOpenOldMenu())
 				{
+					// without ammo to buy, the equipment is on 6 (ShowBuyMenu)
+					if (buy_ammo.value == 0.0f && slot >= VGUI_MenuSlot_Buy_PrimAmmo)
+						slot = (slot == VGUI_MenuSlot_Buy_PrimAmmo) ? VGUI_MenuSlot_Buy_Item : 0;
+
 					switch (slot)
 					{
 						case VGUI_MenuSlot_Buy_Pistol:
@@ -3126,20 +3242,7 @@ void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *pa
 							if (pPlayer->m_signals.GetState() & SIGNAL_BUY)
 							{
 								pPlayer->m_iMenu = Menu_BuyItem;
-								if (CSGameRules()->m_bMapHasBombTarget)
-								{
-									if (pPlayer->m_iTeam == CT)
-										ShowVGUIMenu(pPlayer, VGUI_Menu_Buy_Item, (MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7 | MENU_KEY_8 | MENU_KEY_0), "#DCT_BuyItem");
-									else
-										ShowVGUIMenu(pPlayer, VGUI_Menu_Buy_Item, (MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_0), "#DT_BuyItem");
-								}
-								else
-								{
-									if (pPlayer->m_iTeam == CT)
-										ShowVGUIMenu(pPlayer, VGUI_Menu_Buy_Item, (MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_8 | MENU_KEY_0), "#CT_BuyItem");
-									else
-										ShowVGUIMenu(pPlayer, VGUI_Menu_Buy_Item, (MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_0), "#T_BuyItem");
-								}
+								ShowBuyItemMenu(pPlayer);
 							}
 							break;
 						}
@@ -3206,7 +3309,7 @@ void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *pa
 			{
 				if (canOpenOldMenu())
 				{
-					BuyItem(pPlayer, slot);
+					BuyItem(pPlayer, BuyItemMenuSlot(pPlayer, slot));
 #ifdef REGAMEDLL_FIXES
 					pPlayer->BuildRebuyStruct();
 #endif
@@ -3628,20 +3731,7 @@ void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *pa
 			{
 				if (pPlayer->m_signals.GetState() & SIGNAL_BUY)
 				{
-					if (CSGameRules()->m_bMapHasBombTarget)
-					{
-						if (pPlayer->m_iTeam == CT)
-							ShowVGUIMenu(pPlayer, VGUI_Menu_Buy_Item, (MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7 | MENU_KEY_8 | MENU_KEY_0), "#DCT_BuyItem");
-						else
-							ShowVGUIMenu(pPlayer, VGUI_Menu_Buy_Item, (MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_0), "#DT_BuyItem");
-					}
-					else
-					{
-						if (pPlayer->m_iTeam == CT)
-							ShowVGUIMenu(pPlayer, VGUI_Menu_Buy_Item, (MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_8 | MENU_KEY_0), "#CT_BuyItem");
-						else
-							ShowVGUIMenu(pPlayer, VGUI_Menu_Buy_Item, (MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_0), "#T_BuyItem");
-					}
+					ShowBuyItemMenu(pPlayer);
 
 					pPlayer->m_iMenu = Menu_BuyItem;
 				}
@@ -3650,7 +3740,7 @@ void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *pa
 			{
 				if (pPlayer->m_signals.GetState() & SIGNAL_BUY)
 				{
-					ShowVGUIMenu(pPlayer, VGUI_Menu_Buy, (MENU_KEY_1 | MENU_KEY_2 | MENU_KEY_3 | MENU_KEY_4 | MENU_KEY_5 | MENU_KEY_6 | MENU_KEY_7 | MENU_KEY_8 | MENU_KEY_0), "#Buy");
+					ShowBuyMenu(pPlayer);
 					pPlayer->m_iMenu = Menu_Buy;
 
 					if (TheBots)

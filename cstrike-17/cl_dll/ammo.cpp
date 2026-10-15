@@ -102,7 +102,13 @@ void WeaponsResource :: LoadWeaponSprites( WEAPON *pWeapon )
 	pWeapon->hAmmo = 0;
 	pWeapon->hAmmo2 = 0;
 
-	snprintf(sz, sizeof(sz), "sprites/%s.txt", pWeapon->szName);
+	// one weapon, two names: the counter-terrorists' molotov is the
+	// incendiary grenade (story 054)
+	const char *name = pWeapon->szName;
+	if( pWeapon->iId == WEAPON_MOLOTOV && g_PlayerExtraInfo[gHUD.m_Scoreboard.m_iPlayerNum].teamnumber == TEAM_CT )
+		name = "weapon_incgrenade";
+
+	snprintf(sz, sizeof(sz), "sprites/%s.txt", name);
 	client_sprite_t *pList = SPR_GetList(sz, &i);
 
 	if (!pList)
