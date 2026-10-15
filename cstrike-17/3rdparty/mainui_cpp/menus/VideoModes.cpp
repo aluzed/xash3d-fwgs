@@ -35,22 +35,89 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //   out of sync with the vid mode strings list
 //   Doing this, however, will require API extension
 
+// the aspect ratios the list can be narrowed to, the first shows every mode
+enum
+{
+	ASPECT_ALL = 0,
+	ASPECT_4_3,
+	ASPECT_16_10,
+	ASPECT_16_9,
+	ASPECT_OTHER
+};
+
+static int AspectOf( int w, int h )
+{
+	if( w <= 0 || h <= 0 )
+		return ASPECT_OTHER;
+
+	const float r = (float)w / h;
+	if( fabs( r - 4.0f / 3.0f ) < 0.02f )
+		return ASPECT_4_3;
+	if( fabs( r - 16.0f / 10.0f ) < 0.02f )
+		return ASPECT_16_10;
+	if( fabs( r - 16.0f / 9.0f ) < 0.03f ) // 1366x768 too
+		return ASPECT_16_9;
+	return ASPECT_OTHER;
+}
+
+static const char *AspectName( int w, int h )
+{
+	switch( AspectOf( w, h ))
+	{
+	case ASPECT_4_3: return "4:3";
+	case ASPECT_16_10: return "16:10";
+	case ASPECT_16_9: return "16:9";
+	}
+
+	const float r = (float)w / h;
+	if( fabs( r - 5.0f / 4.0f ) < 0.02f )
+		return "5:4";
+	if( r > 2.2f && r < 2.5f )
+		return "21:9";
+	return nullptr;
+}
+
+// the engine's modes, narrowed to one aspect ratio; a row keeps the index
+// of its mode, which vid_mode and vid_setmode take
 class CMenuVidModesModel : public CMenuBaseArrayModel
 {
 public:
 	void Update() override;
 	int GetRows() const override
 	{
-		return m_szModes.Count();
+		return m_modes.Count();
 	}
 
 	const char *GetText( int line ) override
 	{
-		return m_szModes[line];
+		return m_modes[line].text;
+	}
+
+	void SetAspect( int aspect ) { m_iAspect = aspect; }
+
+	// the engine's mode of a row, the row of a mode (-1 when filtered out)
+	int ModeOf( int row ) const
+	{
+		return row >= 0 && row < m_modes.Count() ? m_modes[row].index : -1;
+	}
+
+	int RowOf( int mode ) const
+	{
+		for( int i = 0; i < m_modes.Count(); i++ )
+			if( m_modes[i].index == mode )
+				return i;
+		return -1;
 	}
 
 private:
-	CUtlVector<const char *> m_szModes;
+	struct mode_t
+	{
+		int index;
+		char text[64];
+	};
+
+	CUtlVector<mode_t> m_modes;
+	int m_iAspect = ASPECT_ALL;
 };
 
 class CMenuRenderersModel : public CMenuBaseArrayModel
@@ -114,6 +181,8 @@ public:
 	void WriteRendererConfig();
 	bool IsRendererChanged();
 
+	void SetAspect( int aspect );
+
 	CMenuCheckBox	vsync;
 
 	CMenuTable	vidList;
@@ -125,6 +194,7 @@ public:
 	CMenuRenderersModel renderersModel;
 	CMenuSpinControl renderers;
 	CMenuSpinControl windowMode;
+	CMenuSpinControl aspect;
 
 	int prevMode;
 	int prevModeX;
@@ -136,7 +206,7 @@ public:
 
 void CMenuVidModesModel::Update()
 {
-	m_szModes.Purge();
+	m_modes.Purge();
 
 	for( int i = 0; ; i++ )
 	{
@@ -145,7 +215,19 @@ void CMenuVidModesModel::Update()
 		if( !mode )
 			break;
 
-		m_szModes.AddToTail( mode );
+		int w = 0, h = 0;
+		sscanf( mode, "%ix%i", &w, &h );
+		if( m_iAspect != ASPECT_ALL && AspectOf( w, h ) != m_iAspect )
+			continue;
+
+		mode_t m;
+		m.index = i;
+		const char *aspect = AspectName( w, h );
+		if( aspect )
+			snprintf( m.text, sizeof( m.text ), "%s  (%s)", mode, aspect );
+		else
+			Q_strncpy( m.text, mode, sizeof( m.text ));
+		m_modes.AddToTail( m );
 	}
 }
 
@@ -219,16 +301,45 @@ void CMenuVidModes::GetConfig()
 	float fullscreen = EngFuncs::GetCvarFloat( "fullscreen" );
 	fullscreen = bound( 0, fullscreen, 2 ); // windowed, fullscreen, borderless
 
-	float vid_mode = EngFuncs::GetCvarFloat( "vid_mode" );
-	vid_mode = bound( 0, vid_mode, vidListModel.GetRows( ));
+	// the list opens on the aspect ratio of the current resolution
+	const int width = EngFuncs::GetCvarFloat( "width" );
+	const int height = EngFuncs::GetCvarFloat( "height" );
+	int current = AspectOf( width, height );
+	if( current == ASPECT_OTHER )
+		current = ASPECT_ALL;
+	aspect.SetCurrentValue( current );
+	vidListModel.SetAspect( current );
+	vidListModel.Update();
+
+	int vid_mode = EngFuncs::GetCvarFloat( "vid_mode" );
+	int row = vidListModel.RowOf( vid_mode );
+	if( row < 0 )
+	{
+		aspect.SetCurrentValue( ASPECT_ALL );
+		vidListModel.SetAspect( ASPECT_ALL );
+		vidListModel.Update();
+		row = bound( 0, vid_mode, vidListModel.GetRows( ));
+	}
 
 	windowMode.SetCurrentValue( fullscreen );
-	vidList.SetCurrentIndex( vid_mode );
+	vidList.SetCurrentIndex( row );
 
 	renderers.UpdateCvar( true );
 	vsync.UpdateCvar( true );
 
 	ApplyChanges();
+}
+
+void CMenuVidModes::SetAspect( int value )
+{
+	// keep the chosen resolution selected when it is in the new list
+	const int mode = vidListModel.ModeOf( vidList.GetCurrentIndex( ));
+
+	vidListModel.SetAspect( value );
+	vidListModel.Update();
+
+	const int row = vidListModel.RowOf( mode );
+	vidList.SetCurrentIndex( row >= 0 ? row : 0 );
 }
 
 void CMenuVidModes::SetMode( int w, int h )
@@ -254,8 +365,8 @@ void CMenuVidModes::SetConfig( )
 {
 	bool testMode = false;
 	int  currentWindowModeIndex = windowMode.GetCurrentValue();
-	int  currentModeIndex = vidList.GetCurrentIndex();
-	bool isVidModeChanged = prevMode != currentModeIndex;
+	int  currentModeIndex = vidListModel.ModeOf( vidList.GetCurrentIndex( ));
+	bool isVidModeChanged = currentModeIndex >= 0 && prevMode != currentModeIndex;
 	bool isWindowedModeChanged = prevFullscreen != currentWindowModeIndex;
 
 	/*
@@ -287,7 +398,6 @@ void CMenuVidModes::SetConfig( )
 	{
 		SetMode( currentModeIndex );
 		EngFuncs::CvarSetValue( "vid_mode", currentModeIndex );
-		vidList.SetCurrentIndex( currentModeIndex );
 	}
 
 	// let the test mode dialog have the screen to itself, it's on a timer
@@ -366,6 +476,14 @@ void CMenuVidModes::_Init( void )
 		L( "Borderless" ),
 	};
 	static CStringArrayModel windowModeModel( windowModeStr, V_ARRAYSIZE( windowModeStr ));
+	static const char *aspectStr[] =
+	{
+		L( "All" ),
+		"4:3",
+		"16:10",
+		"16:9",
+	};
+	static CStringArrayModel aspectModel( aspectStr, V_ARRAYSIZE( aspectStr ));
 
 	banner.SetPicture( ART_BANNER );
 
@@ -406,11 +524,22 @@ void CMenuVidModes::_Init( void )
 		parent->vidList.SetInactive( parent->windowMode.GetCurrentValue( ) == 2 );
 	});
 
+	aspect.szName = L( "Aspect ratio" );
+	aspect.Setup( &aspectModel );
+	aspect.SetRect( 80, 620, 250, 32 );
+	aspect.SetCharSize( QM_SMALLFONT );
+	SET_EVENT_MULTI( aspect.onChanged,
+	{
+		CMenuVidModes *parent = pSelf->GetParent( CMenuVidModes );
+		parent->SetAspect( parent->aspect.GetCurrentValue( ));
+	});
+
 	AddItem( banner );
 	AddButton( L( "GameUI_Apply" ), nullptr, PC_OK, VoidCb( &CMenuVidModes::SetConfig ) );
 	AddButton( L( "GameUI_Cancel" ), nullptr, PC_CANCEL, VoidCb( &CMenuVidModes::Hide ) );
 	AddItem( renderers );
 	AddItem( windowMode );
+	AddItem( aspect );
 	AddItem( vsync );
 	AddItem( vidList );
 
