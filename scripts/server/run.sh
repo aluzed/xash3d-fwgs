@@ -34,17 +34,18 @@ if [ "${NO_BUILD:-0}" != 1 ]; then
 	./waf install --destdir="$XASH_SERVER_ROOT"
 fi
 
-set -- -game cstrike -port "${PORT:-27016}" +maxplayers "${MAXPLAYERS:-20}" \
-	-sys_ticrate "${TICRATE:-1000}" "$@"
-
-# Options of the dedicated server stories, every one on
+# Options of the dedicated server stories, every one on; the extra server
+# arguments come after them, so that they can turn one off
 if [ "${FEATURES:-1}" = 1 ]; then
-	set -- "$@" \
-		+sys_scheduler 1 +sys_spin_us "${SPIN_US:-200}" \
-		+sv_snapshot_spread 1 +sv_log_async 1 +sv_client_lookup_cache 1
+	features="+sys_scheduler 1 +sys_spin_us ${SPIN_US:-200}
+		+sv_snapshot_spread 1 +sv_log_async 1 +sv_client_lookup_cache 1"
 else
-	set -- "$@" +sys_scheduler 0 +sv_snapshot_spread 0 +sv_log_async 0 +sv_client_lookup_cache 0
+	features="+sys_scheduler 0 +sv_snapshot_spread 0 +sv_log_async 0 +sv_client_lookup_cache 0"
 fi
+
+# shellcheck disable=SC2086
+set -- -game cstrike -port "${PORT:-27016}" +maxplayers "${MAXPLAYERS:-20}" \
+	-sys_ticrate "${TICRATE:-1000}" $features "$@"
 [ "${METAMOD:-1}" = 1 ] && set -- -dll addons/metamod/metamod_amd64.so "$@"
 [ -n "${RCON_PASSWORD:-}" ] && set -- "$@" +rcon_password "$RCON_PASSWORD"
 

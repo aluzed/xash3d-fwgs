@@ -19,7 +19,10 @@ exactly `cl_updaterate` and the snapshot work is spread evenly.
 ## Progress (2026-10-15)
 - [x] `sv_snapshot_spread` (off by default): `SV_NextSpreadMessageTime` in
       `engine/server/sv_frame.c`, the ReHLDS formula.
-- [ ] Measured with load clients (036): bots receive no snapshots.
+- [x] Measured with 32 load clients (036): 1000.0 fps, tick p99 1000.2 µs, 100.0
+      snapshots per second per client, instead of 812.9 fps, 2487 µs and 94.6
+      without the options; see [`../benchmarks/README.md`](../benchmarks/README.md).
+      Spreading needs the scheduler: alone, the original loop spins at 92 % of a core.
 
 ## Acceptance criteria
 - 32 clients at `cl_updaterate 100` on a 1000 Hz server: each receives 100
