@@ -28,7 +28,7 @@ it (YaPB) at first.
 ## Status (2026-10-15)
 First version in ReGameDLL_CS and `cs16-client`, the smoke grenade's models
 for both teams. Tested on a local server: bought from the equipment menu
-(T $400, CT $600), thrown, bursts on the ground into fire spreading in a
+(item 6, T $400, CT $600), thrown, bursts on the ground into fire spreading in a
 ring, burns (100, 80, 60 HP, then the kill feed "killed self with
 molotov"), the incendiary's fire at a distance. Left: the smoke putting it
 out and the air burst seen in play, the test server (its Linux ReGameDLL
@@ -46,8 +46,9 @@ needs the change too), the bottle model, a kill icon.
   `mp_molotov_duration` (7 s, incendiary 5.5 s), hurting about 40 HP a
   second whoever stands in a flame (burn damage, armour counts), put out
   by a smoke grenade's cloud. Fire sprites and sounds of Half-Life and CS.
-- Purchase: equipment menu (8), item 8 for the terrorists, 9 for the
-  counter-terrorists (the shield is 8); console `molotov`; $400 / $600 as in
+- Purchase: equipment menu (8), item 6 for both teams, after the smoke
+  grenade as in CS2; night vision moves to 9 (the defusal kit and the
+  shield stay 7 and 8); console `molotov` / `incgrenade`; $400 / $600 as in
   CS2; one at a time.
 - Models: the smoke grenade's for both until a bottle with a clear licence
   is found (GameBanana, credited) or made.
