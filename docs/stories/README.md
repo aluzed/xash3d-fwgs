@@ -134,6 +134,20 @@ the gains were: the scheduler and snapshot spreading gave the steady tick, the
 network thread the flood protection; parallel encoding saved little on real
 servers and waits for numbers from this engine.
 
+## Status (2026-10-15)
+
+Done and measured on the 034 server: 034, 035, 036, 037, 038, 039, 040 (but
+`sys_wake_on_packet`), 041, 042, 043, 044; 049 for these. Every option is off
+by default (ground rule 4) and on with `scripts/server/run.sh`. Results:
+[`../benchmarks/README.md`](../benchmarks/README.md); operator guide:
+[`../../Documentation/dedicated-server-tuning.md`](../../Documentation/dedicated-server-tuning.md).
+
+Next: 045-048 (parallel snapshot encoding). With 32 players at 100 Hz the
+encoding is 56 µs per frame (p99 88 µs) beside 240 µs of game library calls
+that stay on the main thread; CS's custom delta encoders (`Entity_Encode`,
+`Player_Encode`) write the shared delta descriptions, so the encoders' results
+must be recorded on the main thread during the gather, as ReHLDS does.
+
 Not carried over:
 - MT-306 (Steam calls on demand): Xash3D has no Steam server API.
 - MT-201, MT-202 (thread audit, worker pool): the job system of 029 exists;
