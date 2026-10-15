@@ -76,6 +76,10 @@ static struct
 	int finished_count;
 	int running;
 	qboolean quit;
+
+	// seconds each worker spent in jobs, written by that worker only: read
+	// without the lock for the thread activity of net_graph 4
+	double busy[JOB_MAX_THREADS];
 } jobs;
 
 /*
@@ -123,7 +127,7 @@ static int Job_CPUCount( void )
 }
 #endif
 
-static void Job_WorkerLoop( void )
+static void Job_WorkerLoop( int index )
 {
 	Job_Lock( &jobs.lock );
 
@@ -143,7 +147,9 @@ static void Job_WorkerLoop( void )
 		jobs.running++;
 		Job_Unlock( &jobs.lock );
 
+		const double start = Sys_DoubleTime();
 		job.run( job.data );
+		jobs.busy[index] += Sys_DoubleTime() - start;
 
 		Job_Lock( &jobs.lock );
 		jobs.running--;
@@ -157,33 +163,34 @@ static void Job_WorkerLoop( void )
 }
 
 #if XASH_SDL == 2
-static int Job_ThreadStart( void *unused )
+static int Job_ThreadStart( void *index )
 {
-	Job_WorkerLoop();
+	Job_WorkerLoop( (int)(intptr_t)index );
 	return 0;
 }
 #elif !XASH_WIN32
-static void *Job_ThreadStart( void *unused )
+static void *Job_ThreadStart( void *index )
 {
-	Job_WorkerLoop();
+	Job_WorkerLoop( (int)(intptr_t)index );
 	return NULL;
 }
 #else
-static DWORD WINAPI Job_ThreadStart( LPVOID unused )
+static DWORD WINAPI Job_ThreadStart( LPVOID index )
 {
-	Job_WorkerLoop();
+	Job_WorkerLoop( (int)(intptr_t)index );
 	return 0;
 }
 #endif
 
-static qboolean Job_StartThread( job_thread_t *thread )
+static qboolean Job_StartThread( job_thread_t *thread, int index )
 {
+	void *arg = (void *)(intptr_t)index;
 #if XASH_SDL == 2
-	return ( *thread = SDL_CreateThread( Job_ThreadStart, "job worker", NULL )) != NULL;
+	return ( *thread = SDL_CreateThread( Job_ThreadStart, "job worker", arg )) != NULL;
 #elif !XASH_WIN32
-	return pthread_create( thread, NULL, Job_ThreadStart, NULL ) == 0;
+	return pthread_create( thread, NULL, Job_ThreadStart, arg ) == 0;
 #else
-	return ( *thread = CreateThread( NULL, 0, Job_ThreadStart, NULL, 0, NULL )) != NULL;
+	return ( *thread = CreateThread( NULL, 0, Job_ThreadStart, arg, 0, NULL )) != NULL;
 #endif
 }
 
@@ -220,7 +227,7 @@ void Job_Init( void )
 
 	for( int i = 0; i < count; i++ )
 	{
-		if( !Job_StartThread( &jobs.threads[jobs.num_threads] ))
+		if( !Job_StartThread( &jobs.threads[jobs.num_threads], jobs.num_threads ))
 			break;
 		jobs.num_threads++;
 	}
@@ -247,6 +254,28 @@ void Job_Shutdown( void )
 	Job_CondFree( &jobs.wake );
 	Job_MutexFree( &jobs.lock );
 	memset( &jobs, 0, sizeof( jobs ));
+}
+
+/*
+=================
+Job_Activity
+
+the workers' seconds spent in jobs so far, into busy; returns how many
+workers run, and in slots how many the CPU could have (the ones -jobthreads
+or the default of 4 left out)
+=================
+*/
+int Job_Activity( double *busy, int max, int *slots )
+{
+	const int count = Q_min( jobs.num_threads, max );
+
+	for( int i = 0; i < count; i++ )
+		busy[i] = jobs.busy[i];
+
+	if( slots )
+		*slots = Q_max( jobs.num_threads, bound( 0, Job_CPUCount() - 1, JOB_MAX_THREADS ));
+
+	return count;
 }
 
 /*

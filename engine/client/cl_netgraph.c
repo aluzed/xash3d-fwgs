@@ -15,6 +15,7 @@ GNU General Public License for more details.
 
 #include "common.h"
 #include "client.h"
+#include "jobs.h"
 
 #if XASH_LOW_MEMORY == 0
 #define NET_TIMINGS			1024
@@ -31,8 +32,10 @@ GNU General Public License for more details.
 #define NETGRAPH_LERP_HEIGHT		24
 #define NETGRAPH_NET_COLORS		5
 #define NUM_LATENCY_SAMPLES		8
+#define NETGRAPH_MAX_THREADS		16
+#define NETGRAPH_THREADS_WINDOW	0.25 // seconds the activity of a worker is measured over
 
-CVAR_DEFINE_AUTO( net_graph, "0", FCVAR_ARCHIVE, "draw network usage graph" );
+CVAR_DEFINE_AUTO( net_graph, "0", FCVAR_ARCHIVE, "draw network usage graph: 1 graph, 2 with the data of each packet, 3 text only, 4 text and the activity of the worker threads" );
 static CVAR_DEFINE_AUTO( net_graphpos, "1", FCVAR_ARCHIVE, "network usage graph position" );
 static CVAR_DEFINE_AUTO( net_scale, "5", FCVAR_ARCHIVE, "network usage graph scale level" );
 static CVAR_DEFINE_AUTO( net_graphwidth, "192", FCVAR_ARCHIVE, "network usage graph width" );
@@ -635,6 +638,91 @@ static void NetGraph_GetScreenPos( wrect_t *rect, int *w, int *x, int *y )
 
 /*
 ===========
+NetGraph_DrawThreads
+
+net_graph 4: a square per worker of the job pool (engine/common/jobs.c),
+filled from the bottom by the part of the last NETGRAPH_THREADS_WINDOW
+seconds it spent in jobs, green to red. Grey and hollow: the workers the
+CPU could have but that don't run (-jobthreads, the default of 4)
+===========
+*/
+static void NetGraph_DrawThreads( int x, int y )
+{
+	static double last_time, last_busy[NETGRAPH_MAX_THREADS];
+	static float load[NETGRAPH_MAX_THREADS];
+	const byte back_color[4] = { 30, 50, 30, 255 };
+	const byte off_color[4] = { 130, 130, 130, 255 };
+	rgba_t colors = { 0.9 * 255, 0.9 * 255, 0.7 * 255, 255 };
+	cl_font_t *font = Con_GetFont( 0 );
+	double busy[NETGRAPH_MAX_THREADS];
+	int slots, count, size;
+
+	count = Job_Activity( busy, NETGRAPH_MAX_THREADS, &slots );
+	slots = Q_min( slots, NETGRAPH_MAX_THREADS );
+
+	if( host.realtime - last_time >= NETGRAPH_THREADS_WINDOW || host.realtime < last_time )
+	{
+		const double window = host.realtime - last_time;
+
+		for( int i = 0; i < count; i++ )
+		{
+			load[i] = window > 0.0 ? bound( 0.0f, (float)(( busy[i] - last_busy[i] ) / window ), 1.0f ) : 0.0f;
+			last_busy[i] = busy[i];
+		}
+
+		last_time = host.realtime;
+	}
+
+	CL_SetFontRendermode( font );
+
+	if( !slots )
+	{
+		CL_DrawStringf( font, x, y, colors, FONT_DRAW_NORENDERMODE, "threads: none" );
+		return;
+	}
+
+	x += CL_DrawStringf( font, x, y, colors, FONT_DRAW_NORENDERMODE, "threads: " );
+	size = Q_max( 4, font->charHeight - 4 );
+	y += ( font->charHeight - size ) / 2;
+
+	ref.dllFuncs.GL_SetRenderMode( kRenderTransColor );
+	ref.dllFuncs.GL_Bind( XASH_TEXTURE0, R_GetBuiltinTexture( REF_WHITE_TEXTURE ));
+	ref.dllFuncs.Begin( TRI_QUADS );
+
+	for( int i = 0; i < slots; i++, x += size + 3 )
+	{
+		if( i < count )
+		{
+			// at least a line when it worked at all
+			const int h = load[i] > 0.0f ? Q_max( 1, Q_rint( load[i] * size )) : 0;
+			const byte color[4] = { (byte)( Q_min( 1.0f, load[i] * 2.0f ) * 255 ), (byte)( Q_min( 1.0f, 2.0f - load[i] * 2.0f ) * 230 ), 0, 255 };
+			const wrect_t back = { x, size, y, size - h };
+			const wrect_t fill = { x, size, y + size - h, h };
+
+			if( h < size )
+				NetGraph_DrawRect( &back, back_color );
+			if( h > 0 )
+				NetGraph_DrawRect( &fill, color );
+		}
+		else
+		{
+			const wrect_t edges[4] = {
+				{ x, size, y, 1 }, { x, size, y + size - 1, 1 },
+				{ x, 1, y, size }, { x + size - 1, 1, y, size },
+			};
+
+			for( int e = 0; e < 4; e++ )
+				NetGraph_DrawRect( &edges[e], off_color );
+		}
+	}
+
+	ref.dllFuncs.End();
+	ref.dllFuncs.Color4ub( 255, 255, 255, 255 );
+	ref.dllFuncs.GL_SetRenderMode( kRenderNormal );
+}
+
+/*
+===========
 SCR_DrawNetGraph
 
 ===========
@@ -669,7 +757,15 @@ void SCR_DrawNetGraph( void )
 
 	NetGraph_GetFrameData( &avg_ping, &ping_count );
 
+	// a line more of text: up one, off the version string
+	if( graphtype >= 4 )
+		y -= 15;
+
 	NetGraph_DrawTextFields( x, y, w, rect, ping_count, avg_ping, packet_loss, packet_choke, graphtype );
+
+	// under the four lines of text
+	if( graphtype >= 4 )
+		NetGraph_DrawThreads( x, y - net_graphheight.value + 60 );
 
 	if( graphtype < 3 )
 	{

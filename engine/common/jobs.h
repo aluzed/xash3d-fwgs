@@ -23,5 +23,6 @@ void Job_Shutdown( void );
 qboolean Job_Submit( job_func_t run, job_func_t done, void *data );
 void Job_RunCompletions( void );
 void Job_WaitIdle( void );
+int Job_Activity( double *busy, int max, int *slots );
 
 #endif // JOBS_H
