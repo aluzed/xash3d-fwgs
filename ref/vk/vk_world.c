@@ -3128,7 +3128,13 @@ static void R_DrawEntitiesOnList( VkCommandBuffer cmd )
 
 	if( FBitSet( RI.rvp.flags, RF_DRAW_WORLD ))
 	{
-		VK_ImmTexReplace( false );
+		// as ref_gl's GL_MODULATE: textured, the TriAPI colour modulating
+		// it, whatever the entities drawn before left (a client's sprites,
+		// such as the smoke of story 061, came out untextured)
+		// the client's TriAPI draws in world space with ref_gl's 3D state
+		// (R_SetupGL, GL_MODULATE): whatever the entities left
+		VK_ImmSet3D( true );
+		VK_ImmTexture2D( true );
 		gEngfuncs.pfnDrawTransparentTriangles();
 	}
 

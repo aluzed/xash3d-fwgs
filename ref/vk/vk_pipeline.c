@@ -406,7 +406,7 @@ VkShaderModule VK_CreateShader( const uint32_t *code, size_t size, const char *n
 	return module;
 }
 
-static void VK_SetBlend( VkPipelineColorBlendAttachmentState *state, vk_blend_t blend )
+static void VK_SetBlend( VkPipelineColorBlendAttachmentState *state, vk_blend_t blend, vk_target_t target, qboolean rt_weight )
 {
 	memset( state, 0, sizeof( *state ));
 	state->colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
@@ -457,6 +457,19 @@ static void VK_SetBlend( VkPipelineColorBlendAttachmentState *state, vk_blend_t 
 	default:
 		break;
 	}
+
+	// the HDR scene's alpha is the share of the pixel that the rays of
+	// r_vk_quality rt and the occlusion work on (rt_effects.comp,
+	// post_tonemap.comp): blending keeps it, but sprites, smoke and
+	// particles blended over a surface take their coverage out of it
+	if( target == VK_TARGET_HDR && state->blendEnable )
+	{
+		const qboolean covers = rt_weight && ( blend == VK_BLEND_ALPHA || blend == VK_BLEND_PREMULTIPLIED );
+
+		state->srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+		state->dstAlphaBlendFactor = covers ? VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA : VK_BLEND_FACTOR_ONE;
+		state->alphaBlendOp = VK_BLEND_OP_ADD;
+	}
 }
 
 typedef struct vk_pipeline_desc_s
@@ -475,6 +488,7 @@ typedef struct vk_pipeline_desc_s
 	qboolean dynamic_gl;  // cull mode and depth test, write and function set per draw
 	VkCullModeFlags cull;
 	vk_target_t target;   // colour target format, and how the fragment shader writes to it
+	qboolean rt_weight;   // an alpha blend lessens the scene's alpha: the rays' share of the pixel
 } vk_pipeline_desc_t;
 
 /*
@@ -491,12 +505,16 @@ typedef struct
 {
 	VkBool32 linear_output;
 	float output_scale;
+	VkBool32 gamma_alpha;
+	VkBool32 opaque_alpha;
 } vk_output_constants_t;
 
-static const VkSpecializationMapEntry vk_output_entries[2] =
+static const VkSpecializationMapEntry vk_output_entries[4] =
 {
 	{ 0, offsetof( vk_output_constants_t, linear_output ), sizeof( VkBool32 ) },
 	{ 1, offsetof( vk_output_constants_t, output_scale ), sizeof( float ) },
+	{ 2, offsetof( vk_output_constants_t, gamma_alpha ), sizeof( VkBool32 ) },
+	{ 3, offsetof( vk_output_constants_t, opaque_alpha ), sizeof( VkBool32 ) },
 };
 
 static VkFormat VK_TargetFormat( vk_target_t target )
@@ -512,6 +530,12 @@ static VkPipeline VK_CreateGraphicsPipeline( const vk_pipeline_desc_t *desc )
 	vk_output_constants_t constants = {
 		.linear_output = desc->target == VK_TARGET_HDR,
 		.output_scale = desc->target == VK_TARGET_HDR && desc->blend == VK_BLEND_OVERBRIGHT ? 2.29739671f : 1.0f,
+		// GL blends in gamma space: what shows through an alpha blend there
+		// is ( 1 - a ) of the gamma colour, ( 1 - a )^2.2 of the linear one
+		.gamma_alpha = desc->target == VK_TARGET_HDR && desc->blend == VK_BLEND_ALPHA,
+		// the scene's alpha is the rays' share of the pixel: whole where
+		// something opaque is drawn
+		.opaque_alpha = desc->target == VK_TARGET_HDR && desc->blend == VK_BLEND_NONE,
 	};
 
 	VkSpecializationInfo specialization = {
@@ -569,7 +593,7 @@ static VkPipeline VK_CreateGraphicsPipeline( const vk_pipeline_desc_t *desc )
 		.depthCompareOp = desc->depth_equal ? VK_COMPARE_OP_EQUAL : VK_COMPARE_OP_LESS_OR_EQUAL,
 	};
 
-	VK_SetBlend( &attachment, desc->blend );
+	VK_SetBlend( &attachment, desc->blend, desc->target, desc->rt_weight );
 
 	VkPipelineColorBlendStateCreateInfo color_blend = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
@@ -667,6 +691,7 @@ static qboolean VK_CreateImmPipelines( vk_target_t target )
 				.dynamic_gl = true,
 				.cull = VK_CULL_MODE_NONE,
 				.target = target,
+				.rt_weight = true,
 			};
 
 			Q_snprintf( name, sizeof( name ), "imm target %d topology %d blend %d", target, topology, blend );
