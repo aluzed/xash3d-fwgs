@@ -34,6 +34,18 @@ molotov"), the incendiary's fire at a distance. Left: the smoke putting it
 out and the air burst seen in play, the test server (its Linux ReGameDLL
 needs the change too), the bottle model, a kill icon.
 
+Looked at from above on de_dust2's bomb site A (`molotov_at 1152 2464 200`,
+`r_vk_debug_view "1152 2464 520 89 90"`, `sv_novis 1`): the first pool,
+150 units on a sparse ring, poured off the site's ledge and looked faint
+from above. Now a hexagonal grid of flames out to 100 units, stopped by
+walls and drops, each hurting within 28 units so the red circles of
+`mp_molotov_debug 1` cover exactly the burning ground, and an orange light
+on the ground as far as it burns. Validated by the player.
+
+Debug (sv_cheats): `molotov_here` (at the feet), `molotov_at x y z`,
+`mp_molotov_debug 1`. Seen from noclip above the map, `sv_novis 1` is
+needed: the flames are entities, sent only inside the player's view.
+
 ## Design
 - Weapon id 2 (`WEAPON_GLOCK`, never used by CS 1.6) for both: the team
   picks the model, the fire's length and the price, like the CS2 pair.
