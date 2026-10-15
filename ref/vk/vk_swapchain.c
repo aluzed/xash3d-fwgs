@@ -53,6 +53,7 @@ static struct
 	vk_frame_t frames[VK_FRAMES_IN_FLIGHT];
 	uint32_t frame_index; // frame in flight being recorded
 	uint64_t frame_count;
+	double wait; // seconds blocked in fences, acquire and present (net_graph 4)
 
 	vk_swapchain_t swapchain;
 	qboolean recreate; // out of date or suboptimal, rebuild before the next frame
@@ -71,6 +72,12 @@ static struct
 	VkViewport viewport;  // glViewport and glDepthRange of the open pass
 	uint32_t image_index; // acquired swapchain image
 } vk_frame;
+
+// PARM_FRAME_WAIT_US
+intptr_t VK_FrameWaitMicroseconds( void )
+{
+	return (intptr_t)(uint32_t)(uint64_t)( vk_frame.wait * 1000000.0 );
+}
 
 VkFormat VK_MainColorFormat( void )
 {
@@ -701,12 +708,16 @@ void VK_BeginFrame( qboolean clear_scene )
 	if( !VK_PrepareSwapchain( ))
 		return; // minimised, the engine keeps ticking without drawing
 
+	const double wait_start = gEngfuncs.pfnTime();
+
 	vkWaitForFences( vk.device, 1, &frame->fence, VK_TRUE, UINT64_MAX );
 
 	// a window the compositor doesn't show may never release an image:
 	// skip the frame rather than block the engine
 	result = vkAcquireNextImageKHR( vk.device, vk_frame.swapchain.handle, 1000000000ull,
 		frame->acquired, VK_NULL_HANDLE, &vk_frame.image_index );
+
+	vk_frame.wait += gEngfuncs.pfnTime() - wait_start;
 
 	if( result == VK_TIMEOUT || result == VK_NOT_READY )
 		return;
@@ -864,7 +875,9 @@ void VK_EndFrame( void )
 		.pImageIndices = &vk_frame.image_index,
 	};
 
+	const double present_start = gEngfuncs.pfnTime();
 	result = vkQueuePresentKHR( vk.graphics_queue, &present );
+	vk_frame.wait += gEngfuncs.pfnTime() - present_start;
 
 	if( result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR )
 		vk_frame.recreate = true;

@@ -640,7 +640,10 @@ static void NetGraph_GetScreenPos( wrect_t *rect, int *w, int *x, int *y )
 ===========
 NetGraph_DrawThreads
 
-net_graph 4: a square per worker of the job pool (engine/common/jobs.c),
+net_graph 4: the time the main thread works a frame, its host frame without
+the waits of the renderer for the GPU and the display (PARM_FRAME_WAIT_US,
+ref_gl doesn't tell them), then a square per worker of the job pool
+(engine/common/jobs.c),
 filled from the bottom by the part of the last NETGRAPH_THREADS_WINDOW
 seconds it spent in jobs, green to red. Grey and hollow: the workers the
 CPU could have but that don't run (-jobthreads, the default of 4)
@@ -650,6 +653,9 @@ static void NetGraph_DrawThreads( int x, int y )
 {
 	static double last_time, last_busy[NETGRAPH_MAX_THREADS];
 	static float load[NETGRAPH_MAX_THREADS];
+	static double work, main_ms;
+	static uint32_t last_wait;
+	static int frames;
 	const byte back_color[4] = { 30, 50, 30, 255 };
 	const byte off_color[4] = { 130, 130, 130, 255 };
 	rgba_t colors = { 0.9 * 255, 0.9 * 255, 0.7 * 255, 255 };
@@ -659,6 +665,12 @@ static void NetGraph_DrawThreads( int x, int y )
 
 	count = Job_Activity( busy, NETGRAPH_MAX_THREADS, &slots );
 	slots = Q_min( slots, NETGRAPH_MAX_THREADS );
+
+	// the last frame of the main thread, its waits left out
+	const uint32_t wait = (uint32_t)REF_GET_PARM( PARM_FRAME_WAIT_US, 0 );
+	work += Q_max( 0.0, host.pureframetime - ( wait - last_wait ) * 0.000001 );
+	last_wait = wait;
+	frames++;
 
 	if( host.realtime - last_time >= NETGRAPH_THREADS_WINDOW || host.realtime < last_time )
 	{
@@ -670,10 +682,16 @@ static void NetGraph_DrawThreads( int x, int y )
 			last_busy[i] = busy[i];
 		}
 
+		main_ms = frames ? work * 1000.0 / frames : 0.0;
+		work = 0.0;
+		frames = 0;
 		last_time = host.realtime;
 	}
 
 	CL_SetFontRendermode( font );
+
+	CL_DrawStringf( font, x, y, colors, FONT_DRAW_NORENDERMODE, "main: %.1f ms", main_ms );
+	y += 15;
 
 	if( !slots )
 	{
@@ -719,6 +737,18 @@ static void NetGraph_DrawThreads( int x, int y )
 	ref.dllFuncs.End();
 	ref.dllFuncs.Color4ub( 255, 255, 255, 255 );
 	ref.dllFuncs.GL_SetRenderMode( kRenderNormal );
+
+	// the average, the squares only show a few percent as a line
+	if( count )
+	{
+		float total = 0.0f;
+
+		for( int i = 0; i < count; i++ )
+			total += load[i];
+
+		CL_SetFontRendermode( font );
+		CL_DrawStringf( font, x + 2, y - ( font->charHeight - size ) / 2, colors, FONT_DRAW_NORENDERMODE, "%.1f%%", total * 100.0f / count );
+	}
 }
 
 /*
@@ -757,9 +787,9 @@ void SCR_DrawNetGraph( void )
 
 	NetGraph_GetFrameData( &avg_ping, &ping_count );
 
-	// a line more of text: up one, off the version string
+	// two lines more of text: up, off the version string
 	if( graphtype >= 4 )
-		y -= 15;
+		y -= 30;
 
 	NetGraph_DrawTextFields( x, y, w, rect, ping_count, avg_ping, packet_loss, packet_choke, graphtype );
 

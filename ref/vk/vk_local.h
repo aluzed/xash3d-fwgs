@@ -417,6 +417,7 @@ qboolean VK_InitFrames( void );
 void VK_ShutdownFrames( void );
 void VK_BeginFrame( qboolean clear_scene );
 void VK_EndFrame( void );
+intptr_t VK_FrameWaitMicroseconds( void );
 void VK_ClearScreen( void );
 void VK_SetClearColor( float r, float g, float b );
 void VK_SetViewport( int x, int y, int width, int height );

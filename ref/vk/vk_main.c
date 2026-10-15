@@ -136,6 +136,8 @@ static intptr_t RefGetParm( int parm, int arg )
 	case PARM_TEX_MEMORY:
 	case PARM_TEX_FILTERING:
 		return VK_TextureParm( parm, arg );
+	case PARM_FRAME_WAIT_US:
+		return VK_FrameWaitMicroseconds( );
 	case PARM_LIGHTSTYLEVALUE:
 		return g_lightstylevalue[bound( 0, arg, MAX_LIGHTSTYLES - 1 )];
 	case PARM_MAX_IMAGE_UNITS:

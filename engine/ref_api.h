@@ -369,6 +369,11 @@ typedef enum
 	// returns non-null integer if filtering is enabled for texture
 	// pass -1 to query global filtering settings
 	PARM_TEX_FILTERING     = -0x10000,
+
+	// microseconds the main thread spent waiting for the GPU and the display
+	// since the renderer started (fences, image acquire, present), wrapping;
+	// 0 when the renderer doesn't measure it
+	PARM_FRAME_WAIT_US     = -0x10001,
 } ref_parm_e;
 
 typedef struct ref_api_s
