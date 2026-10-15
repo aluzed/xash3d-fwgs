@@ -1,7 +1,7 @@
 #!/bin/sh
 # Story 034: the Counter-Strike dedicated server tree, next to the read-only
 # Steam data. Engine from this checkout (amd64, dedicated), game library from
-# the amd64 development tree (scripts/dev/build-amd64.sh: cs16-client's
+# the amd64 development tree (scripts/dev/build-amd64.sh: cstrike-17's
 # ReGameDLL_CS), Metamod-FWGS, the deathmatch plugin (scripts/server/csdm)
 # with the CSDM spawn files, configs from scripts/server/cstrike and the bot
 # navigation files.
@@ -12,8 +12,8 @@
 #   XASH_SERVER_ROOT  server tree (default ~/xash-dev/server)
 #   XASH_DEV_ROOT     amd64 development tree with cstrike/dlls/cs_amd64.so
 #                     (default ~/xash-dev/amd64)
-#   XASH_DEV_SRC      sources of the development tree (default ~/xash-dev/src):
-#                     cs16-client's ReGameDLL_CS, metamod-plugin-template
+#   XASH_DEV_SRC      other sources (default ~/xash-dev/src): metamod-plugin-template;
+#                     ReGameDLL_CS is cstrike-17/3rdparty/ReGameDLL_CS of this repository
 #   STEAM_HL          Steam Half-Life install (default ~/.local/share/Steam/steamapps/common/Half-Life)
 #   NAV_DIR           .nav files to copy (default: none)
 
@@ -45,8 +45,8 @@ cp "$tmp/metamod/addons/metamod/metamod_amd64.so" "$game/addons/metamod/"
 cp "$HERE/cstrike/metamod-config.ini" "$game/addons/metamod/config.ini"
 
 # deathmatch plugin, built against the ReGameDLL_CS sources of cs_amd64.so
-regamedll="$XASH_DEV_SRC/cs16-client/3rdparty/ReGameDLL_CS/regamedll"
-[ -d "$regamedll" ] || { echo "setup.sh: no ReGameDLL_CS in $XASH_DEV_SRC/cs16-client" >&2; exit 1; }
+regamedll="$HERE/../../cstrike-17/3rdparty/ReGameDLL_CS/regamedll"
+[ -d "$regamedll" ] || { echo "setup.sh: no ReGameDLL_CS in cstrike-17" >&2; exit 1; }
 [ -d "$XASH_DEV_SRC/metamod-plugin-template" ] || git clone -q https://github.com/FWGS/metamod-plugin-template.git "$XASH_DEV_SRC/metamod-plugin-template"
 cmake -S "$HERE/csdm" -B "$tmp/csdm" -DREGAMEDLL_DIR="$regamedll" \
 	-DMETAMOD_INCLUDE="$XASH_DEV_SRC/metamod-plugin-template/include/metamod" > /dev/null

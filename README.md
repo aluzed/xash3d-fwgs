@@ -44,6 +44,8 @@ This fork ([aluzed/xash3d-fwgs](https://github.com/aluzed/xash3d-fwgs)) keeps th
 * **A multithreaded dedicated server**: deadline frame scheduler, network threads, parallel snapshot encoding, all switchable ([Documentation/dedicated-server-tuning.md](Documentation/dedicated-server-tuning.md)).
 * **Native Windows builds**, 32 and 64-bit, with MSVC ([docs/building-vulkan-renderer.md](docs/building-vulkan-renderer.md#windows)). Ray tracing on AMD needs the 64-bit build: AMD's 32-bit Vulkan driver has none.
 
+**One repository** ([Documentation/monorepo.md](Documentation/monorepo.md)): the engine, Half-Life's game libraries (`halflife-15`, from hlsdk-portable) and Counter-Strike's (`cstrike-17`: client, menus, server game library ReGameDLL_CS, bots), built and installed from one checkout.
+
 The work is planned and recorded as stories in [docs/stories](docs/stories/README.md).
 
 ## Installation & Running

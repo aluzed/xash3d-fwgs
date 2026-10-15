@@ -1,23 +1,20 @@
 #!/bin/sh
-# Build the amd64 development tree: engine + ref_gl + ref_vk, Xash dedicated server, hlsdk-portable (HL)
-# and cs16-client (CS 1.6, server via ReGameDLL_CS, YaPB bots).
+# Build the amd64 development tree: engine + ref_gl + ref_vk, Xash dedicated server, halflife-15 (HL,
+# hlsdk-portable) and cstrike-17 (CS, cs16-client with its server ReGameDLL_CS and the YaPB bots), all
+# from this repository.
 #
-# Output goes to XASH_DEV_ROOT (default ~/xash-dev/amd64), game sources are
-# cloned into XASH_DEV_SRC (default ~/xash-dev/src). Run from anywhere.
+# Output goes to XASH_DEV_ROOT (default ~/xash-dev/amd64), the games' build
+# directories to XASH_DEV_BUILD (default ~/xash-dev/build). Run from anywhere.
 
 set -e
 
 ENGINE_SRC="$(cd "$(dirname "$0")/../.." && pwd)"
 XASH_DEV_ROOT="${XASH_DEV_ROOT:-$HOME/xash-dev/amd64}"
-XASH_DEV_SRC="${XASH_DEV_SRC:-$HOME/xash-dev/src}"
+XASH_DEV_BUILD="${XASH_DEV_BUILD:-$HOME/xash-dev/build}"
 XASH_DEV_DEDICATED="${XASH_DEV_DEDICATED:-$HOME/xash-dev/dedicated}"
 JOBS="${JOBS:-$(nproc)}"
 
-clone() {
-	[ -d "$XASH_DEV_SRC/$1" ] || git clone --recursive "$2" "$XASH_DEV_SRC/$1"
-}
-
-mkdir -p "$XASH_DEV_ROOT" "$XASH_DEV_SRC" "$XASH_DEV_DEDICATED"
+mkdir -p "$XASH_DEV_ROOT" "$XASH_DEV_BUILD" "$XASH_DEV_DEDICATED"
 
 # Xash dedicated server, in its own build directory. Built before the client
 # because waf keeps the last configured directory as the default one, and
@@ -33,19 +30,13 @@ cd "$ENGINE_SRC"
 ./waf install --destdir="$XASH_DEV_ROOT"
 
 # Half-Life game libraries.
-clone hlsdk-portable https://github.com/FWGS/hlsdk-portable.git
-cd "$XASH_DEV_SRC/hlsdk-portable"
-./waf configure -T release -8
-./waf build -j"$JOBS"
-mkdir -p "$XASH_DEV_ROOT/valve/cl_dlls" "$XASH_DEV_ROOT/valve/dlls"
-cp build/cl_dll/client_amd64.so "$XASH_DEV_ROOT/valve/cl_dlls/"
-cp build/dlls/hl_amd64.so "$XASH_DEV_ROOT/valve/dlls/"
+cmake -S "$ENGINE_SRC/halflife-15" -B "$XASH_DEV_BUILD/halflife-15" -DCMAKE_BUILD_TYPE=Release -D64BIT=ON
+cmake --build "$XASH_DEV_BUILD/halflife-15" -j"$JOBS"
+cmake --install "$XASH_DEV_BUILD/halflife-15" --prefix "$XASH_DEV_ROOT"
 
-# Counter-Strike 1.6 game libraries.
-clone cs16-client https://github.com/aluzed/cs16-client.git
-cd "$XASH_DEV_SRC/cs16-client"
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j"$JOBS"
-cmake --install build --prefix "$XASH_DEV_ROOT"
+# Counter-Strike game libraries: client, menu, server (ReGameDLL_CS), bots.
+cmake -S "$ENGINE_SRC/cstrike-17" -B "$XASH_DEV_BUILD/cstrike-17" -DCMAKE_BUILD_TYPE=Release
+cmake --build "$XASH_DEV_BUILD/cstrike-17" -j"$JOBS"
+cmake --install "$XASH_DEV_BUILD/cstrike-17" --prefix "$XASH_DEV_ROOT"
 
 echo "amd64 tree ready in $XASH_DEV_ROOT"

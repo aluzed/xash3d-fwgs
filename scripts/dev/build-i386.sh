@@ -2,7 +2,7 @@
 # Build the i386 engine with ref_gl and ref_vk inside a Docker container,
 # into XASH_DEV_I386 (default ~/xash-dev/i386). Half-Life runs with Valve's
 # original 32-bit game libraries from the Steam install (-rodir), see
-# run-i386.sh. Counter-Strike gets cs16-client built for i386 as well when
+# run-i386.sh. Counter-Strike gets cstrike-17 built for i386 as well when
 # its sources are in XASH_DEV_SRC (build-amd64.sh clones them); Steam's own
 # client.so runs with CLIENT=steam run-i386.sh cstrike (vgui2_support).
 # Nothing is installed on the host.
@@ -31,9 +31,9 @@ docker run --rm --user "$(id -u):$(id -g)" \
 		./waf install --destdir=/out
 	'
 
-if [ -d "$XASH_DEV_SRC/cs16-client" ]; then
+if [ -d "$ENGINE_SRC/cstrike-17" ]; then
 	docker run --rm --user "$(id -u):$(id -g)" \
-		-v "$XASH_DEV_SRC/cs16-client:/src:ro" -v "$XASH_DEV_I386:/out" \
+		-v "$ENGINE_SRC/cstrike-17:/src:ro" -v "$XASH_DEV_I386:/out" \
 		-e HOME=/tmp -e JOBS="$JOBS" "$IMAGE" sh -c '
 			set -e
 			rsync -a --exclude="/build*" /src/ /tmp/src/
