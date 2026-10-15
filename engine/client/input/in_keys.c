@@ -194,7 +194,7 @@ the K_* names are matched up.
 to be configured even if they don't have defined names.
 ===================
 */
-static int Key_StringToKeynum( const char *str )
+int Key_StringToKeynum( const char *str )
 {
 	if( !str || !str[0] )
 		return -1;
@@ -716,6 +716,12 @@ void GAME_EXPORT Key_Event( int key, int down )
 		return;
 	}
 #endif
+	// VGUI2 sees every key, a text entry of it with the focus keeps them
+	// from the game; but a key the game saw going down sees going up, or
+	// its +command would stay on
+	if( cls.key_dest == key_game && ( down || !keys[key].gamedown ) && VGui2_KeyEvent( key, down ))
+		return;
+
 	// distribute the key down event to the apropriate handler
 	if( cls.key_dest == key_game && ( down || keys[key].gamedown ))
 	{

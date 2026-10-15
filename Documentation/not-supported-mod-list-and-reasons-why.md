@@ -8,7 +8,7 @@
 |Counter Strike						|Beta 6.5-			|Uses an old WON HL 1.0.0.16- interface.			|
 |							|1.4				|Has encrypted blob instead of normal client.dll.		|You can try [this tool](https://aluigi.altervista.org/papers/hldlldec.zip) to decrypt client.dll but there no warranty if it works.
 |							|1.5				|Has encrypted blob instead of normal client.dll.		|Decrypted blob here: https://csm.dev/threads/cs-1-5-client-dll-decrypted-patched-for-usage.38845.
-|							|1.6(The latest steam release)	|Uses vgui2 library which xash3d does not support.		|Some work on vgui2 support was made here: https://github.com/FWGS/xash3d/tree/vinterface. Recreated Client Source Code here: https://github.com/Velaron/cs16-client.
+|							|1.6(The latest steam release)	|Uses vgui2 library. Its client starts on 32-bit x86 builds through vgui2_support, with the Steam client running; HTML pages (MOTD) stay empty.		|See [vgui2.md](vgui2.md). Recreated Client Source Code here: https://github.com/Velaron/cs16-client.
 |Counter Strike: Condition Zero				|The latest steam release	|Uses vgui2 library which xash3d does not support.		|Some work on vgui2 support was made here: https://github.com/FWGS/xash3d/tree/vinterface. Recreated Client Source Code here: https://github.com/Velaron/cs16-client.
 |Counter Strike: Condition Zero - Deleted scenes	|The latest steam release	|Uses vgui2 library which xash3d does not support. Uses new sequences code on engine-side that was never used in any other mods before.		|Some work on vgui2 support was made here: https://github.com/FWGS/xash3d/tree/vinterface.
 |Day of Defeat						|The latest steam release	|Uses vgui2 library which xash3d does not support.		|Some work on vgui2 support was made here: https://github.com/FWGS/xash3d/tree/vinterface.

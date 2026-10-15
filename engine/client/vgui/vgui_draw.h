@@ -35,4 +35,16 @@ void *VGui_GetPanel( void );
 void VGui_ReportTextInput( const char *text );
 void VGui_UpdateInternalCursorState( VGUI_DefaultCursor cursorType );
 
+//
+// vgui2_draw.c
+//
+qboolean VGui2_Startup( HINSTANCE client );
+void VGui2_Shutdown( void );
+void VGui2_Paint( void );
+qboolean VGui2_KeyEvent( int key, int down );
+qboolean VGui2_MouseEvent( int key, int down );
+qboolean VGui2_MWheelEvent( int y );
+void VGui2_MouseMove( int x, int y );
+void VGui2_ReportTextInput( const char *text );
+
 #endif // VGUI_DRAW_H

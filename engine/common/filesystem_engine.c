@@ -344,6 +344,19 @@ static qboolean FS_DetermineReadOnlyRootDirectory( char *out, size_t size )
 	return false;
 }
 
+static char fs_rootdir[MAX_OSPATH], fs_rodir[MAX_OSPATH];
+
+// where the engine runs from, and -rodir (empty without one)
+const char *FS_RootDirectory( void )
+{
+	return fs_rootdir;
+}
+
+const char *FS_ReadOnlyRootDirectory( void )
+{
+	return fs_rodir;
+}
+
 /*
 ================
 FS_Init
@@ -352,10 +365,10 @@ FS_Init
 void FS_Init( void )
 {
 	string gamedir;
-	char rodir[MAX_OSPATH], rootdir[MAX_OSPATH];
+	char *rodir = fs_rodir, *rootdir = fs_rootdir;
 	rodir[0] = rootdir[0] = 0;
 
-	if( !FS_DetermineRootDirectory( rootdir, sizeof( rootdir )) || COM_StringEmpty( rootdir ))
+	if( !FS_DetermineRootDirectory( rootdir, sizeof( fs_rootdir )) || COM_StringEmpty( rootdir ))
 	{
 		Sys_Error( "couldn't determine current directory (empty string)" );
 		return;
@@ -363,7 +376,7 @@ void FS_Init( void )
 	COM_FixSlashes( rootdir );
 	COM_StripDirectorySlash( rootdir );
 
-	FS_DetermineReadOnlyRootDirectory( rodir, sizeof( rodir ));
+	FS_DetermineReadOnlyRootDirectory( rodir, sizeof( fs_rodir ));
 	COM_FixSlashes( rodir );
 	COM_StripDirectorySlash( rodir );
 

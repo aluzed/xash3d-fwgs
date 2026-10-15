@@ -3,8 +3,8 @@
 # into XASH_DEV_I386 (default ~/xash-dev/i386). Half-Life runs with Valve's
 # original 32-bit game libraries from the Steam install (-rodir), see
 # run-i386.sh. Counter-Strike gets cs16-client built for i386 as well when
-# its sources are in XASH_DEV_SRC (build-amd64.sh clones them): the current
-# Steam client.so of CS doesn't start on Xash (it crashes in HUD_Init).
+# its sources are in XASH_DEV_SRC (build-amd64.sh clones them); Steam's own
+# client.so runs with CLIENT=steam run-i386.sh cstrike (vgui2_support).
 # Nothing is installed on the host.
 
 set -e

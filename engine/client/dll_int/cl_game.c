@@ -2751,6 +2751,12 @@ static int GAME_EXPORT COM_ExpandFilename( const char *fileName, char *nameOutBu
 	if( COM_StringEmptyOrNULL( fileName ) || !nameOutBuffer || nameOutBufferSize <= 0 )
 		return 0;
 
+	// GoldSrc's clients look for Valve's GameUI library this way to load it
+	// again and reach the instance the engine runs. Xash runs its own menu:
+	// a second, never initialized copy crashes the client (Steam's CS)
+	if( !Q_stricmp( fileName, "cl_dlls/gameui." OS_LIB_EXT ) || !Q_stricmp( fileName, "cl_dlls\\gameui." OS_LIB_EXT ))
+		return 0;
+
 	// filename examples:
 	// media\sierra.avi - D:\Xash3D\valve\media\sierra.avi
 	// models\barney.mdl - D:\Xash3D\bshift\models\barney.mdl
@@ -3914,6 +3920,9 @@ void CL_UnloadProgs( void )
 	if( VGui_IsProvidedByClientDll( ))
 		VGui_Shutdown();
 
+	// it holds the client's interfaces too
+	VGui2_Shutdown();
+
 	Cvar_DirectFullSet( &cl_background, "0", FCVAR_READ_ONLY );
 	Cvar_FullSet( "host_clientloaded", "0", FCVAR_READ_ONLY );
 
@@ -4164,6 +4173,9 @@ qboolean CL_LoadProgs( const char *name )
 
 	CL_InitEdicts( cl.maxclients );		// initailize local player and world
 	CL_InitClientMove();	// initialize pm_shared
+
+	// GoldSrc's 2013 clients make their VGUI2 viewport before HUD_Init uses it
+	VGui2_Startup( clgame.hInstance );
 
 	// initialize game
 	clgame.dllFuncs.pfnInit();

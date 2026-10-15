@@ -414,6 +414,8 @@ void Mem_Stats_f( void );
 void FS_Init( void );
 void FS_Shutdown( void );
 void *FS_GetNativeObject( const char *obj );
+const char *FS_RootDirectory( void );
+const char *FS_ReadOnlyRootDirectory( void );
 int FS_Close( file_t *file );
 search_t *FS_Search( const char *pattern, int caseinsensitive, int gamedironly )
 	MALLOC_LIKE( _Mem_Free, 1 ) WARN_UNUSED_RESULT;

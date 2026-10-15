@@ -5,7 +5,12 @@
 # loader, GL driver), never their development packages; the original
 # client.so needs libsteam_api.so, next to hl_linux in the Steam install.
 #
-# Usage: run-i386.sh [valve|cstrike] [extra engine args...]
+# Counter-Strike runs cs16-client when build-i386.sh installed it in the
+# development tree. CLIENT=steam runs Steam's own client.so instead, with
+# its VGUI2 interface (vgui2_support): it needs the Steam client running,
+# its SteamAPI_Init fails otherwise and it quits, as it does on GoldSrc.
+#
+# Usage: [CLIENT=steam] run-i386.sh [valve|cstrike] [extra engine args...]
 
 set -e
 
@@ -14,6 +19,16 @@ STEAM_HL="${STEAM_HL:-$HOME/.local/share/Steam/steamapps/common/Half-Life}"
 
 GAME="${1:-valve}"
 [ $# -gt 0 ] && shift
+
+if [ "$CLIENT" = steam ]; then
+	# the Steam application the client says it is, as Steam's launcher sets it
+	case "$GAME" in
+		cstrike) APPID=10 ;;
+		*) APPID=70 ;;
+	esac
+	set -- -clientlib "$STEAM_HL/$GAME/cl_dlls/client.so" "$@"
+	export SteamAppId="${SteamAppId:-$APPID}" SteamGameId="${SteamGameId:-$APPID}"
+fi
 
 cd "$XASH_DEV_I386"
 exec env XASH3D_BASEDIR="$XASH_DEV_I386" \

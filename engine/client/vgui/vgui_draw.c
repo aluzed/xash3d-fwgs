@@ -625,6 +625,8 @@ void VGui_KeyEvent( int key, int down )
 
 void VGui_MouseMove( int x, int y )
 {
+	VGui2_MouseMove( x, y );
+
 	if( vgui.dllFuncs.MouseMove )
 	{
 		float xscale = (float)refState.width / (float)clgame.scrInfo.iWidth;
@@ -640,6 +642,9 @@ void VGui_Paint( void )
 
 	// don't trust the support library to leave it clean, everything drawn afterwards is in screen space
 	VGUI_SetPaintOffset( 0, 0 );
+
+	// over VGUI1, like GoldSrc
+	VGui2_Paint();
 }
 
 void VGui_UpdateInternalCursorState( VGUI_DefaultCursor cursorType )
@@ -656,6 +661,8 @@ void *GAME_EXPORT VGui_GetPanel( void )
 
 void VGui_ReportTextInput( const char *text )
 {
+	VGui2_ReportTextInput( text );
+
 	if( vgui.dllFuncs.TextInput )
 		vgui.dllFuncs.TextInput( text );
 }

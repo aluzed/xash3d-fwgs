@@ -136,6 +136,9 @@ SUBDIRS = [
 	# on platforms supported only by Xash3D FWGS, freevgui can be linked statically into client library
 	Subproject('3rdparty/freevgui',     lambda x: x.env.CLIENT and x.env.DEST_OS in ['win32', 'linux', 'darwin'] and x.env.DEST_CPU == 'x86'),
 
+	# the original GoldSrc client libraries of Steam with a VGUI2 interface run where they were built for
+	Subproject('vgui2_support',        lambda x: x.env.CLIENT and x.env.DEST_OS in ['win32', 'linux', 'darwin']),
+
 	Subproject('3rdparty/MultiEmulator',lambda x: x.env.CLIENT),
 	Subproject('stub/client',           lambda x: x.env.CLIENT),
 	Subproject('game_launch',           lambda x: x.env.LAUNCHER),

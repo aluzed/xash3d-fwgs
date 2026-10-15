@@ -1254,6 +1254,7 @@ void Key_SetBinding( int keynum, const char *binding );
 const char *Key_LookupBinding( const char *pBinding );
 void Key_ClearStates( void );
 const char *Key_KeynumToString( int keynum );
+int Key_StringToKeynum( const char *str );
 void Key_EnumCmds_f( void );
 void Key_SetKeyDest( int key_dest );
 void Key_EnableTextInput( qboolean enable, qboolean force );

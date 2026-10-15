@@ -388,6 +388,10 @@ void IN_MouseEvent( int key, int down )
 	}
 	else if( cls.key_dest == key_game )
 	{
+		// a VGUI2 panel has the cursor, the game doesn't get the click
+		if( VGui2_MouseEvent( K_MOUSE1 + key, down ))
+			return;
+
 		// perform button actions
 		VGui_MouseEvent( K_MOUSE1 + key, down );
 
@@ -432,6 +436,9 @@ void IN_MWheelEvent( int y )
 	int b = y > 0 ? K_MWHEELUP : K_MWHEELDOWN;
 
 	VGui_MWheelEvent( y );
+
+	if( cls.key_dest == key_game && VGui2_MWheelEvent( y ))
+		return;
 
 	Key_Event( b, true );
 	Key_Event( b, false );
