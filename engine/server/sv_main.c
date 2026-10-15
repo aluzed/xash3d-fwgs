@@ -116,6 +116,7 @@ static CVAR_DEFINE_AUTO( sv_version, "", FCVAR_READ_ONLY, "engine version string
 CVAR_DEFINE_AUTO( hostname, "", FCVAR_PRINTABLEONLY, "name of current host" );
 static CVAR_DEFINE_AUTO( sv_fps, "0.0", 0, "set this cvar to decouple server framerate from client framerate" );
 CVAR_DEFINE_AUTO( sv_snapshot_spread, "0", 0, "send each client's snapshots at a fixed phase of its update interval, spread over the frames" );
+static CVAR_DEFINE_AUTO( sv_client_lookup_cache, "0", 0, "find the client of a game packet through a table indexed by address instead of scanning the slots" );
 
 // gore-related cvars
 static CVAR_DEFINE_AUTO( violence_hblood, "1", 0, "draw human blood" );
@@ -375,6 +376,172 @@ static void SV_ProcessFile( sv_client_t *cl, const char *filename )
 
 /*
 =================
+SV_ReadClientPacket
+
+net_message came from the address of this client: returns true when the
+client's netchan took it
+=================
+*/
+static qboolean SV_ReadClientPacket( sv_client_t *cl, size_t *curSize )
+{
+	SV_ProfileBegin( SVP_NETCHAN_PROCESS );
+	qboolean processed = Netchan_Process( &cl->netchan, &net_message );
+	SV_ProfileEnd( SVP_NETCHAN_PROCESS );
+
+	if( !processed )
+	{
+		// a packet carrying nothing but fragments is reported as rejected
+		// after the fragments were queued, because nothing is left to parse
+		if( !Netchan_IncomingReady( &cl->netchan ))
+			return false;
+	}
+	else
+	{
+		// authenticated; safe to adopt the (possibly NAT-rewritten) source port
+		if( cl->netchan.remote_address.port != net_from.port )
+			cl->netchan.remote_address.port = net_from.port;
+
+		if(( svs.maxclients == 1 && !host_limitlocal.value ) || ( cl->state != cs_spawned ))
+			SetBits( cl->flags, FCL_SEND_NET_MESSAGE ); // reply at end of frame
+
+		// this is a valid, sequenced packet, so process it
+		if( cl->frames != NULL && cl->state != cs_zombie )
+		{
+			SV_ProfileBegin( SVP_EXECUTE_CLIENT_MSG );
+			SV_ExecuteClientMessage( cl, &net_message );
+			SV_ProfileEnd( SVP_EXECUTE_CLIENT_MSG );
+			svgame.globals->frametime = sv.frametime;
+			svgame.globals->time = sv.time;
+		}
+	}
+
+	// fragmentation/reassembly sending takes priority over all game messages, want this in the future?
+	if( Netchan_IncomingReady( &cl->netchan ))
+	{
+		SV_ProfileBegin( SVP_NETCHAN_PROCESS );
+		qboolean reassembled = Netchan_CopyNormalFragments( &cl->netchan, &net_message, curSize );
+		SV_ProfileEnd( SVP_NETCHAN_PROCESS );
+
+		if( reassembled )
+		{
+			MSG_Init( &net_message, "ClientPacket", net_message_buffer, *curSize );
+
+			if(( svs.maxclients == 1 && !host_limitlocal.value ) || ( cl->state != cs_spawned ))
+				SetBits( cl->flags, FCL_SEND_NET_MESSAGE ); // reply at end of frame
+
+			// this is a valid, sequenced packet, so process it
+			if( cl->frames != NULL && cl->state != cs_zombie )
+			{
+				SV_ProfileBegin( SVP_EXECUTE_CLIENT_MSG );
+				SV_ExecuteClientMessage( cl, &net_message );
+				SV_ProfileEnd( SVP_EXECUTE_CLIENT_MSG );
+				svgame.globals->frametime = sv.frametime;
+				svgame.globals->time = sv.time;
+			}
+		}
+
+		if( Netchan_CopyFileFragments( &cl->netchan, &net_message ))
+		{
+			SV_ProcessFile( cl, cl->netchan.incomingfilename );
+		}
+	}
+
+	return true;
+}
+
+/*
+=================
+SV_FindClientSlot
+
+sv_client_lookup_cache 1 (story 044): the slot a game packet comes from,
+through a small table indexed by address instead of comparing the address of
+every slot. The table is only a hint: the slot it gives is checked (in use,
+same address and port) before it is used, and a slot whose netchan rejects
+the packet falls back to the scan, which also handles a client whose NAT
+changed its port. A stale entry can never send a packet to the wrong client.
+=================
+*/
+#define CLIENT_LOOKUP_SIZE 256 // power of two, several times MAX_CLIENTS
+
+typedef struct
+{
+	netadr_t adr;
+	int      slot; // -1: empty
+} client_lookup_t;
+
+static client_lookup_t client_lookup[CLIENT_LOOKUP_SIZE];
+static qboolean client_lookup_init;
+
+static uint32_t SV_ClientLookupHash( const netadr_t *adr )
+{
+	netadrtype_t type = NET_NetadrType( adr );
+	uint32_t hash = 2166136261u; // FNV-1a
+	uint8_t bytes[16];
+	size_t len = 0, i;
+
+	if( type == NA_IP )
+	{
+		memcpy( bytes, adr->ip, 4 );
+		len = 4;
+	}
+	else if( type == NA_IP6 )
+	{
+		NET_NetadrToIP6Bytes( bytes, adr );
+		len = 16;
+	}
+
+	for( i = 0; i < len; i++ )
+		hash = ( hash ^ bytes[i] ) * 16777619u;
+
+	hash = ( hash ^ ( adr->port & 0xff )) * 16777619u;
+	hash = ( hash ^ ( adr->port >> 8 )) * 16777619u;
+	return hash;
+}
+
+static qboolean SV_IsClientSlotForPackets( const sv_client_t *cl )
+{
+	return cl->state != cs_free && !FBitSet( cl->flags, FCL_FAKECLIENT );
+}
+
+static int SV_FindClientSlot( const netadr_t *adr )
+{
+	client_lookup_t *entry;
+	int i;
+
+	if( !client_lookup_init )
+	{
+		for( i = 0; i < CLIENT_LOOKUP_SIZE; i++ )
+			client_lookup[i].slot = -1;
+		client_lookup_init = true;
+	}
+
+	entry = &client_lookup[SV_ClientLookupHash( adr ) & ( CLIENT_LOOKUP_SIZE - 1 )];
+
+	if( entry->slot >= 0 && entry->slot < svs.maxclients && NET_CompareAdr( *adr, entry->adr ))
+	{
+		sv_client_t *cl = &svs.clients[entry->slot];
+
+		if( SV_IsClientSlotForPackets( cl ) && NET_CompareAdr( *adr, cl->netchan.remote_address ))
+			return entry->slot;
+	}
+
+	for( i = 0; i < svs.maxclients; i++ )
+	{
+		sv_client_t *cl = &svs.clients[i];
+
+		if( !SV_IsClientSlotForPackets( cl ) || !NET_CompareAdr( *adr, cl->netchan.remote_address ))
+			continue;
+
+		entry->adr = *adr;
+		entry->slot = i;
+		return i;
+	}
+
+	return -1;
+}
+
+/*
+=================
 SV_ReadPackets
 =================
 */
@@ -386,6 +553,8 @@ static void SV_ReadPackets( void )
 
 	while( NET_GetPacket( NS_SERVER, &net_from, net_message_buffer, &curSize ))
 	{
+		int hint = -1;
+
 		SV_ProfileCount( SVC_PACKETS_IN, 1 );
 		SV_ProfileCount( SVC_BYTES_IN, curSize );
 
@@ -400,83 +569,30 @@ static void SV_ReadPackets( void )
 			continue;
 		}
 
+		if( sv_client_lookup_cache.value )
+			hint = SV_FindClientSlot( &net_from );
+
+		if( hint >= 0 )
+		{
+			sv.current_client = &svs.clients[hint];
+			if( SV_ReadClientPacket( sv.current_client, &curSize ))
+				continue;
+		}
+
 		// check for packets from connected clients
 		for( i = 0, sv.current_client = svs.clients; i < svs.maxclients; i++, sv.current_client++ )
 		{
 			cl = sv.current_client;
 
-			if( cl->state == cs_free || FBitSet( cl->flags, FCL_FAKECLIENT ))
+			if( i == hint || !SV_IsClientSlotForPackets( cl ))
 				continue;
 
 			if( !NET_CompareBaseAdr( net_from, cl->netchan.remote_address ))
 				continue;
 
-			SV_ProfileBegin( SVP_NETCHAN_PROCESS );
-			qboolean processed = Netchan_Process( &cl->netchan, &net_message );
-			SV_ProfileEnd( SVP_NETCHAN_PROCESS );
-
-			if( !processed )
-			{
-				// a packet carrying nothing but fragments is reported as rejected
-				// after the fragments were queued, because nothing is left to parse
-				if( !Netchan_IncomingReady( &cl->netchan ))
-					continue;
-			}
-			else
-			{
-				// authenticated; safe to adopt the (possibly NAT-rewritten) source port
-				if( cl->netchan.remote_address.port != net_from.port )
-					cl->netchan.remote_address.port = net_from.port;
-
-				if(( svs.maxclients == 1 && !host_limitlocal.value ) || ( cl->state != cs_spawned ))
-					SetBits( cl->flags, FCL_SEND_NET_MESSAGE ); // reply at end of frame
-
-				// this is a valid, sequenced packet, so process it
-				if( cl->frames != NULL && cl->state != cs_zombie )
-				{
-					SV_ProfileBegin( SVP_EXECUTE_CLIENT_MSG );
-					SV_ExecuteClientMessage( cl, &net_message );
-					SV_ProfileEnd( SVP_EXECUTE_CLIENT_MSG );
-					svgame.globals->frametime = sv.frametime;
-					svgame.globals->time = sv.time;
-				}
-			}
-
-			// fragmentation/reassembly sending takes priority over all game messages, want this in the future?
-			if( Netchan_IncomingReady( &cl->netchan ))
-			{
-				SV_ProfileBegin( SVP_NETCHAN_PROCESS );
-				qboolean reassembled = Netchan_CopyNormalFragments( &cl->netchan, &net_message, &curSize );
-				SV_ProfileEnd( SVP_NETCHAN_PROCESS );
-
-				if( reassembled )
-				{
-					MSG_Init( &net_message, "ClientPacket", net_message_buffer, curSize );
-
-					if(( svs.maxclients == 1 && !host_limitlocal.value ) || ( cl->state != cs_spawned ))
-						SetBits( cl->flags, FCL_SEND_NET_MESSAGE ); // reply at end of frame
-
-					// this is a valid, sequenced packet, so process it
-					if( cl->frames != NULL && cl->state != cs_zombie )
-					{
-						SV_ProfileBegin( SVP_EXECUTE_CLIENT_MSG );
-						SV_ExecuteClientMessage( cl, &net_message );
-						SV_ProfileEnd( SVP_EXECUTE_CLIENT_MSG );
-						svgame.globals->frametime = sv.frametime;
-						svgame.globals->time = sv.time;
-					}
-				}
-
-				if( Netchan_CopyFileFragments( &cl->netchan, &net_message ))
-				{
-					SV_ProcessFile( cl, cl->netchan.incomingfilename );
-				}
-			}
-			break;
+			if( SV_ReadClientPacket( cl, &curSize ))
+				break;
 		}
-
-		if( i != svs.maxclients )
-			continue;
 	}
 
 	sv.current_client = NULL;
@@ -925,6 +1041,7 @@ void SV_Init( void )
 	Cvar_RegisterVariable( &sv_fps );
 #endif // !XASH_DEDICATED
 	Cvar_RegisterVariable( &sv_snapshot_spread );
+	Cvar_RegisterVariable( &sv_client_lookup_cache );
 	Cvar_RegisterVariable( &showtriggers );
 	Cvar_RegisterVariable( &sv_aim );
 	Cvar_RegisterVariable( &sv_allow_autoaim );
