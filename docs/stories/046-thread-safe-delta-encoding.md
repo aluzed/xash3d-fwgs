@@ -1,7 +1,7 @@
 # 046 - Thread-safe delta encoding
 
-Counterpart of [ReHLDS MT-402](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-402-thread-safe-delta-encoding.md) and
-[ReHLDS MT-203](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-203-thread-safe-engine-services.md).
+Counterpart of [ReHLDS MT-402](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-402-thread-safe-delta-encoding.md) and
+[ReHLDS MT-203](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-203-thread-safe-engine-services.md).
 
 ## Context
 `engine/common/net_encode.c` encodes entity states, client data, weapon data

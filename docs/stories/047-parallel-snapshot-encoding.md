@@ -1,6 +1,6 @@
 # 047 - Parallel snapshot encoding on the job system
 
-Counterpart of [ReHLDS MT-403](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-403-parallel-encode-and-transmit.md).
+Counterpart of [ReHLDS MT-403](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-403-parallel-encode-and-transmit.md).
 
 ## Context
 After 045 and 046, encoding a client's snapshot reads only gathered data. The

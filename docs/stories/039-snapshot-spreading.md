@@ -1,6 +1,6 @@
 # 039 - Spread client snapshots over the frames
 
-Counterpart of [ReHLDS MT-106](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-106-snapshot-send-spreading.md).
+Counterpart of [ReHLDS MT-106](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-106-snapshot-send-spreading.md).
 
 ## Context
 `SV_SendClientMessages` (`engine/server/sv_frame.c`) sends a snapshot when

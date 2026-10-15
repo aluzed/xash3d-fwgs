@@ -1,6 +1,6 @@
 # 043 - Log files written on their own thread
 
-Counterpart of [ReHLDS MT-301](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-301-async-log-writer.md).
+Counterpart of [ReHLDS MT-301](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-301-async-log-writer.md).
 
 ## Context
 `Log_Printf` (`engine/server/sv_log.c`) writes and flushes the server log

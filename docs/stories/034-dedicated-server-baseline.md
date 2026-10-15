@@ -1,7 +1,7 @@
 # 034 - Dedicated server baseline: Metamod, bots and CSDM
 
 ## Context
-The multithreading work of the ReHLDS fork ([ReHLDS MT-001 to MT-702](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/README.md))
+The multithreading work of the ReHLDS fork ([ReHLDS MT-001 to MT-702](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/README.md))
 was measured and validated on a public Counter-Strike server with 19 bots, a
 deathmatch mode with grenades and a plugin stack. Stories 035 to 050 bring the
 same improvements to the Xash3D FWGS dedicated server; they need the same kind

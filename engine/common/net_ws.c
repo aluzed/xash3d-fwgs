@@ -19,6 +19,7 @@ GNU General Public License for more details.
 #include "xash3d_mathlib.h"
 #include "ipv6text.h"
 #include "net_ws_private.h"
+#include "net_replay.h"
 #include "server.h" // sv_cheats
 
 #if XASH_SDL == 2
@@ -1411,11 +1412,28 @@ NET_GetPacket
 Never called by the game logic, just the system event queing
 ==================
 */
+static qboolean NET_GetPacket_( netsrc_t sock, netadr_t *from, byte *data, size_t *length );
+
 qboolean NET_GetPacket( netsrc_t sock, netadr_t *from, byte *data, size_t *length )
 {
+	qboolean received;
+
 	if( !data || !length )
 		return false;
 
+	if( sock != NS_SERVER )
+		return NET_GetPacket_( sock, from, data, length );
+
+	if( NetReplay_IsReplaying( ))
+		return NetReplay_ReplayPacket( from, data, length );
+
+	received = NET_GetPacket_( sock, from, data, length );
+	NetReplay_RecordPacket( received, from, data, *length );
+	return received;
+}
+
+static qboolean NET_GetPacket_( netsrc_t sock, netadr_t *from, byte *data, size_t *length )
+{
 	NET_AdjustLag();
 
 	if( NET_GetLoopPacket( sock, from, data, length ))
@@ -1520,6 +1538,9 @@ void NET_SendPacketEx( netsrc_t sock, size_t length, const void *data, netadr_t 
 	{
 		SV_ProfileCount( SVC_PACKETS_OUT, 1 );
 		SV_ProfileCount( SVC_BYTES_OUT, length );
+
+		if( NetReplay_RecordSend( &to, data, length ))
+			return; // replaying: nothing leaves
 	}
 
 	if( !net.initialized || type == NA_LOOPBACK )

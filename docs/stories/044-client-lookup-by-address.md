@@ -1,6 +1,6 @@
 # 044 - Client of a game packet found by address
 
-Counterpart of [ReHLDS MT-104](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-104-client-lookup-by-address.md).
+Counterpart of [ReHLDS MT-104](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-104-client-lookup-by-address.md).
 
 ## Context
 `SV_ReadPackets` compares the address of every client slot

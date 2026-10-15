@@ -1,6 +1,6 @@
 # 049 - Configuration, documentation and launch script
 
-Counterpart of [ReHLDS MT-701](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-701-configuration-and-docs.md).
+Counterpart of [ReHLDS MT-701](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-701-configuration-and-docs.md).
 
 ## Goal
 Every option of stories 035-048 documented (`Documentation/dedicated-server-tuning.md`,

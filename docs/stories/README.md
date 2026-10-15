@@ -84,7 +84,7 @@ renderer phases: it only needs 2D drawing (010).
 
 Goal: **a steadier and faster server tick** on the Xash3D FWGS dedicated
 server, by bringing over the work of the multithreaded ReHLDS fork
-([aluzed/ReHLDS, `feature/multithreading`](https://github.com/aluzed/ReHLDS/tree/feature/multithreading),
+([aluzed/ReHLDS-MT](https://github.com/aluzed/ReHLDS-MT),
 stories MT-001 to MT-702): remove waste from the main loop, and move work that
 does not touch the game DLL off the main thread. The code cannot be merged:
 ReHLDS is a C++ reverse of HLDS, Xash3D an independent C engine. Each story

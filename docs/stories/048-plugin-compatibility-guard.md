@@ -1,6 +1,6 @@
 # 048 - Metamod plugins and the threaded encoding
 
-Counterpart of [ReHLDS MT-404](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-404-plugin-compatibility-guard.md).
+Counterpart of [ReHLDS MT-404](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-404-plugin-compatibility-guard.md).
 
 ## Context
 In ReHLDS, the game DLL's conditional encoders ran Metamod's callbacks on the

@@ -1,6 +1,6 @@
 # 050 - Field validation
 
-Counterpart of [ReHLDS MT-702](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-702-field-validation.md).
+Counterpart of [ReHLDS MT-702](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-702-field-validation.md).
 
 ## Goal
 The server of 034 runs with players and bots for several sessions, with every

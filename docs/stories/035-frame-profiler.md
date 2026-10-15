@@ -1,6 +1,6 @@
 # 035 - Per-phase frame profiler
 
-Counterpart of [ReHLDS MT-002](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-002-frame-profiler.md).
+Counterpart of [ReHLDS MT-002](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-002-frame-profiler.md).
 
 ## Context
 `Host_Frame` (`engine/common/host.c`) and `Host_ServerFrame`

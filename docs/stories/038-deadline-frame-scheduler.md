@@ -1,7 +1,7 @@
 # 038 - Deadline-based frame scheduler
 
-Counterpart of [ReHLDS MT-101](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-101-deadline-frame-scheduler.md) and
-[ReHLDS MT-103](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-103-timer-precision-fixes.md).
+Counterpart of [ReHLDS MT-101](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-101-deadline-frame-scheduler.md) and
+[ReHLDS MT-103](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-103-timer-precision-fixes.md).
 
 ## Context
 The dedicated server loop (`Host_Main` → `COM_Frame` → `Host_Frame`) spins and

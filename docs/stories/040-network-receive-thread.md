@@ -1,8 +1,8 @@
 # 040 - Network receive thread and early filtering
 
-Counterpart of [ReHLDS MT-302](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-302-network-receive-thread.md),
-[ReHLDS MT-303](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-303-early-packet-filtering.md) and
-[ReHLDS MT-102](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-102-wake-on-packet.md).
+Counterpart of [ReHLDS MT-302](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-302-network-receive-thread.md),
+[ReHLDS MT-303](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-303-early-packet-filtering.md) and
+[ReHLDS MT-102](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-102-wake-on-packet.md).
 
 ## Context
 `SV_ReadPackets` (`engine/server/sv_main.c`) drains the socket on the main

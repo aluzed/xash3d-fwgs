@@ -1,6 +1,6 @@
 # 045 - Split `SV_SendClientMessages` into gather, encode and transmit
 
-Counterpart of [ReHLDS MT-401](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-401-split-send-client-messages.md).
+Counterpart of [ReHLDS MT-401](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-401-split-send-client-messages.md).
 
 ## Context
 In `engine/server/sv_frame.c`, `SV_SendClientDatagram` does everything for

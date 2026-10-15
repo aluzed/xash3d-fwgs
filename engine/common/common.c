@@ -17,6 +17,7 @@ GNU General Public License for more details.
 #include ALLOCA_H
 #endif
 #include "common.h"
+#include "net_replay.h"
 #include "studio.h"
 #include "xash3d_mathlib.h"
 #include "const.h"
@@ -111,7 +112,7 @@ void GAME_EXPORT COM_SetRandomSeed( int lSeed )
 	if( lSeed ) idum = lSeed;
 	else if( Sys_CheckParm( "-fixedseed" ))
 		idum = -1; // regression captures need the same sequence on every run
-	else idum = -time( NULL );
+	else idum = -(int)NetReplay_Value( time( NULL ));
 
 	if( 1000 < idum )
 		idum = -idum;

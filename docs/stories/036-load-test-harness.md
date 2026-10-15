@@ -1,6 +1,6 @@
 # 036 - Load test harness for the Xash3D protocol
 
-Counterpart of [ReHLDS MT-003](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-003-load-test-harness.md).
+Counterpart of [ReHLDS MT-003](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-003-load-test-harness.md).
 
 ## Context
 The ReHLDS harness (`tools/bench/` of the fork) drives GoldSrc protocol 48

@@ -14,6 +14,7 @@ GNU General Public License for more details.
 */
 
 #include "common.h"
+#include "net_replay.h"
 #include "xash3d_mathlib.h"
 #include "platform/platform.h"
 #include <stdlib.h>
@@ -64,7 +65,7 @@ Sys_DoubleTime
 */
 double GAME_EXPORT Sys_DoubleTime( void )
 {
-	return Platform_DoubleTime();
+	return NetReplay_ValueF( Platform_DoubleTime( ));
 }
 
 /*
@@ -74,7 +75,7 @@ Sys_FloatTime
 */
 float GAME_EXPORT Sys_FloatTime( void )
 {
-	return (float)Platform_DoubleTime();
+	return (float)NetReplay_ValueF( Platform_DoubleTime( ));
 }
 
 /*

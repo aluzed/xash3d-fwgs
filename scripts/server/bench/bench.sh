@@ -13,6 +13,9 @@
 #   FEATURES=1       options of the dedicated server stories on (run.sh)
 #   WARMUP=20  DURATION=30  PORT=27018  MAP=de_dust2
 #   OUT              results directory (default ~/xash-dev/bench/<date>-<label>)
+#   NO_BUILD=1       run the installed engine, else build and install it first
+#   RECORD=1         record the session (story 037): inputs.bin, sends.bin,
+#                    replayed by replay.sh
 #
 # Results: profile.csv (every frame), report.txt (sv_profile), clients.json,
 # flood.json, cpu.txt (CPU of the process over the capture), server.log.
@@ -32,25 +35,34 @@ OUT=${OUT:-$HOME/xash-dev/bench/$(date +%Y%m%d-%H%M%S)-$label}
 GAME_DIR=${XASH_SERVER_ROOT:-$HOME/xash-dev/server}/cstrike
 
 mkdir -p "$OUT"
+[ "${NO_BUILD:-0}" = 1 ] || INSTALL_ONLY=1 "$HERE/../run.sh" > "$OUT/build.log" 2>&1
 fifo=$OUT/console
 mkfifo "$fifo"
 trap 'rm -f "$fifo"' EXIT
 
+# server.cfg runs after the command line: the run's settings come after it
+printf 'exec server.cfg\nbot_quota %s\nsv_maxupdaterate %s\nmp_timelimit 0\n' "$BOTS" "$UPDATERATE" > "$GAME_DIR/bench.cfg"
+
 maxplayers=$(( CLIENTS + BOTS > 2 ? CLIENTS + BOTS : 2 ))
+if [ "${RECORD:-0}" = 1 ]; then
+	set -- "$@" -netrecord "$OUT/inputs.bin" -netsends "$OUT/sends.bin"
+	# what replay.sh needs to start the same server
+	{
+		echo "PORT=$PORT MAXPLAYERS=$maxplayers MAP=${MAP:-de_dust2} FEATURES=${FEATURES:-1}"
+		printf '%s\n' +servercfgfile bench.cfg "$@"
+	} > "$OUT/session"
+	cp "$GAME_DIR/bench.cfg" "$OUT/bench.cfg"
+fi
 NO_BUILD=1 PORT=$PORT MAXPLAYERS=$maxplayers MAP=${MAP:-de_dust2} \
-	"$HERE/../run.sh" +sv_maxupdaterate "$UPDATERATE" +mp_timelimit 0 "$@" < "$fifo" > "$OUT/server.log" 2>&1 &
+	"$HERE/../run.sh" +servercfgfile bench.cfg "$@" < "$fifo" > "$OUT/server.log" 2>&1 &
+pid=$! # run.sh execs the server
 exec 3> "$fifo"
 
 console() {
 	echo "$*" >&3
 }
 
-# server.cfg runs after the command line: override it once the map is up
 sleep 10
-pid=$(pgrep -n -x xash)
-console "bot_quota $BOTS"
-[ "$BOTS" = 0 ] && console "bot_kick"
-console "sv_maxupdaterate $UPDATERATE"
 
 if [ "$CLIENTS" -gt 0 ]; then
 	python3 "$HERE/loadclient.py" --server "127.0.0.1:$PORT" --clients "$CLIENTS" --play \
@@ -76,7 +88,7 @@ console "sv_profile_csv bench-profile.csv"
 sleep 1
 echo "$(( t1 - t0 )) $(getconf CLK_TCK) $DURATION" | awk '{printf "cpu %.1f %% of a core\n", 100 * $1 / $2 / $3}' > "$OUT/cpu.txt"
 
-wait $(jobs -p | grep -v "^$(jobs -p %1)$") 2> /dev/null || true
+wait $(jobs -p | grep -v "^$pid$") 2> /dev/null || true
 console "quit"
 exec 3>&-
 wait

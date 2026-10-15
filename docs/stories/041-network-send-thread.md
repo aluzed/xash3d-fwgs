@@ -1,7 +1,7 @@
 # 041 - Network send thread
 
-Counterpart of [ReHLDS MT-304](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-304-network-send-thread.md) and
-[ReHLDS MT-105](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-105-batched-socket-syscalls.md).
+Counterpart of [ReHLDS MT-304](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-304-network-send-thread.md) and
+[ReHLDS MT-105](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-105-batched-socket-syscalls.md).
 
 ## Context
 `Netchan_TransmitBits` ends in `NET_SendPacketEx` (`engine/common/net_ws.c`),

@@ -1,6 +1,6 @@
 # 042 - Server browser answers on the network thread
 
-Counterpart of [ReHLDS MT-305](https://github.com/aluzed/ReHLDS/blob/feature/multithreading/docs/stories/MT-305-a2s-query-cache.md).
+Counterpart of [ReHLDS MT-305](https://github.com/aluzed/ReHLDS-MT/blob/master/docs/stories/MT-305-a2s-query-cache.md).
 
 ## Context
 `engine/server/sv_query.c` builds the A2S_INFO, A2S_PLAYER and A2S_RULES

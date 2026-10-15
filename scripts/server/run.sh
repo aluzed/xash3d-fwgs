@@ -12,6 +12,9 @@
 #   MAP=de_dust2  PORT=27016  MAXPLAYERS=20  TICRATE=1000
 #   RCON_PASSWORD     rcon password (default: none, rcon off)
 #   NO_BUILD=1        start the installed engine as it is
+#   INSTALL_ONLY=1    build and install, don't start
+#   XASH_WRAPPER      command the server runs under (e.g. "setarch x86_64 -R"
+#                     for a ThreadSanitizer build)
 #   SPIN_US=200       busy-wait before each tick (burns CPU, only for cores
 #                     dedicated to the server; 0 to sleep)
 #   FEATURES=0        every option of the stories off, for comparisons
@@ -33,6 +36,7 @@ if [ "${NO_BUILD:-0}" != 1 ]; then
 	./waf build -j"$(nproc)"
 	./waf install --destdir="$XASH_SERVER_ROOT"
 fi
+[ "${INSTALL_ONLY:-0}" = 1 ] && exit 0
 
 # Options of the dedicated server stories, every one on; the extra server
 # arguments come after them, so that they can turn one off
@@ -50,4 +54,5 @@ set -- -game cstrike -port "${PORT:-27016}" +maxplayers "${MAXPLAYERS:-20}" \
 [ -n "${RCON_PASSWORD:-}" ] && set -- "$@" +rcon_password "$RCON_PASSWORD"
 
 cd "$XASH_SERVER_ROOT"
-exec env XASH3D_BASEDIR="$XASH_SERVER_ROOT" ./xash -rodir "$STEAM_HL" "$@" +map "${MAP:-de_dust2}"
+# shellcheck disable=SC2086
+exec ${XASH_WRAPPER:-} env XASH3D_BASEDIR="$XASH_SERVER_ROOT" ./xash -rodir "$STEAM_HL" "$@" +map "${MAP:-de_dust2}"

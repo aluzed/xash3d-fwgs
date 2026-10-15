@@ -29,6 +29,7 @@ GNU General Public License for more details.
 #include "sv_profile.h"
 #include "host_scheduler.h"
 #include "async_log.h"
+#include "net_replay.h"
 #include "base_cmd.h"
 #include "client.h"
 #include "server.h"
@@ -491,9 +492,21 @@ Add them exactly as if they had been typed at the console
 */
 static void Host_GetCommands( void )
 {
-	char *cmd;
+	const char *cmd;
+
+	if( NetReplay_IsReplaying( ))
+	{
+		while(( cmd = NetReplay_ReplayConsole( )))
+		{
+			Cbuf_AddText( cmd );
+			Cbuf_Execute();
+		}
+		return;
+	}
+
 	while( ( cmd = Platform_Input() ) )
 	{
+		NetReplay_RecordConsole( cmd );
 		Cbuf_AddText( cmd );
 		Cbuf_Execute();
 	}
@@ -636,7 +649,7 @@ frames per second the scheduler paces, 0 to leave it to Host_Autosleep
 */
 static double Host_SchedulerRate( void )
 {
-	if( !Host_IsDedicated( ) || !Host_SchedulerEnabled( ) || host.fixed_frametime > 0.0 )
+	if( !Host_IsDedicated( ) || !Host_SchedulerEnabled( ) || host.fixed_frametime > 0.0 || NetReplay_IsReplaying( ))
 		return 0.0;
 
 	// an empty server sleeps long between frames, as without the scheduler
@@ -664,13 +677,21 @@ static qboolean Host_FilterTime( double time )
 		time = host.fixed_frametime;
 
 	host.realtime += time * scale;
+
+	// -netreplay: every frame of the recording runs, at its recorded time
+	qboolean replaying = NetReplay_IsReplaying( );
+	if( replaying )
+		host.realtime = NetReplay_ReplayFrame( );
+
 	double dt = host.realtime - oldtime;
 
 	// clamp the fps in multiplayer games, except with -fixedfps where a
 	// skipped frame would still have advanced the clocks, and frames paced
 	// by the scheduler, which come on time
-	if( host.fixed_frametime <= 0.0 && !Host_SchedulerActive() && !Host_Autosleep( dt, scale ))
+	if( host.fixed_frametime <= 0.0 && !replaying && !Host_SchedulerActive() && !Host_Autosleep( dt, scale ))
 		return false;
+
+	NetReplay_RecordFrame( host.realtime );
 
 	host.frametime = host.realtime - oldtime;
 	host.realframetime = bound( MIN_FRAMETIME, host.frametime, MAX_FRAMETIME );
@@ -1243,6 +1264,7 @@ int EXPORT Host_Main( int argc, char **argv, const char *progname, int bChangeGa
 	host.starttime = Platform_DoubleTime();
 
 	Host_InitCommon( argc, argv, progname, bChangeGame, exename, sizeof( exename ));
+	NetReplay_Init( ); // before anything reads the clock or the random seed
 
 	// init commands and vars
 	if( host_developer.value >= DEV_EXTENDED )
@@ -1465,5 +1487,6 @@ void Host_ShutdownWithReason( const char *reason )
 	// restore filter
 	Sys_RestoreCrashHandler();
 	AsyncLog_Shutdown(); // what the log writer still has, before the last lines
+	NetReplay_Shutdown();
 	Sys_CloseLog( reason );
 }
