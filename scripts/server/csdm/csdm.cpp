@@ -260,6 +260,7 @@ static void Hook_PlayerKilled(IReGameHook_CSGameRules_PlayerKilled *chain, CBase
 		killer->CSPlayer()->ReloadWeapons(killer->m_pActiveItem, true, true);
 
 	float maxHealth = killer->pev->max_health > 0.0f ? killer->pev->max_health : MAX_HEALTH;
+	float healthBefore = killer->pev->health;
 	killer->pev->health = Q_min(killer->pev->health + (headshot ? cv_heal_headshot->value : cv_heal_kill->value), maxHealth);
 
 	if (headshot)
@@ -273,6 +274,10 @@ static void Hook_PlayerKilled(IReGameHook_CSGameRules_PlayerKilled *chain, CBase
 
 		EMIT_SOUND_DYN2(killerEdict, CHAN_ITEM, HEAL_SOUND, VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
 	}
+
+	if (cv_debug->value)
+		ServerPrintf("[CSDM] %s killed%s: health %.0f -> %.0f, armor %.0f\n", STRING(killerEdict->v.netname),
+			headshot ? " (headshot)" : "", healthBefore, killer->pev->health, killer->pev->armorvalue);
 }
 
 /*
