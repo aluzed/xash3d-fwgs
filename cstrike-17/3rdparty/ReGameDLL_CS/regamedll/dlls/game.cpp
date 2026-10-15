@@ -118,6 +118,8 @@ cvar_t auto_reload_weapons   = { "mp_auto_reload_weapons", "0", 0, 0.0f, nullptr
 // ammo isn't bought (mp_buy_ammo 0), as in Counter-Strike 2
 cvar_t refill_bpammo_weapons = { "mp_refill_bpammo_weapons", "2", 0, 2.0f, nullptr }; // Useful for mods like DeathMatch, GunGame, ZombieMod etc
 cvar_t buy_ammo = { "mp_buy_ammo", "0", 0, 0.0f, nullptr }; // 1: ammo can be bought again (primammo, secammo, buyammo1, buyammo2)
+// the scoreboard sorted by the damage dealt to the enemies (story 055)
+cvar_t scoreboard_damage = { "mp_scoreboard_damage", "1", 0, 1.0f, nullptr }; // 0: nothing sent, the clients sort by frags
 cvar_t freeforall            = { "mp_freeforall", "0", FCVAR_SERVER, 0.0f, nullptr };
 cvar_t auto_join_team        = { "mp_auto_join_team", "0", 0, 0.0f, nullptr };
 cvar_t max_teamkills         = { "mp_max_teamkills", "3", 0, 3.0f, nullptr };
@@ -403,6 +405,7 @@ void EXT_FUNC GameDLLInit()
 	CVAR_REGISTER(&auto_reload_weapons);
 	CVAR_REGISTER(&refill_bpammo_weapons);
 	CVAR_REGISTER(&buy_ammo);
+	CVAR_REGISTER(&scoreboard_damage);
 	CVAR_REGISTER(&freeforall);
 	CVAR_REGISTER(&auto_join_team);
 	CVAR_REGISTER(&max_teamkills);

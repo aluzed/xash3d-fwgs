@@ -916,6 +916,52 @@ LINK_HOOK_CLASS_CHAIN(BOOL, CBasePlayer, TakeDamage, (entvars_t *pevInflictor, e
 // NOTE: each call to TakeDamage with bitsDamageType set to a time-based damage
 // type will cause the damage time countdown to be reset.  Thus the ongoing effects of poison, radiation
 // etc are implemented with subsequent calls to TakeDamage using DMG_GENERIC.
+// Story 055: the scoreboard sorted by the damage dealt to the enemies; a
+// player's total goes to every client (ScoreDmg: player, damage)
+void SendScoreDamage(CBasePlayer *pPlayer, CBasePlayer *pTo)
+{
+	if (scoreboard_damage.value == 0.0f)
+		return;
+
+	if (pTo)
+		MESSAGE_BEGIN(MSG_ONE, gmsgScoreDmg, nullptr, pTo->edict());
+	else
+		MESSAGE_BEGIN(MSG_ALL, gmsgScoreDmg);
+		WRITE_BYTE(ENTINDEX(pPlayer->edict()));
+		WRITE_LONG(pPlayer->CSPlayer()->m_iDamageDealt);
+	MESSAGE_END();
+}
+
+// the health an enemy really lost (capped at what it had left, armour
+// left out, as CS2 counts it): not the world, a fall, a teammate or the bomb
+static void ScoreDamageDealt(CBasePlayer *pVictim, entvars_t *pevInflictor, entvars_t *pevAttacker, float flHealthBefore)
+{
+	if (scoreboard_damage.value == 0.0f || !pevAttacker)
+		return;
+
+	const int lost = int(flHealthBefore) - Q_max(int(pVictim->pev->health), 0);
+	if (lost <= 0)
+		return;
+
+	CBaseEntity *pEntity = CBaseEntity::Instance(pevAttacker);
+	if (!pEntity || !pEntity->IsPlayer() || pEntity == pVictim)
+		return;
+
+	CBasePlayer *pAttacker = static_cast<CBasePlayer *>(pEntity);
+	if (g_pGameRules->PlayerRelationship(pVictim, pAttacker) == GR_TEAMMATE)
+		return;
+
+	if (pevInflictor && FClassnameIs(pevInflictor, "grenade"))
+	{
+		CGrenade *pGrenade = static_cast<CGrenade *>(CBaseEntity::Instance(pevInflictor));
+		if (pGrenade && pGrenade->m_bIsC4)
+			return;
+	}
+
+	pAttacker->CSPlayer()->m_iDamageDealt += lost;
+	SendScoreDamage(pAttacker);
+}
+
 BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entvars_t *pevAttacker, FloatRef flDamage, int bitsDamageType)
 {
 	BOOL bTookDamage;
@@ -959,7 +1005,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
 			CBaseEntity *temp = GetClassPtr<CCSEntity>((CBaseEntity *)pevInflictor);
 			if (FClassnameIs(temp->pev, "grenade"))
 			{
-				CGrenade *pGrenade = GetClassPtr<CCSGrenade>((CGrenade *)pevInflictor);
+				CGrenade *pGrenade = static_cast<CGrenade *>(CBaseEntity::Instance(pevInflictor));
 
 				pAttack = CBasePlayer::Instance(pevAttacker);
 
@@ -1049,10 +1095,13 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
 		}
 
 		LogAttack(pAttack, this, bTeamAttack, int(flDamage), armorHit, pev->health - flDamage, pev->armorvalue, GetKillerWeaponName(pevInflictor, pevAttacker));
+		const float flHealthBefore = pev->health;
 		bTookDamage = CBaseMonster::TakeDamage(pevInflictor, pevAttacker, int(flDamage), bitsDamageType);
 
 		if (bTookDamage)
 		{
+			ScoreDamageDealt(this, pevInflictor, pevAttacker, flHealthBefore);
+
 			if (TheBots)
 			{
 				TheBots->OnEvent(EVENT_PLAYER_TOOK_DAMAGE, this, pAttack);
@@ -1307,10 +1356,13 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
 
 	// this cast to INT is critical!!! If a player ends up with 0.5 health, the engine will get that
 	// as an int (zero) and think the player is dead! (this will incite a clientside screentilt, etc)
+	const float flHealthBefore = pev->health;
 	bTookDamage = CBaseMonster::TakeDamage(pevInflictor, pevAttacker, int(flDamage), bitsDamageType);
 
 	if (bTookDamage)
 	{
+		ScoreDamageDealt(this, pevInflictor, pevAttacker, flHealthBefore);
+
 		if (TheBots)
 		{
 			TheBots->OnEvent(EVENT_PLAYER_TOOK_DAMAGE, this, pAttack);
@@ -6254,6 +6306,8 @@ void CBasePlayer::Reset()
 {
 	pev->frags = 0;
 	m_iDeaths = 0;
+	CSPlayer()->m_iDamageDealt = 0;
+	SendScoreDamage(this);
 
 #ifndef REGAMEDLL_ADD
 	m_iAccount = 0;

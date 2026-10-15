@@ -57,7 +57,8 @@ public:
 		m_flLongJumpForce(0),
 		m_flDuckSpeedMultiplier(0),
 		m_iUserID(-1),
-		m_iGibDamageThreshold(GIB_PLAYER_THRESHOLD)
+		m_iGibDamageThreshold(GIB_PLAYER_THRESHOLD),
+		m_iDamageDealt(0)
 	{
 		m_szModel[0] = '\0';
 
@@ -191,6 +192,10 @@ public:
 
 	// Player movement version control
 	PlayerMovementVersion m_MovementVersion;
+
+	// health taken from the enemies over the match, for the scoreboard
+	// (story 055: mp_scoreboard_damage)
+	int m_iDamageDealt;
 };
 
 // Inlines

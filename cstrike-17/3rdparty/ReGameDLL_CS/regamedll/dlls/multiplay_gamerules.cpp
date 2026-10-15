@@ -3454,6 +3454,8 @@ void CHalfLifeMultiplay::InitHUD(CBasePlayer *pl)
 			WRITE_SHORT(0);
 			WRITE_SHORT(plr->m_iTeam);
 		MESSAGE_END();
+
+		SendScoreDamage(plr, pl);
 	}
 
 	MESSAGE_BEGIN(MSG_ONE, gmsgTeamScore, nullptr, pl->edict());

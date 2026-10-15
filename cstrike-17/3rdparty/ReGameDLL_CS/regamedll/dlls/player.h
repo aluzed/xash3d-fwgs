@@ -1043,6 +1043,7 @@ void VIP_SafetyZoneIcon_Clear(CBasePlayer *pPlayer);
 
 void SendItemStatus(CBasePlayer *pPlayer);
 const char *GetCSModelName(int item_id);
+void SendScoreDamage(CBasePlayer *pPlayer, CBasePlayer *pTo = nullptr);
 Vector VecVelocityForDamage(float flDamage);
 int TrainSpeed(int iSpeed, int iMax);
 void LogAttack(CBasePlayer *pAttacker, CBasePlayer *pVictim, int teamAttack, int healthHit, int armorHit, int newHealth, int newArmor, const char *killer_weapon_name);

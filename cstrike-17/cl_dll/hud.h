@@ -376,6 +376,7 @@ public:
 	int DrawScoreboard( float flTime );
 	int DrawTeams( float listslot );
 	int DrawPlayers( float listslot, int nameoffset = 0, const char *team = NULL ); // returns the ypos where it finishes drawing
+	bool RanksAbove( const struct extra_player_info_t *a, const struct extra_player_info_t *b ) const;
 
 	void DeathMsg( int killer, int victim );
 	void SetScoreboardDefaults( void );
@@ -389,6 +390,7 @@ public:
 	CHudUserCmd(HideScoreboard2);
 
 	CHudMsgFunc(ScoreInfo);
+	CHudMsgFunc(ScoreDmg);
 	CHudMsgFunc(TeamInfo);
 	CHudMsgFunc(TeamScore);
 	CHudMsgFunc(TeamNames);
@@ -397,6 +399,7 @@ public:
 	int m_iNumTeams;
 
 	bool m_bForceDraw; // if called by showscoreboard2
+	bool m_bDamageScores; // the server sends the damage dealt (story 055)
 	bool m_bShowscoresHeld;
 
 private:
@@ -447,6 +450,7 @@ struct extra_player_info_t
 {
 	short frags;
 	short deaths;
+	int damage; // dealt to the enemies over the match (ScoreDmg)
 	short team_id;
 	qboolean has_c4;
 	qboolean vip;
@@ -479,6 +483,7 @@ struct team_info_t
 	char name[MAX_TEAM_NAME];
 	short frags;
 	short deaths;
+	int damage;
 	short ownteam;
 	short players;
 	int already_drawn;

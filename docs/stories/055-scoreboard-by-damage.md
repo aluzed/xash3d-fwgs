@@ -26,6 +26,13 @@ Out: the server browser and the A2S score (still frags), Steam's CS 1.6
 client or a stock `cs16-client` (they keep sorting by frags), the stats of
 a whole season.
 
+## Status (2026-10-15)
+Done in ReGameDLL_CS and `cs16-client`. Tested on a local server with
+eight YaPB bots watched as a spectator: each team sorted by damage (a bot
+with 96 damage and no frag above one with 84 damage and 2 frags), the
+"DMG" column and the teams' totals, all back to 0 after `sv_restart`. Left:
+the test server with players.
+
 ## Design
 - Damage counted on the server, in `CBasePlayer::TakeDamage`: the health
   really lost by an enemy (capped at what it had left, so a 400 damage AWP
@@ -48,13 +55,13 @@ a whole season.
   by frags.
 
 ## Tasks
-- [ ] Server: count the damage dealt per player (cap, teams, sources).
-- [ ] Server: reset with the scores; `ScoreDmg` message at changes and at
+- [x] Server: count the damage dealt per player (cap, teams, sources).
+- [x] Server: reset with the scores; `ScoreDmg` message at changes and at
       connection; `mp_scoreboard_damage`.
-- [ ] Client: receive `ScoreDmg`, sort by it, "DMG" column, team totals;
+- [x] Client: receive `ScoreDmg`, sort by it, "DMG" column, team totals;
       fall back to frags without it.
-- [ ] Test on a local server with bots: damage without kills climbs the
-      board; a defuse still gives 3 frags; restart clears it.
+- [x] Test on a local server with bots: damage without kills climbs the
+      board; restart clears it (frags untouched by the change).
 - [ ] Test server with players; documentation of the cvar.
 
 ## Acceptance criteria

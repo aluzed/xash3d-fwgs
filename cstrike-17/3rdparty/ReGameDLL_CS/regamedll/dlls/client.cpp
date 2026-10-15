@@ -23,6 +23,7 @@ int gmsgAmmoX = 0;
 int gmsgDeathMsg = 0;
 int gmsgScoreAttrib = 0;
 int gmsgScoreInfo = 0;
+int gmsgScoreDmg = 0;
 int gmsgTeamInfo = 0;
 int gmsgTeamScore = 0;
 int gmsgGameMode = 0;
@@ -165,6 +166,7 @@ void LinkUserMessages()
 	gmsgDeathMsg      = REG_USER_MSG("DeathMsg", -1);
 	gmsgScoreAttrib   = REG_USER_MSG("ScoreAttrib", 2);
 	gmsgScoreInfo     = REG_USER_MSG("ScoreInfo", 9);
+	gmsgScoreDmg      = REG_USER_MSG("ScoreDmg", 5);
 	gmsgTeamInfo      = REG_USER_MSG("TeamInfo", -1);
 	gmsgTeamScore     = REG_USER_MSG("TeamScore", -1);
 	gmsgGameMode      = REG_USER_MSG("GameMode", 1);
@@ -732,6 +734,7 @@ void EXT_FUNC ClientPutInServer(edict_t *pEntity)
 
 	pPlayer->SetCustomDecalFrames(-1);
 	pPlayer->SetPrefsFromUserinfo(GET_INFO_BUFFER(pEntity));
+	pPlayer->CSPlayer()->m_iDamageDealt = 0;
 
 	if (!g_pGameRules->IsMultiplayer())
 	{

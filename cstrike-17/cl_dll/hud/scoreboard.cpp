@@ -53,6 +53,7 @@ enum
 	COL_ATTRIB,
 	COL_HP,
 	COL_MONEY,
+	COL_DAMAGE,
 	COL_KILLS,
 	COL_DEATHS,
 	COL_PING,
@@ -101,6 +102,7 @@ int CHudScoreboard :: Init( void )
 	HOOK_COMMAND( gHUD.m_Scoreboard, "hidescoreboard2", HideScoreboard2 );
 
 	HOOK_MESSAGE( gHUD.m_Scoreboard, ScoreInfo );
+	HOOK_MESSAGE( gHUD.m_Scoreboard, ScoreDmg );
 	HOOK_MESSAGE( gHUD.m_Scoreboard, TeamScore );
 	HOOK_MESSAGE( gHUD.m_Scoreboard, TeamInfo );
 
@@ -133,6 +135,7 @@ void CHudScoreboard :: InitHUDData( void )
 	m_fLastKillTime = 0;
 	m_iPlayerNum = 0;
 	m_iNumTeams = 0;
+	m_bDamageScores = false;
 	memset( g_TeamInfo, 0, sizeof g_TeamInfo );
 
 	for ( int i = 1; i <= MAX_PLAYERS; i++ )
@@ -201,7 +204,8 @@ int CHudScoreboard :: DrawScoreboard( float fTime )
 //	}
 
 	// just sort the list on the fly
-	// list is sorted first by frags, then by deaths
+	// list is sorted first by damage (when the server sends it), then by
+	// frags, then by deaths
 	float list_slot = 0;
 
 	// calculate columns sizes
@@ -214,7 +218,18 @@ int CHudScoreboard :: DrawScoreboard( float fTime )
 	g_Columns[COL_KILLS] = Column( g_Columns[COL_DEATHS].end - 10, Localize( "#PlayerScore" ) );
 	g_Columns[COL_KILLS].end = min( g_Columns[COL_KILLS].end, g_Columns[COL_KILLS].start - DrawUtils::HudStringLen( "9999" ) );
 
-	g_Columns[COL_MONEY] = Column( g_Columns[COL_KILLS].end - 10, Localize( "#Cstrike_ACCOUNT" ) );
+	if( m_bDamageScores )
+	{
+		g_Columns[COL_DAMAGE] = Column( g_Columns[COL_KILLS].end - 10, "DMG" );
+		g_Columns[COL_DAMAGE].end = min( g_Columns[COL_DAMAGE].end, g_Columns[COL_DAMAGE].start - DrawUtils::HudStringLen( "99999" ) );
+	}
+	else
+	{
+		g_Columns[COL_DAMAGE] = Column( g_Columns[COL_KILLS].end );
+		g_Columns[COL_DAMAGE].end = g_Columns[COL_DAMAGE].start;
+	}
+
+	g_Columns[COL_MONEY] = Column( g_Columns[COL_DAMAGE].end - 10, Localize( "#Cstrike_ACCOUNT" ) );
 	g_Columns[COL_MONEY].end = min( g_Columns[COL_MONEY].end, g_Columns[COL_MONEY].start - DrawUtils::HudStringLen( "$999999" ) );
 
 	g_Columns[COL_HP] = Column( g_Columns[COL_MONEY].end - 10, Localize( "#Cstrike_HEALTH" ) );
@@ -242,6 +257,8 @@ int CHudScoreboard :: DrawScoreboard( float fTime )
 	DrawUtils::DrawHudString( g_Columns[COL_NAME].start, ypos, g_Columns[COL_NAME].end, ServerName, 255, 140, 0 );
 	DrawUtils::DrawHudStringReverse( g_Columns[COL_HP].start, ypos, g_Columns[COL_HP].end, g_Columns[COL_HP].name, 255, 140, 0 );
 	DrawUtils::DrawHudStringReverse( g_Columns[COL_MONEY].start, ypos, g_Columns[COL_MONEY].end, g_Columns[COL_MONEY].name, 255, 140, 0 );
+	if( m_bDamageScores )
+		DrawUtils::DrawHudStringReverse( g_Columns[COL_DAMAGE].start, ypos, g_Columns[COL_DAMAGE].end, g_Columns[COL_DAMAGE].name, 255, 140, 0 );
 	DrawUtils::DrawHudStringReverse( g_Columns[COL_KILLS].start, ypos, g_Columns[COL_KILLS].end, g_Columns[COL_KILLS].name, 255, 140, 0 );
 	DrawUtils::DrawHudStringReverse( g_Columns[COL_DEATHS].start, ypos, g_Columns[COL_DEATHS].end, g_Columns[COL_DEATHS].name, 255, 140, 0 );
 	DrawUtils::DrawHudStringReverse( g_Columns[COL_PING].start, ypos, g_Columns[COL_PING].end, g_Columns[COL_PING].name, 255, 140, 0 );
@@ -274,6 +291,7 @@ int CHudScoreboard :: DrawTeams( float list_slot )
 	{
 		if ( !g_TeamInfo[i].scores_overriden )
 			g_TeamInfo[i].frags = g_TeamInfo[i].deaths = 0;
+		g_TeamInfo[i].damage = 0;
 		g_TeamInfo[i].sumping = 0;
 		g_TeamInfo[i].players = 0;
 		g_TeamInfo[i].already_drawn = FALSE;
@@ -304,6 +322,7 @@ int CHudScoreboard :: DrawTeams( float list_slot )
 			g_TeamInfo[j].deaths += g_PlayerExtraInfo[i].deaths;
 		}
 
+		g_TeamInfo[j].damage += g_PlayerExtraInfo[i].damage;
 		g_TeamInfo[j].sumping += g_PlayerInfoList[i].ping;
 
 		if ( g_PlayerInfoList[i].thisplayer )
@@ -408,6 +427,8 @@ int CHudScoreboard :: DrawTeams( float list_slot )
 		}
 
 		DrawUtils::DrawHudString( g_Columns[COL_NAME].start, ypos, g_Columns[COL_NAME].end, teamName, r, g, b );
+		if( m_bDamageScores && ( team_info->teamnumber == TEAM_TERRORIST || team_info->teamnumber == TEAM_CT ))
+			DrawUtils::DrawHudNumberString( g_Columns[COL_DAMAGE].start, ypos, g_Columns[COL_DAMAGE].end, team_info->damage, r, g, b );
 		DrawUtils::DrawHudNumberString( g_Columns[COL_PING].start, ypos, g_Columns[COL_PING].end, team_info->sumping / team_info->players, r, g, b );
 
 		team_info->already_drawn = TRUE;  // set the already_drawn to be TRUE, so this team won't get drawn again
@@ -428,31 +449,37 @@ int CHudScoreboard :: DrawTeams( float list_slot )
 	return 1;
 }
 
+bool CHudScoreboard :: RanksAbove( const extra_player_info_t *a, const extra_player_info_t *b ) const
+{
+	if( m_bDamageScores && a->damage != b->damage )
+		return a->damage > b->damage;
+
+	if( a->frags != b->frags )
+		return a->frags > b->frags;
+
+	return a->deaths < b->deaths;
+}
+
 // returns the ypos where it finishes drawing
 int CHudScoreboard :: DrawPlayers( float list_slot, int nameoffset, const char *team )
 {
 	// draw the players, in order,  and restricted to team if set
 	while ( 1 )
 	{
-		// Find the top ranking player
-		int highest_frags = -99999;	int lowest_deaths = 99999;
+		// Find the top ranking player: the most damage (story 055), then
+		// the most frags, then the fewest deaths
 		int best_player = 0;
 
 		for ( int i = 1; i < MAX_PLAYERS; i++ )
 		{
-			if ( g_PlayerInfoList[i].name && g_PlayerExtraInfo[i].frags >= highest_frags )
-			{
-				if ( !(team && stricmp(g_PlayerExtraInfo[i].teamname, team)) )  // make sure it is the specified team
-				{
-					extra_player_info_t *pl_info = &g_PlayerExtraInfo[i];
-					if ( pl_info->frags > highest_frags || pl_info->deaths < lowest_deaths )
-					{
-						best_player = i;
-						lowest_deaths = pl_info->deaths;
-						highest_frags = pl_info->frags;
-					}
-				}
-			}
+			if ( !g_PlayerInfoList[i].name )
+				continue;
+
+			if ( team && stricmp(g_PlayerExtraInfo[i].teamname, team) )  // make sure it is the specified team
+				continue;
+
+			if ( !best_player || RanksAbove( &g_PlayerExtraInfo[i], &g_PlayerExtraInfo[best_player] ))
+				best_player = i;
 		}
 
 		if ( !best_player )
@@ -523,6 +550,9 @@ int CHudScoreboard :: DrawPlayers( float list_slot, int nameoffset, const char *
 		// draw kills (right to left)
 		if( team && stricmp( team, "SPECTATOR" ) )
 		{
+			if( m_bDamageScores )
+				DrawUtils::DrawHudNumberString( g_Columns[COL_DAMAGE].start, ypos, g_Columns[COL_DAMAGE].end, g_PlayerExtraInfo[best_player].damage, r, g, b );
+
 			DrawUtils::DrawHudNumberString( g_Columns[COL_KILLS].start, ypos, g_Columns[COL_KILLS].end, g_PlayerExtraInfo[best_player].frags, r, g, b );
 
 			// draw deaths
@@ -581,6 +611,22 @@ int CHudScoreboard :: MsgFunc_ScoreInfo( const char *pszName, int iSize, void *p
 
 		//gViewPort->UpdateOnPlayerInfo();
 	}
+
+	return 1;
+}
+
+// ScoreDmg: byte client, long damage dealt to the enemies (story 055); a
+// server that sends it sorts the board by it
+int CHudScoreboard :: MsgFunc_ScoreDmg( const char *pszName, int iSize, void *pbuf )
+{
+	BufferReader reader( pszName, pbuf, iSize );
+	int cl = reader.ReadByte();
+	int damage = reader.ReadLong();
+
+	m_bDamageScores = true;
+
+	if ( cl > 0 && cl <= MAX_PLAYERS )
+		g_PlayerExtraInfo[cl].damage = damage;
 
 	return 1;
 }
