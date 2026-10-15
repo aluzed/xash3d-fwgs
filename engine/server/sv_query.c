@@ -18,22 +18,20 @@ GNU General Public License for more details.
 
 /*
 ==================
-SV_SourceQuery_Details
+SV_SourceQuery_BuildDetails
+
+A2S_INFO answer, also published to the network thread (story 042)
 ==================
 */
-static void SV_SourceQuery_Details( netadr_t from )
+int SV_SourceQuery_BuildDetails( byte *answer, int size )
 {
 	sizebuf_t buf;
-	char answer[2048];
 	int bot_count, client_count;
-
-	if( SV_RateLimited( from, SV_RATELIMIT_QUERY ))
-		return;
 
 	SV_GetPlayerCount( &client_count, &bot_count );
 	client_count += bot_count; // bots are counted as players in this reply
 
-	MSG_Init( &buf, "TSourceEngineQuery", answer, sizeof( answer ));
+	MSG_Init( &buf, "TSourceEngineQuery", answer, size );
 
 	MSG_WriteDword( &buf, 0xFFFFFFFFU );
 	MSG_WriteByte( &buf, S2A_GOLDSRC_INFO );
@@ -64,25 +62,41 @@ static void SV_SourceQuery_Details( netadr_t from )
 	MSG_WriteByte( &buf, GI->secure );
 	MSG_WriteString( &buf, XASH_VERSION );
 
-	NET_SendPacket( NS_SERVER, MSG_GetNumBytesWritten( &buf ), MSG_GetData( &buf ), from );
+	return MSG_GetNumBytesWritten( &buf );
 }
 
 /*
 ==================
-SV_SourceQuery_Rules
+SV_SourceQuery_Details
 ==================
 */
-static void SV_SourceQuery_Rules( netadr_t from )
+static void SV_SourceQuery_Details( netadr_t from )
 {
-	sizebuf_t buf;
-	char answer[MAX_PRINT_MSG - 4];
-	int pos;
-	uint cvar_count = 0;
+	byte answer[2048];
+	int len;
 
 	if( SV_RateLimited( from, SV_RATELIMIT_QUERY ))
 		return;
 
-	MSG_Init( &buf, "TSourceEngineQueryRules", answer, sizeof( answer ));
+	len = SV_SourceQuery_BuildDetails( answer, sizeof( answer ));
+	NET_SendPacket( NS_SERVER, len, answer, from );
+}
+
+/*
+==================
+SV_SourceQuery_BuildRules
+
+A2S_RULES answer, 0 when there is no server cvar; also published to the
+network thread (story 042)
+==================
+*/
+int SV_SourceQuery_BuildRules( byte *answer, int size )
+{
+	sizebuf_t buf;
+	int pos;
+	uint cvar_count = 0;
+
+	MSG_Init( &buf, "TSourceEngineQueryRules", answer, size );
 
 	MSG_WriteDword( &buf, 0xFFFFFFFFU );
 	MSG_WriteByte( &buf, S2A_GOLDSRC_RULES );
@@ -108,15 +122,33 @@ static void SV_SourceQuery_Rules( netadr_t from )
 		cvar_count++;
 	}
 
-	if( cvar_count != 0 )
-	{
-		int total = MSG_GetNumBytesWritten( &buf );
+	if( cvar_count == 0 )
+		return 0;
 
-		MSG_SeekToBit( &buf, pos, SEEK_SET );
-		MSG_WriteShort( &buf, cvar_count );
+	int total = MSG_GetNumBytesWritten( &buf );
 
-		NET_SendPacket( NS_SERVER, total, MSG_GetData( &buf ), from );
-	}
+	MSG_SeekToBit( &buf, pos, SEEK_SET );
+	MSG_WriteShort( &buf, cvar_count );
+
+	return total;
+}
+
+/*
+==================
+SV_SourceQuery_Rules
+==================
+*/
+static void SV_SourceQuery_Rules( netadr_t from )
+{
+	byte answer[MAX_PRINT_MSG - 4];
+	int len;
+
+	if( SV_RateLimited( from, SV_RATELIMIT_QUERY ))
+		return;
+
+	len = SV_SourceQuery_BuildRules( answer, sizeof( answer ));
+	if( len != 0 )
+		NET_SendPacket( NS_SERVER, len, answer, from );
 }
 
 /*

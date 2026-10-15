@@ -21,7 +21,6 @@ GNU General Public License for more details.
 #include "net_encode.h"
 
 // challenges are valid for two consecutive windows of this size (max lifetime ~10s).
-#define CHALLENGE_WINDOW_SECONDS 5
 
 typedef struct ucmd_s
 {
@@ -71,7 +70,7 @@ flood the server with invalid connection IPs.  With a
 challenge, they must give a valid IP address.
 =================
 */
-static int SV_GetChallenge( netadr_t from, uint32_t time_window, qboolean *error )
+int SV_ComputeChallenge( netadr_t from, uint32_t time_window, const uint32_t salt[4], qboolean *error )
 {
 	const netadrtype_t type = NET_NetadrType( &from );
 	byte data[2 + 16 + 4]; // purpose, address type, address, time window
@@ -106,7 +105,12 @@ static int SV_GetChallenge( netadr_t from, uint32_t time_window, qboolean *error
 	for( int i = 0; i < 4; i++ )
 		data[len++] = time_window >> ( 8 * i );
 
-	return (int32_t)SipHash24( data, len, (const byte *)svs.challenge_salt );
+	return (int32_t)SipHash24( data, len, (const byte *)salt );
+}
+
+static int SV_GetChallenge( netadr_t from, uint32_t time_window, qboolean *error )
+{
+	return SV_ComputeChallenge( from, time_window, svs.challenge_salt, error );
 }
 
 /*

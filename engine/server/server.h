@@ -726,6 +726,13 @@ int SV_LightForEntity( edict_t *pEdict );
 // sv_query.c
 //
 void SV_SourceQuery_HandleConnnectionlessPacket( const char *c, netadr_t from, sizebuf_t *msg );
+int SV_SourceQuery_BuildDetails( byte *answer, int size );
+
+// challenges change every CHALLENGE_WINDOW_SECONDS of host.realtime; the
+// network thread computes them with a copy of the salt (story 042)
+#define CHALLENGE_WINDOW_SECONDS 5
+int SV_ComputeChallenge( netadr_t from, uint32_t time_window, const uint32_t salt[4], qboolean *error );
+int SV_SourceQuery_BuildRules( byte *answer, int size );
 
 static inline qboolean SV_CheckGroupOp( int op, int groupinfo, int mask )
 {

@@ -42,7 +42,7 @@ fi
 # arguments come after them, so that they can turn one off
 if [ "${FEATURES:-1}" = 1 ]; then
 	features="+sys_scheduler 1 +sys_spin_us ${SPIN_US:-200}
-		+sv_snapshot_spread 1 +sv_log_async 1 +sv_client_lookup_cache 1 -netthread"
+		+sv_snapshot_spread 1 +sv_log_async 1 +sv_client_lookup_cache 1 -netthread +sv_a2s_cache 1"
 else
 	features="+sys_scheduler 0 +sv_snapshot_spread 0 +sv_log_async 0 +sv_client_lookup_cache 0"
 fi

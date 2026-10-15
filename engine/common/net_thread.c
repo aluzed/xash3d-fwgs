@@ -35,6 +35,11 @@ GNU General Public License for more details.
 // The main thread publishes the filter list, the client addresses and the
 // limits as a copy, every frame when they changed and when a client is given
 // a slot (before it is told), so that its first packets are never dropped.
+//
+// Server browser queries (sv_a2s_cache 1 with the filter on, story 042): the
+// thread answers A2S_INFO, A2S_RULES and A2S_PLAYERS itself, with their
+// challenges, from the answers the main thread builds every second and when
+// the players or the map change. The main thread never sees these queries.
 
 #include "common.h"
 #include "net_ws_private.h"
@@ -92,6 +97,28 @@ typedef struct
 	uint64_t end_ns; // 0: permanent
 } ban_t;
 
+typedef struct
+{
+	char name[32];
+	int frags;
+	uint64_t start_ns; // connection_started on the monotonic clock
+	qboolean fake;
+} a2s_player_t;
+
+typedef struct
+{
+	int info_len;
+	byte info[2048];
+	int rules_len;     // 0: no answer
+	byte *rules;
+	qboolean players_allowed;
+	int num_players;
+	a2s_player_t players[MAX_CLIENTS];
+	uint32_t salt[4];  // svs.challenge_salt
+	double realtime_base; // host.realtime at mono_base
+	uint64_t mono_base;
+} a2s_replies_t;
+
 // immutable once published
 typedef struct
 {
@@ -101,6 +128,7 @@ typedef struct
 	ban_t *bans;
 	int num_clients;
 	netadr_t clients[MAX_CLIENTS + 1]; // + a client being given its slot
+	a2s_replies_t *a2s; // NULL: queries go to the main thread
 } net_thread_config_t;
 
 typedef struct
@@ -111,6 +139,9 @@ typedef struct
 } packet_header_t;
 
 static CVAR_DEFINE_AUTO( net_thread_filter, "1", 0, "with -netthread, drop on the network thread the packets the main thread would ignore (bans, rate limits, unknown addresses)" );
+static CVAR_DEFINE_AUTO( sv_a2s_cache, "0", 0, "with -netthread and net_thread_filter 1, answer the server browser queries (A2S) on the network thread" );
+
+#define A2S_REFRESH_SECONDS 1.0
 
 static struct
 {
@@ -144,6 +175,8 @@ static struct
 	int published_num_clients;
 	netadr_t published_clients[MAX_CLIENTS + 1];
 	qboolean config_published;
+	qboolean published_a2s;
+	double next_a2s_refresh;
 	uint32_t config_version;
 	uint32_t reported_drops;
 
@@ -158,6 +191,8 @@ static struct
 	volatile uint32_t received;
 	volatile uint32_t dropped[DROP_COUNT];
 	volatile uint32_t recv_errors;
+	volatile uint32_t answered[3]; // info, rules, players
+	volatile uint32_t challenges_sent;
 } nt;
 
 static uint64_t NetThread_Now( void )
@@ -357,6 +392,20 @@ static void NetThread_Push( const netadr_t *from, const byte *data, uint32_t siz
 	Sys_MutexUnlock( &nt.lock );
 }
 
+static void NetThread_FreeConfig( net_thread_config_t *config )
+{
+	if( !config )
+		return;
+
+	if( config->a2s )
+	{
+		free( config->a2s->rules );
+		free( config->a2s );
+	}
+	free( config->bans );
+	free( config );
+}
+
 static void NetThread_TakeConfig( void )
 {
 	net_thread_config_t *old = NULL;
@@ -371,11 +420,125 @@ static void NetThread_TakeConfig( void )
 	}
 	Sys_MutexUnlock( &nt.lock );
 
-	if( old )
+	NetThread_FreeConfig( old );
+}
+
+/*
+==================
+Server browser queries (story 042)
+==================
+*/
+static void NetThread_SendTo( int sock, const struct sockaddr_storage *to, WSAsize_t to_len, const void *data, int len )
+{
+	sendto( sock, data, len, 0, (const struct sockaddr *)to, to_len );
+}
+
+static uint32_t NetThread_ChallengeWindow( const a2s_replies_t *a2s, uint64_t now_ns )
+{
+	double realtime = a2s->realtime_base + (double)(int64_t)( now_ns - a2s->mono_base ) * 1e-9;
+	return (uint32_t)( realtime / CHALLENGE_WINDOW_SECONDS );
+}
+
+// SV_SourceQuery_CheckChallenge: true to answer, else a new challenge was sent
+// (or rate limited)
+static qboolean NetThread_CheckChallenge( int sock, const struct sockaddr_storage *to, WSAsize_t to_len, const netadr_t *from, const byte *data, size_t size, uint64_t now_ns )
+{
+	const a2s_replies_t *a2s = nt.config->a2s;
+	uint32_t window = NetThread_ChallengeWindow( a2s, now_ns );
+	qboolean error = false;
+	int challenge;
+	byte answer[9];
+
+	if( size >= 9 )
 	{
-		free( old->bans );
-		free( old );
+		memcpy( &challenge, data + 5, 4 );
+		challenge = LittleLong( challenge );
+
+		if( challenge != -1
+			&& (( SV_ComputeChallenge( *from, window, a2s->salt, &error ) == challenge && !error )
+			|| ( SV_ComputeChallenge( *from, window - 1, a2s->salt, &error ) == challenge && !error )))
+			return true;
 	}
+
+	if( NetThread_RateLimited( from, KIND_CHALLENGE, now_ns ))
+		return false;
+
+	challenge = SV_ComputeChallenge( *from, window, a2s->salt, &error );
+	if( error )
+		return false;
+
+	challenge = LittleLong( challenge );
+	memset( answer, 0xFF, 4 );
+	answer[4] = S2C_GOLDSRC_CHALLENGE[0];
+	memcpy( answer + 5, &challenge, 4 );
+	NetThread_SendTo( sock, to, to_len, answer, sizeof( answer ));
+	Sys_AtomicAdd( &nt.challenges_sent, 1 );
+	return false;
+}
+
+static void NetThread_SendPlayers( int sock, const struct sockaddr_storage *to, WSAsize_t to_len, uint64_t now_ns )
+{
+	const a2s_replies_t *a2s = nt.config->a2s;
+	byte answer[MAX_PRINT_MSG - 4];
+	sizebuf_t buf;
+	int i;
+
+	if( !a2s->players_allowed || !a2s->num_players )
+		return;
+
+	// the layout of SV_SourceQuery_Players
+	MSG_Init( &buf, "A2SPlayers", answer, sizeof( answer ));
+	MSG_WriteDword( &buf, 0xFFFFFFFFU );
+	MSG_WriteByte( &buf, S2A_GOLDSRC_PLAYERS );
+	MSG_WriteByte( &buf, a2s->num_players );
+
+	for( i = 0; i < a2s->num_players; i++ )
+	{
+		const a2s_player_t *p = &a2s->players[i];
+
+		MSG_WriteByte( &buf, i );
+		MSG_WriteString( &buf, p->name );
+		MSG_WriteLong( &buf, p->frags );
+		MSG_WriteFloat( &buf, p->fake ? -1.0f : (float)( (double)(int64_t)( now_ns - p->start_ns ) * 1e-9 ));
+	}
+
+	NetThread_SendTo( sock, to, to_len, answer, MSG_GetNumBytesWritten( &buf ));
+	Sys_AtomicAdd( &nt.answered[2], 1 );
+}
+
+// true when the thread answered the query itself
+static qboolean NetThread_AnswerQuery( int sock, const struct sockaddr_storage *to, WSAsize_t to_len, const netadr_t *from, const byte *data, size_t size, uint64_t now_ns )
+{
+	const a2s_replies_t *a2s = nt.config->a2s;
+
+	if( !a2s || size < 5 )
+		return false;
+
+	if( size >= 4 + sizeof( A2S_GOLDSRC_INFO ) - 1 && !memcmp( data + 4, A2S_GOLDSRC_INFO, sizeof( A2S_GOLDSRC_INFO ) - 1 ))
+	{
+		NetThread_SendTo( sock, to, to_len, a2s->info, a2s->info_len );
+		Sys_AtomicAdd( &nt.answered[0], 1 );
+		return true;
+	}
+
+	if( data[4] == A2S_GOLDSRC_RULES )
+	{
+		if( NetThread_CheckChallenge( sock, to, to_len, from, data, size, now_ns ) && a2s->rules_len )
+		{
+			NetThread_SendTo( sock, to, to_len, a2s->rules, a2s->rules_len );
+			Sys_AtomicAdd( &nt.answered[1], 1 );
+		}
+		return true;
+	}
+
+	if( data[4] == A2S_GOLDSRC_PLAYERS )
+	{
+		if( NetThread_CheckChallenge( sock, to, to_len, from, data, size, now_ns ))
+			NetThread_SendPlayers( sock, to, to_len, now_ns );
+		return true;
+	}
+
+	return false;
 }
 
 static void NetThread_Drain( int sock )
@@ -421,6 +584,11 @@ static void NetThread_Drain( int sock )
 			NetThread_Drop( reason );
 			continue;
 		}
+
+		// classified: connectionless, not banned, within the rate limits
+		if( nt.config && nt.config->filter && *(const int *)nt.scratch == -1
+			&& NetThread_AnswerQuery( sock, &addr, addr_len, &from, nt.scratch, ret, now ))
+			continue;
 
 		NetThread_Push( &from, nt.scratch, ret, now );
 	}
@@ -500,6 +668,9 @@ static void NetThread_Stats_f( void )
 	for( i = 0; i < DROP_COUNT; i++ )
 		Con_Printf( "  dropped: %-15s %u\n", drop_names[i], Sys_AtomicLoad( &nt.dropped[i] ));
 	Con_Printf( "  recv errors   %u\n", Sys_AtomicLoad( &nt.recv_errors ));
+	Con_Printf( "  A2S answered  info %u, rules %u, players %u, challenges %u (sv_a2s_cache %s)\n",
+		Sys_AtomicLoad( &nt.answered[0] ), Sys_AtomicLoad( &nt.answered[1] ), Sys_AtomicLoad( &nt.answered[2] ),
+		Sys_AtomicLoad( &nt.challenges_sent ), sv_a2s_cache.string );
 }
 
 void NetThread_Init( void )
@@ -507,6 +678,7 @@ void NetThread_Init( void )
 	int size;
 
 	Cvar_RegisterVariable( &net_thread_filter );
+	Cvar_RegisterVariable( &sv_a2s_cache );
 	Cmd_AddCommand( "net_thread_stats", NetThread_Stats_f, "network thread counters" );
 
 	// -nonetthread wins, so that a command line can turn it off again
@@ -559,6 +731,44 @@ static int NetThread_ClientAddresses( netadr_t *out )
 	return count;
 }
 
+static a2s_replies_t *NetThread_BuildReplies( void )
+{
+	a2s_replies_t *a2s = calloc( 1, sizeof( *a2s ));
+	byte rules[MAX_PRINT_MSG - 4];
+	uint64_t now = NetThread_Now( );
+	int i;
+
+	a2s->info_len = SV_SourceQuery_BuildDetails( a2s->info, sizeof( a2s->info ));
+	a2s->rules_len = SV_SourceQuery_BuildRules( rules, sizeof( rules ));
+	if( a2s->rules_len )
+	{
+		a2s->rules = malloc( a2s->rules_len );
+		memcpy( a2s->rules, rules, a2s->rules_len );
+	}
+
+	// respect players privacy, as SV_SourceQuery_Players
+	a2s->players_allowed = sv_expose_player_list.value && !SV_HavePassword( );
+	for( i = 0; i < svs.maxclients; i++ )
+	{
+		const sv_client_t *cl = &svs.clients[i];
+		a2s_player_t *p;
+
+		if( cl->state < cs_connected )
+			continue;
+
+		p = &a2s->players[a2s->num_players++];
+		Q_strncpy( p->name, cl->name, sizeof( p->name ));
+		p->frags = cl->edict ? cl->edict->v.frags : 0;
+		p->fake = FBitSet( cl->flags, FCL_FAKECLIENT ) ? true : false;
+		p->start_ns = now - (uint64_t)(( host.realtime - cl->connection_started ) * 1e9 );
+	}
+
+	memcpy( a2s->salt, svs.challenge_salt, sizeof( a2s->salt ));
+	a2s->realtime_base = host.realtime;
+	a2s->mono_base = now;
+	return a2s;
+}
+
 static void NetThread_Publish( qboolean force, const netadr_t *connecting )
 {
 	netadr_t clients[MAX_CLIENTS + 1];
@@ -569,10 +779,17 @@ static void NetThread_Publish( qboolean force, const netadr_t *connecting )
 	net_thread_config_t *config, *old;
 	int num_bans = 0;
 
+	qboolean a2s = filter && sv_a2s_cache.value != 0.0f && SV_Active( );
+
 	if( connecting )
 		clients[num_clients++] = *connecting;
 
-	if( !force && nt.config_published
+	// the answers change with the players' scores and times: rebuilt every second
+	if( a2s && host.realtime >= nt.next_a2s_refresh )
+		force = true;
+
+	if( !force
+		&& a2s == nt.published_a2s && nt.config_published
 		&& filter == nt.published_filter
 		&& query_rate == nt.published_query_rate
 		&& filter_version == nt.published_filter_version
@@ -590,19 +807,22 @@ static void NetThread_Publish( qboolean force, const netadr_t *connecting )
 	config->num_clients = num_clients;
 	memcpy( config->clients, clients, sizeof( clients[0] ) * num_clients );
 
+	if( a2s )
+	{
+		config->a2s = NetThread_BuildReplies( );
+		nt.next_a2s_refresh = host.realtime + A2S_REFRESH_SECONDS;
+	}
+
 	Sys_MutexLock( &nt.lock );
 	old = nt.pending;
 	nt.pending = config;
 	nt.pending_version++;
 	Sys_MutexUnlock( &nt.lock );
 
-	if( old )
-	{
-		free( old->bans );
-		free( old );
-	}
+	NetThread_FreeConfig( old );
 
 	nt.config_published = true;
+	nt.published_a2s = a2s;
 	nt.published_filter = filter;
 	nt.published_query_rate = query_rate;
 	nt.published_filter_version = filter_version;
@@ -700,18 +920,9 @@ void NetThread_Stop( void )
 	close( nt.wake_pipe[1] );
 #endif
 
-	if( nt.config )
-	{
-		free( nt.config->bans );
-		free( nt.config );
-		nt.config = NULL;
-	}
-	if( nt.pending )
-	{
-		free( nt.pending->bans );
-		free( nt.pending );
-		nt.pending = NULL;
-	}
+	NetThread_FreeConfig( nt.config );
+	NetThread_FreeConfig( nt.pending );
+	nt.config = nt.pending = NULL;
 
 	Sys_MutexFree( &nt.lock );
 	free( nt.buffer );
