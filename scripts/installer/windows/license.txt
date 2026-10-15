@@ -1,0 +1,41 @@
+Xash3D FWGS with Half-Life and Counter-Strike game libraries
+==========================================================
+
+This installer puts together free software and copies the game data of
+Half-Life and Counter-Strike from your own Steam installation.
+
+Xash3D FWGS engine (xash3d.exe, xash.dll, ref_vk.dll, ref_gl.dll,
+filesystem_stdio.dll, menu.dll, vgui2_support.dll)
+  GNU General Public License, version 3 or later.
+  https://www.gnu.org/licenses/gpl-3.0.html
+  Source: https://github.com/aluzed/xash3d-fwgs
+
+Half-Life game libraries (valve\cl_dlls\client_amd64.dll, valve\dlls\hl_amd64.dll)
+  hlsdk-portable, under the Half-Life 1 SDK license of Valve Corporation:
+  free for non-commercial use with Half-Life.
+  Source: https://github.com/FWGS/hlsdk-portable
+
+Counter-Strike game libraries (cstrike\cl_dlls\client_amd64.dll,
+cstrike\cl_dlls\menu_amd64.dll, cstrike\extras.pk3)
+  CS16Client, GNU General Public License, version 3 or later.
+  Source: https://github.com/aluzed/cs16-client
+cstrike\dlls\mp_amd64.dll
+  ReGameDLL_CS, GNU General Public License, version 3 or later.
+  Source: https://github.com/Velaron/ReGameDLL_CS
+cstrike\dlls\yapb_amd64.dll
+  YaPB, MIT License. Source: https://github.com/yapb/yapb
+
+SDL2.dll
+  zlib License. https://www.libsdl.org
+
+vcruntime140.dll, vcruntime140_1.dll, msvcp140.dll
+  Microsoft Visual C++ runtime, redistributed under the Visual Studio
+  license terms.
+
+Game data
+  The valve and cstrike folders are copied from your own Steam installation
+  of Half-Life and Counter-Strike. They remain the property of Valve
+  Corporation and are covered by the Steam Subscriber Agreement. Nothing of
+  them is included in this installer.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.

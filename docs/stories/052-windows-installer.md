@@ -7,8 +7,18 @@ ReGameDLL_CS, YaPB), `SDL2.dll`, the game data of a Steam install passed
 with `-rodir`, `XASH3D_BASEDIR` set, and a few settings typed in the
 console. A player shouldn't have to know any of it.
 
-The installer is built by the CI, once the CI is turned on for this fork;
-not before.
+The installer is built by the CI, once the CI is turned on for this fork.
+Until then it is built and tested by hand: `scripts/installer/windows`.
+
+## Status (2026-10-15)
+Made and tested locally (Inno Setup 6, `scripts/installer/windows`): the
+wizard, Steam detection, copy without Valve's libraries, first-run
+`video.cfg`, app-local MSVC runtime, shortcuts with `-dll @yapb` for the
+bots, uninstaller. A silent install found the Steam folder on its own,
+installed 806 MB in 9 seconds, Counter-Strike started with Vulkan, ray
+tracing and bots, Half-Life started c1a0; the uninstall removed everything
+but the player's `video.cfg`. Left: the CI job, the fresh Windows 10 and
+11 machines of the acceptance criteria, the players' page.
 
 ## Goal
 One `Setup.exe` for Windows 10 and 11, 64-bit: the player picks the Steam
@@ -36,29 +46,29 @@ Out:
 - Other platforms; an auto-updater; code signing (see risks).
 
 ## Tasks
-- [ ] Choose the tool: Inno Setup (free, a single script, `iscc` runs on
+- [x] Choose the tool: Inno Setup (free, a single script, `iscc` runs on
       GitHub's Windows runners, Pascal script for the checks below). NSIS
       or WiX only if Inno Setup can't do something listed here.
-- [ ] Steam folder page:
-  - [ ] Find it on its own: `HKCU\Software\Valve\Steam\SteamPath`, then
+- [x] Steam folder page:
+  - [x] Find it on its own: `HKCU\Software\Valve\Steam\SteamPath`, then
         every library of `steamapps/libraryfolders.vdf`, and the Half-Life
         folder from `appmanifest_70.acf` (Counter-Strike: app 10, same
         folder).
-  - [ ] Let the player browse to another folder (a non-Steam copy of the
+  - [x] Let the player browse to another folder (a non-Steam copy of the
         game too).
-  - [ ] Check it before going on: `valve\liblist.gam` and `valve\halflife.wad`
+  - [x] Check it before going on: `valve\liblist.gam` and `valve\halflife.wad`
         must be there; Counter-Strike can only be ticked when
         `cstrike\liblist.gam` is. Clear messages when something lacks.
-- [ ] Destination page: per-user, no administrator rights, default
+- [x] Destination page: per-user, no administrator rights, default
       `%LOCALAPPDATA%\Programs\Xash3D FWGS`: the engine writes its
       configuration, saves, screenshots and demos next to itself, which
       `Program Files` doesn't allow. Show the space needed (game data
       about 1 GB with Counter-Strike).
-- [ ] Games page: Half-Life, Counter-Strike (ticked when found), each with
+- [x] Games page: Half-Life, Counter-Strike (ticked when found), each with
       its shortcuts.
-- [ ] Install:
-  - [ ] Unpack the engine and the game libraries into the destination.
-  - [ ] Copy `valve` and `cstrike` from the Steam folder, skipping the
+- [x] Install:
+  - [x] Unpack the engine and the game libraries into the destination.
+  - [x] Copy `valve` and `cstrike` from the Steam folder, skipping the
         Valve libraries this set replaces (`cl_dlls\client.dll`,
         `dlls\*.dll`, `hl.dll`, `vgui*.dll`, Steam's `*.exe`). Copied, not
         read in place with `-rodir`: the set must keep working when Steam
@@ -72,15 +82,15 @@ Out:
   - [ ] preset `classic`, `cl_charset utf-8`, `hud_utf8 1`, screen
         resolution of the desktop, fullscreen;
   - [ ] `bind F12 snapshot` as well as F5.
-- [ ] Runtime dependencies: link the MSVC runtime statically (`/MT`) or
+- [x] Runtime dependencies: link the MSVC runtime statically (`/MT`) or
       ship the VC++ redistributable and run it silently when missing;
       check a fresh Windows 10 has every DLL the set imports (`dumpbin
       /dependents` in the CI).
-- [ ] Shortcuts: Start menu and, when asked, desktop: "Half-Life"
+- [x] Shortcuts: Start menu and, when asked, desktop: "Half-Life"
       (`xash3d.exe -game valve`), "Counter-Strike" (`xash3d.exe -game
       cstrike`), with the games' icons; "Uninstall".
-- [ ] Finish page: "Launch Counter-Strike" (or Half-Life) ticked.
-- [ ] Uninstaller: removes what it installed; asks before removing what the
+- [x] Finish page: "Launch Counter-Strike" (or Half-Life) ticked.
+- [x] Uninstaller: removes what it installed; asks before removing what the
       player made (configuration, saves, screenshots, demos).
 - [ ] CI job (Windows runner): build the engine x64 (waf, Vulkan SDK for
       `glslc`), `hlsdk-portable` and `cs16-client` x64 (CMake), stage the
