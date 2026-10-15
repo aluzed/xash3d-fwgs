@@ -117,6 +117,7 @@ static CVAR_DEFINE_AUTO( sv_version, "", FCVAR_READ_ONLY, "engine version string
 CVAR_DEFINE_AUTO( hostname, "", FCVAR_PRINTABLEONLY, "name of current host" );
 static CVAR_DEFINE_AUTO( sv_fps, "0.0", 0, "set this cvar to decouple server framerate from client framerate" );
 CVAR_DEFINE_AUTO( sv_snapshot_spread, "0", 0, "send each client's snapshots at a fixed phase of its update interval, spread over the frames" );
+CVAR_DEFINE_AUTO( sv_parallel_send, "0", 0, "gather every snapshot of the frame first, then encode them (on the workers of -sys_threads), then send them" );
 static CVAR_DEFINE_AUTO( sv_client_lookup_cache, "0", 0, "find the client of a game packet through a table indexed by address instead of scanning the slots" );
 
 // gore-related cvars
@@ -1045,6 +1046,7 @@ void SV_Init( void )
 #endif // !XASH_DEDICATED
 	Cvar_RegisterVariable( &sv_snapshot_spread );
 	Cvar_RegisterVariable( &sv_client_lookup_cache );
+	Cvar_RegisterVariable( &sv_parallel_send );
 	Cvar_RegisterVariable( &showtriggers );
 	Cvar_RegisterVariable( &sv_aim );
 	Cvar_RegisterVariable( &sv_allow_autoaim );

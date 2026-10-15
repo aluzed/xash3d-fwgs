@@ -1088,7 +1088,7 @@ compare fields by offsets
 assume from and to is valid
 =====================
 */
-static qboolean Delta_CompareField( delta_t *pField, const void *from, const void *to )
+static qboolean Delta_CompareFieldValue( delta_t *pField, const void *from, const void *to )
 {
 	int		signbit = ( pField->flags & DT_SIGNED ) ? 1 : 0;
 	float	val_a, val_b;
@@ -1097,9 +1097,6 @@ static qboolean Delta_CompareField( delta_t *pField, const void *from, const voi
 	Assert( pField != NULL );
 	Assert( from != NULL );
 	Assert( to != NULL );
-
-	if( pField->bInactive )
-		return true;
 
 	fromF = toF = 0;
 
@@ -1200,6 +1197,14 @@ static qboolean Delta_CompareField( delta_t *pField, const void *from, const voi
 	}
 
 	return fromF == toF;
+}
+
+static qboolean Delta_CompareField( delta_t *pField, const void *from, const void *to )
+{
+	if( pField->bInactive )
+		return true;
+
+	return Delta_CompareFieldValue( pField, from, to );
 }
 
 /*
@@ -1343,9 +1348,10 @@ static void Delta_WriteField_( sizebuf_t *msg, delta_t *pField, const void *from
 	}
 }
 
-static qboolean Delta_WriteField( sizebuf_t *msg, delta_t *pField, const void *from, const void *to, double timebase )
+// inactive: the field was unset by a custom encoder, it is never sent
+static qboolean Delta_WriteFieldActive( sizebuf_t *msg, delta_t *pField, qboolean inactive, const void *from, const void *to, double timebase )
 {
-	if( Delta_CompareField( pField, from, to ))
+	if( inactive || Delta_CompareFieldValue( pField, from, to ))
 	{
 		MSG_WriteOneBit( msg, 0 );	// unchanged
 		return false;
@@ -1356,6 +1362,11 @@ static qboolean Delta_WriteField( sizebuf_t *msg, delta_t *pField, const void *f
 	Delta_WriteField_( msg, pField, from, to, timebase );
 
 	return true;
+}
+
+static qboolean Delta_WriteField( sizebuf_t *msg, delta_t *pField, const void *from, const void *to, double timebase )
+{
+	return Delta_WriteFieldActive( msg, pField, pField->bInactive, from, to, timebase );
 }
 
 /*
@@ -2346,3 +2357,179 @@ void Test_RunDelta( void )
 	Con_Printf( "to.dt_byte_unsigned   = %i\n", to.dt_byte_unsigned );
 }
 #endif // XASH_ENGINE_TESTS
+
+/*
+=============================================================================
+
+Encoding on worker threads (story 046)
+
+The encoders above write the active flags of the shared delta descriptions
+(Delta_CustomEncode) and call the game's custom encoders, which do the same
+through pfnDeltaSetField and friends: they can only run on the main thread.
+The functions below never write shared state: a game's custom encoder is run
+on the main thread beforehand (Delta_EntityEncoderMask) and its result is
+passed as a mask of inactive fields.
+
+=============================================================================
+*/
+static delta_info_t *Delta_EntityDescription( const entity_state_t *to, int delta_type )
+{
+	if( FBitSet( to->entityType, ENTITY_BEAM ))
+		return Delta_FindStructByIndex( DT_CUSTOM_ENTITY_STATE_T );
+	if( delta_type == DELTA_PLAYER )
+		return Delta_FindStructByIndex( DT_ENTITY_STATE_PLAYER_T );
+	return Delta_FindStructByIndex( DT_ENTITY_STATE_T );
+}
+
+static qboolean Delta_MaskBit( const delta_mask_t *mask, int i )
+{
+	return mask ? ( mask->inactive[i >> 5] >> ( i & 31 )) & 1 : false;
+}
+
+/*
+==================
+Delta_EntityEncoderMask
+
+main thread: runs the game's custom encoder for this delta, if there is one,
+and returns the fields it left inactive in mask
+==================
+*/
+qboolean Delta_EntityEncoderMask( const entity_state_t *from, const entity_state_t *to, int delta_type, delta_mask_t *mask )
+{
+	delta_info_t *dt;
+
+	if( !to || !from || delta_type == DELTA_STATIC )
+		return false;
+
+	dt = Delta_EntityDescription( to, delta_type );
+	if( !dt || !dt->userCallback )
+		return false;
+
+	Assert( dt->numFields <= DELTA_MAX_FIELDS );
+
+	Delta_CustomEncode( dt, from, to );
+
+	memset( mask, 0, sizeof( *mask ));
+	for( int i = 0; i < dt->numFields; i++ )
+	{
+		if( dt->pFields[i].bInactive )
+			mask->inactive[i >> 5] |= 1U << ( i & 31 );
+	}
+
+	return true;
+}
+
+/*
+==================
+Delta_HasCustomEncoder
+
+a game's custom encoder for this description: it must run on the main thread
+==================
+*/
+qboolean Delta_HasCustomEncoder( int index )
+{
+	delta_info_t *dt = Delta_FindStructByIndex( index );
+	return dt && dt->userCallback;
+}
+
+/*
+==================
+MSG_WriteDeltaEntityMasked
+
+MSG_WriteDeltaEntity with the custom encoder's result given: mask from
+Delta_EntityEncoderMask, NULL when the delta has no custom encoder
+==================
+*/
+void MSG_WriteDeltaEntityMasked( const entity_state_t *from, const entity_state_t *to, sizebuf_t *msg, qboolean force, int delta_type, double timebase, int baseline, const delta_mask_t *mask )
+{
+	delta_info_t *dt;
+	int numChanges = 0;
+
+	if( to == NULL )
+	{
+		MSG_WriteDeltaEntity( from, NULL, msg, force, delta_type, timebase, baseline );
+		return;
+	}
+
+	int startBit = msg->iCurBit;
+
+	MSG_WriteUBitLong( msg, to->number, MAX_ENTITY_BITS );
+	MSG_WriteUBitLong( msg, 0, 2 ); // alive
+
+	if( baseline != 0 )
+	{
+		MSG_WriteOneBit( msg, 1 );
+		MSG_WriteSBitLong( msg, baseline, 7 );
+	}
+	else MSG_WriteOneBit( msg, 0 );
+
+	if( force || ( to->entityType != from->entityType ))
+	{
+		MSG_WriteOneBit( msg, 1 );
+		MSG_WriteUBitLong( msg, to->entityType, 2 );
+		numChanges++;
+	}
+	else MSG_WriteOneBit( msg, 0 );
+
+	dt = Delta_EntityDescription( to, delta_type );
+	Assert( dt && dt->bInitialized );
+
+	delta_t *pField = dt->pFields;
+
+	for( int i = 0; i < dt->numFields; i++, pField++ )
+	{
+		if( Delta_WriteFieldActive( msg, pField, Delta_MaskBit( mask, i ), from, to, timebase ))
+			numChanges++;
+	}
+
+	// if we have no changes - kill the message
+	if( !numChanges && !force ) MSG_SeekToBit( msg, startBit, SEEK_SET );
+}
+
+/*
+==================
+MSG_WriteClientDataMasked, MSG_WriteWeaponDataMasked
+
+the same without a custom encoder (Delta_HasCustomEncoder is false)
+==================
+*/
+void MSG_WriteClientDataMasked( sizebuf_t *msg, const clientdata_t *from, const clientdata_t *to, double timebase )
+{
+	delta_info_t *dt = Delta_FindStructByIndex( DT_CLIENTDATA_T );
+	delta_t *pField = dt->pFields;
+	int numChanges = 0;
+	int startBit = msg->iCurBit;
+
+	MSG_WriteOneBit( msg, 1 ); // have clientdata
+
+	for( int i = 0; i < dt->numFields; i++, pField++ )
+	{
+		if( Delta_WriteFieldActive( msg, pField, false, from, to, timebase ))
+			numChanges++;
+	}
+
+	if( numChanges ) return; // we have updates
+
+	MSG_SeekToBit( msg, startBit, SEEK_SET );
+	MSG_WriteOneBit( msg, 0 ); // no changes
+}
+
+void MSG_WriteWeaponDataMasked( sizebuf_t *msg, const weapon_data_t *from, const weapon_data_t *to, double timebase, int index )
+{
+	delta_info_t *dt = Delta_FindStructByIndex( DT_WEAPONDATA_T );
+	delta_t *pField = dt->pFields;
+	int numChanges = 0;
+	int startBit = msg->iCurBit;
+
+	MSG_WriteOneBit( msg, 1 );
+	MSG_WriteUBitLong( msg, index, MAX_WEAPON_BITS );
+
+	for( int i = 0; i < dt->numFields; i++, pField++ )
+	{
+		if( Delta_WriteFieldActive( msg, pField, false, from, to, timebase ))
+			numChanges++;
+	}
+
+	// if we have no changes - kill the message
+	if( !numChanges ) MSG_SeekToBit( msg, startBit, SEEK_SET );
+}

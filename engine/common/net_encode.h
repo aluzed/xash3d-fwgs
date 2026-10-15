@@ -111,6 +111,20 @@ void Delta_UnsetFieldByIndex( delta_t *pFields, int fieldNumber );
 
 // send table over network
 void Delta_WriteDescriptionToClient( sizebuf_t *msg );
+
+// encoding on worker threads (story 046)
+#define DELTA_MAX_FIELDS 128
+
+typedef struct
+{
+	uint32_t inactive[DELTA_MAX_FIELDS / 32];
+} delta_mask_t;
+
+qboolean Delta_EntityEncoderMask( const struct entity_state_s *from, const struct entity_state_s *to, int delta_type, delta_mask_t *mask );
+qboolean Delta_HasCustomEncoder( int index );
+void MSG_WriteDeltaEntityMasked( const entity_state_t *from, const entity_state_t *to, sizebuf_t *msg, qboolean force, int delta_type, double timebase, int baseline, const delta_mask_t *mask );
+void MSG_WriteClientDataMasked( sizebuf_t *msg, const clientdata_t *from, const clientdata_t *to, double timebase );
+void MSG_WriteWeaponDataMasked( sizebuf_t *msg, const weapon_data_t *from, const weapon_data_t *to, double timebase, int index );
 void Delta_ParseTableField( sizebuf_t *msg );
 void Delta_ParseTableField_GS( sizebuf_t *msg );
 

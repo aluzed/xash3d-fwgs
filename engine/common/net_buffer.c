@@ -414,10 +414,11 @@ qboolean MSG_WriteBits( sizebuf_t *sb, const void *pData, int nBits )
 		++pOut;
 	}
 
-	// Read the remaining bits.
+	// Read the remaining bits. Only those: MSG_WriteUBitLong doesn't mask its
+	// value, the other bits of the byte would land past the end of the copy
 	if( nBitsLeft )
 	{
-		MSG_WriteUBitLong( sb, *pOut, nBitsLeft );
+		MSG_WriteUBitLong( sb, *pOut & (( 1U << nBitsLeft ) - 1 ), nBitsLeft );
 	}
 
 	return !sb->bOverflow;
