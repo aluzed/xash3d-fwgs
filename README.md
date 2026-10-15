@@ -48,6 +48,17 @@ This fork ([aluzed/xash3d-fwgs](https://github.com/aluzed/xash3d-fwgs)) keeps th
 
 The work is planned and recorded as stories in [docs/stories](docs/stories/README.md).
 
+## System requirements
+This set is a new game more than a Counter-Strike 1.6 kept as it was: heavier than 1.6 where its effects need it (the volume smoke, ray tracing, HD textures). The figures below are a first estimate, to be confirmed by benchmarks on older hardware.
+
+| | Minimum | Recommended |
+|---|---|---|
+| System | Windows 10 or 11, or Linux, 64-bit | the same |
+| Processor | Intel Core i3 10th generation or Core i5 7th generation, or an AMD equivalent | to be set by the benchmarks |
+| Graphics | a GPU with a Vulkan 1.3 driver (the `ref_gl` OpenGL renderer stays as a fallback) | a GPU and driver with Vulkan ray tracing (`VK_KHR_acceleration_structure`, `VK_KHR_ray_query`), for the `rt` look |
+
+Not aimed at: Intel Atom, Intel integrated graphics (UHD, Iris Xe) and other low power chips.
+
 ## Installation & Running
 0) Get Xash3D FWGS binaries: you can use [testing](https://github.com/FWGS/xash3d-fwgs/releases/tag/continuous) build or you can compile engine from source code.
 1) Copy engine binaries to some directory.
