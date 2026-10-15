@@ -128,7 +128,11 @@ void Log_Printf( const char *fmt, ... )
 
 		// echo to log file
 		if( svs.log.file && mp_logfile.value )
+		{
+			SV_ProfileBegin( SVP_LOG_WRITE );
 			FS_Printf( svs.log.file, "%s", string );
+			SV_ProfileEnd( SVP_LOG_WRITE );
+		}
 	}
 }
 

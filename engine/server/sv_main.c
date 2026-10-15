@@ -385,12 +385,17 @@ static void SV_ReadPackets( void )
 
 	while( NET_GetPacket( NS_SERVER, &net_from, net_message_buffer, &curSize ))
 	{
+		SV_ProfileCount( SVC_PACKETS_IN, 1 );
+		SV_ProfileCount( SVC_BYTES_IN, curSize );
+
 		MSG_Init( &net_message, "ClientPacket", net_message_buffer, curSize );
 
 		// check for connectionless packet (0xffffffff) first
 		if( MSG_GetMaxBytes( &net_message ) >= 4 && *(int *)net_message.pData == -1 )
 		{
+			SV_ProfileBegin( SVP_CONNECTIONLESS );
 			SV_ConnectionlessPacket( net_from, &net_message );
+			SV_ProfileEnd( SVP_CONNECTIONLESS );
 			continue;
 		}
 
@@ -405,7 +410,11 @@ static void SV_ReadPackets( void )
 			if( !NET_CompareBaseAdr( net_from, cl->netchan.remote_address ))
 				continue;
 
-			if( !Netchan_Process( &cl->netchan, &net_message ))
+			SV_ProfileBegin( SVP_NETCHAN_PROCESS );
+			qboolean processed = Netchan_Process( &cl->netchan, &net_message );
+			SV_ProfileEnd( SVP_NETCHAN_PROCESS );
+
+			if( !processed )
 			{
 				// a packet carrying nothing but fragments is reported as rejected
 				// after the fragments were queued, because nothing is left to parse
@@ -424,7 +433,9 @@ static void SV_ReadPackets( void )
 				// this is a valid, sequenced packet, so process it
 				if( cl->frames != NULL && cl->state != cs_zombie )
 				{
+					SV_ProfileBegin( SVP_EXECUTE_CLIENT_MSG );
 					SV_ExecuteClientMessage( cl, &net_message );
+					SV_ProfileEnd( SVP_EXECUTE_CLIENT_MSG );
 					svgame.globals->frametime = sv.frametime;
 					svgame.globals->time = sv.time;
 				}
@@ -433,7 +444,11 @@ static void SV_ReadPackets( void )
 			// fragmentation/reassembly sending takes priority over all game messages, want this in the future?
 			if( Netchan_IncomingReady( &cl->netchan ))
 			{
-				if( Netchan_CopyNormalFragments( &cl->netchan, &net_message, &curSize ))
+				SV_ProfileBegin( SVP_NETCHAN_PROCESS );
+				qboolean reassembled = Netchan_CopyNormalFragments( &cl->netchan, &net_message, &curSize );
+				SV_ProfileEnd( SVP_NETCHAN_PROCESS );
+
+				if( reassembled )
 				{
 					MSG_Init( &net_message, "ClientPacket", net_message_buffer, curSize );
 
@@ -443,7 +458,9 @@ static void SV_ReadPackets( void )
 					// this is a valid, sequenced packet, so process it
 					if( cl->frames != NULL && cl->state != cs_zombie )
 					{
+						SV_ProfileBegin( SVP_EXECUTE_CLIENT_MSG );
 						SV_ExecuteClientMessage( cl, &net_message );
+						SV_ProfileEnd( SVP_EXECUTE_CLIENT_MSG );
 						svgame.globals->frametime = sv.frametime;
 						svgame.globals->time = sv.time;
 					}
@@ -694,7 +711,9 @@ void Host_ServerFrame( void )
 	SV_CheckCmdTimes ();
 
 	// read packets from clients
+	SV_ProfileBegin( SVP_READ_PACKETS );
 	SV_ReadPackets ();
+	SV_ProfileEnd( SVP_READ_PACKETS );
 
 	// refresh physic movevars on the client side
 	SV_UpdateMovevars ( false );
@@ -703,19 +722,29 @@ void Host_ServerFrame( void )
 	SV_RequestMissingResources();
 
 	// check timeouts
+	SV_ProfileBegin( SVP_CHECK_TIMEOUTS );
 	SV_CheckTimeouts ();
+	SV_ProfileEnd( SVP_CHECK_TIMEOUTS );
 
 	// let everything in the world think and move
-	if( !SV_RunGameFrame ()) return;
+	SV_ProfileBegin( SVP_PHYSICS );
+	qboolean simulated = SV_RunGameFrame ();
+	SV_ProfileEnd( SVP_PHYSICS );
+
+	if( !simulated ) return;
 
 	// send messages back to the clients that had packets read this frame
+	SV_ProfileBegin( SVP_SEND_MESSAGES );
 	SV_SendClientMessages ();
+	SV_ProfileEnd( SVP_SEND_MESSAGES );
 
 	// clear edict flags for next frame
 	SV_PrepWorldFrame ();
 
 	// send a heartbeat to the master if needed
+	SV_ProfileBegin( SVP_HEARTBEAT );
 	NET_MasterHeartbeat ();
+	SV_ProfileEnd( SVP_HEARTBEAT );
 }
 
 //============================================================================
@@ -863,6 +892,7 @@ void SV_Init( void )
 	string	versionString;
 
 	SV_InitHostCommands();
+	SV_ProfileInit();
 
 	Cvar_Getf( "protocol", FCVAR_READ_ONLY, "displays server protocol version", "%i", PROTOCOL_VERSION );
 	Cvar_Get( "suitvolume", "0.25", FCVAR_ARCHIVE, "HEV suit volume" );

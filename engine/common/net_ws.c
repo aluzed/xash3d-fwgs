@@ -1516,6 +1516,12 @@ void NET_SendPacketEx( netsrc_t sock, size_t length, const void *data, netadr_t 
 	SOCKET		net_socket = 0;
 	netadrtype_t type = NET_NetadrType( &to );
 
+	if( sock == NS_SERVER )
+	{
+		SV_ProfileCount( SVC_PACKETS_OUT, 1 );
+		SV_ProfileCount( SVC_BYTES_OUT, length );
+	}
+
 	if( !net.initialized || type == NA_LOOPBACK )
 	{
 		NET_SendLoopPacket( sock, length, data, to );

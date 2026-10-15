@@ -26,6 +26,7 @@ GNU General Public License for more details.
 #include "entity_state.h"
 #include "protocol.h"
 #include "netchan.h"
+#include "sv_profile.h"
 #include "custom.h"
 #include "world.h"
 

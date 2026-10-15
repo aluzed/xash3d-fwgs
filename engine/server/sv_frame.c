@@ -556,7 +556,9 @@ static void SV_WriteClientdataToMessage( sv_client_t *cl, sizebuf_t *msg )
 	memset( &frame->clientdata, 0, sizeof( frame->clientdata ));
 
 	// update clientdata_t
+	SV_ProfileBegin( SVP_SEND_GATHER );
 	svgame.dllFuncs.pfnUpdateClientData( clent, FBitSet( cl->flags, FCL_LOCAL_WEAPONS ), &frame->clientdata );
+	SV_ProfileEnd( SVP_SEND_GATHER );
 
 	MSG_BeginServerCmd( msg, svc_clientdata );
 	if( FBitSet( cl->flags, FCL_HLTV_PROXY )) return;	// don't send more nothing
@@ -578,7 +580,11 @@ static void SV_WriteClientdataToMessage( sv_client_t *cl, sizebuf_t *msg )
 	// write clientdata_t
 	MSG_WriteClientData( msg, from_cd, to_cd, sv.time );
 
-	if( FBitSet( cl->flags, FCL_LOCAL_WEAPONS ) && svgame.dllFuncs.pfnGetWeaponData( clent, frame->weapondata ))
+	SV_ProfileBegin( SVP_SEND_GATHER );
+	qboolean weapons = FBitSet( cl->flags, FCL_LOCAL_WEAPONS ) && svgame.dllFuncs.pfnGetWeaponData( clent, frame->weapondata );
+	SV_ProfileEnd( SVP_SEND_GATHER );
+
+	if( weapons )
 	{
 		memset( &nullwd, 0, sizeof( nullwd ));
 
@@ -619,7 +625,9 @@ static void SV_WriteEntitiesToClient( sv_client_t *cl, sizebuf_t *msg )
 
 	// add all the entities directly visible to the eye, which
 	// may include portal entities that merge other viewpoints
+	SV_ProfileBegin( SVP_SEND_GATHER );
 	SV_AddEntitiesToPacket( cl->pViewEntity, cl->edict, frame, &frame_ents, true );
+	SV_ProfileEnd( SVP_SEND_GATHER );
 
 	if( c_notsend != cl->ignored_ents )
 	{
@@ -656,6 +664,8 @@ static void SV_WriteEntitiesToClient( sv_client_t *cl, sizebuf_t *msg )
 		frame->num_entities++;
 	}
 
+	SV_ProfileCount( SVC_ENTITIES_SENT, frame->num_entities );
+
 	SV_EmitPacketEntities( cl, frame, msg );
 	SV_EmitEvents( cl, frame, msg );
 	if( send_pings ) SV_EmitPings( msg );
@@ -677,6 +687,8 @@ static void SV_SendClientDatagram( sv_client_t *cl )
 {
 	byte	msg_buf[MAX_DATAGRAM];
 	sizebuf_t	msg;
+
+	SV_ProfileBegin( SVP_SEND_DATAGRAM );
 
 	memset( msg_buf, 0, sizeof( msg_buf ));
 	MSG_Init( &msg, "Datagram", msg_buf, sizeof( msg_buf ));
@@ -714,8 +726,13 @@ static void SV_SendClientDatagram( sv_client_t *cl )
 		MSG_Clear( &msg );
 	}
 
+	SV_ProfileEnd( SVP_SEND_DATAGRAM );
+
 	// send the datagram
+	SV_ProfileBegin( SVP_SEND_TRANSMIT );
 	Netchan_TransmitBits( &cl->netchan, MSG_GetNumBitsWritten( &msg ), MSG_GetData( &msg ));
+	SV_ProfileEnd( SVP_SEND_TRANSMIT );
+	SV_ProfileCount( SVC_CLIENTS_SENT, 1 );
 }
 
 /*

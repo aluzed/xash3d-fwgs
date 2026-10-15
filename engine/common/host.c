@@ -26,6 +26,7 @@ GNU General Public License for more details.
 #endif
 #include "common.h"
 #include "jobs.h"
+#include "sv_profile.h"
 #include "base_cmd.h"
 #include "client.h"
 #include "server.h"
@@ -671,7 +672,12 @@ void Host_Frame( double time )
 {
 	// decide the simulation time
 	if( !Host_FilterTime( time ))
+	{
+		SV_ProfileFrameRejected();
 		return;
+	}
+
+	SV_ProfileBeginFrame();
 
 	double t1 = Platform_DoubleTime();
 
@@ -682,14 +688,20 @@ void Host_Frame( double time )
 
 	Host_InputFrame ();  // input frame
 	Host_ClientBegin (); // begin client
+	SV_ProfileBegin( SVP_CBUF );
 	Host_GetCommands (); // dedicated in
+	SV_ProfileEnd( SVP_CBUF );
+	SV_ProfileBegin( SVP_SV_FRAME );
 	Host_ServerFrame (); // server frame
+	SV_ProfileEnd( SVP_SV_FRAME );
 	Host_ClientFrame (); // client frame
 	HTTP_Run();			 // both server and client
 	XRcon_Frame();
 
 	host.framecount++;
 	host.pureframetime = Platform_DoubleTime() - t1;
+
+	SV_ProfileEndFrame();
 }
 
 /*
