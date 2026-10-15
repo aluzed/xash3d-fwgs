@@ -40,7 +40,8 @@ a whole season.
 - Sent to the clients in a new user message (`ScoreDmg`: player, damage),
   when it changes and at connection, as `ScoreInfo` is; no change to
   `ScoreInfo` itself, so older clients see nothing new.
-- Client: sort by damage, then frags, then fewest deaths; a "DMG" column
+- Client: sort by damage first (the player's choice), then by score
+  (frags) when the damage is the same, then fewest deaths; a "DMG" column
   next to kills and deaths; the team's line sums its players' damage.
   Without the message (another server) the sort stays by frags.
 - `mp_scoreboard_damage 1` (default 1): 0 sends nothing, the clients sort
@@ -58,7 +59,8 @@ a whole season.
 
 ## Acceptance criteria
 - A player who dealt the most damage to the enemies is first of their team,
-  whatever their frags; ties go to frags, then to fewest deaths.
+  whatever their frags; at the same damage the higher score (frags) goes
+  first, then the fewest deaths.
 - The damage shown is the health the enemies lost, as CS2 counts it.
 - Frags unchanged: defuse 3, team kill -1, kill feed and server browser as
   before.
@@ -73,6 +75,5 @@ a whole season.
   teams) only when a player's total changes, at most once a frame per
   player.
 - Bots (YaPB, ReGameDLL's) read frags for their own logic: unchanged.
-- To check against CS2 before building: whether its board sorts on damage
-  alone or on its "score" (kills, assists, objectives, damage); this story
-  follows the request, damage first.
+- Order decided by the player: damage first, score (frags) second, rather
+  than CS2's own "score" mixing kills, assists, objectives and damage.
