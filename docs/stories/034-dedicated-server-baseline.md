@@ -65,6 +65,16 @@ stack turns out to matter for the measurements.
   - on a kill, the killer's active weapon reloaded, +15 health, on a headshot
     +30 health, +30 armor and the medkit sound, up to 100.
 
+  Two traps: `cs_amd64.so` is built with `XASH_64BIT` (cs16-client sets
+  `XASH_COMPAT`), which makes `string_t` 32-bit in `entvars_t`, so the plugin
+  must define it too or it reads the entities at the wrong offsets; and
+  Xash3D keeps its own copy of a game library's cvar, so the plugin reads its
+  cvars through `CVAR_GET_POINTER` (the values of its own `cvar_t` stay 0).
+  `csdm_debug 1` prints every spawn chosen.
+- 32 slots: with 19 bots and 20 slots, a player reconnecting found his
+  previous connection still holding the last slot. In free for all,
+  `mp_limitteams 0` and `mp_autoteambalance 0`: teams don't count.
+
 ## Acceptance criteria
 - A clean checkout gives a running server with one command.
 - 19 bots play a free for all deathmatch with grenades; a Xash3D client joins.

@@ -35,10 +35,11 @@ target_include_directories(csdm SYSTEM PRIVATE
 	${REGAMEDLL_DIR}/public
 	${REGAMEDLL_DIR}/public/regamedll)
 
-# those of ReGameDLL_CS' own build (regamedll/CMakeLists.txt)
+# those of ReGameDLL_CS' own build (regamedll/CMakeLists.txt; XASH_64BIT with
+# XASH_COMPAT, as cs16-client builds it: 32-bit string_t in entvars_t)
 target_compile_definitions(csdm PRIVATE
 	REGAMEDLL_FIXES REGAMEDLL_API REGAMEDLL_ADD UNICODE_FIXES BUILD_LATEST CLIENT_WEAPONS USE_QSTRING NDEBUG
-	_LINUX LINUX _GLIBCXX_USE_CXX11_ABI=0
+	XASH_64BIT _LINUX LINUX _GLIBCXX_USE_CXX11_ABI=0
 	_stricmp=strcasecmp _strnicmp=strncasecmp _strdup=strdup _unlink=unlink
 	_snprintf=snprintf _vsnprintf=vsnprintf _write=write _close=close _access=access _vsnwprintf=vswprintf)
 

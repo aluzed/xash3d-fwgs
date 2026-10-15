@@ -9,7 +9,7 @@
 # Environment:
 #   XASH_SERVER_ROOT  server tree (default ~/xash-dev/server)
 #   STEAM_HL          Steam Half-Life install, read-only
-#   MAP=de_dust2  PORT=27016  MAXPLAYERS=20  TICRATE=1000
+#   MAP=de_dust2  PORT=27016  MAXPLAYERS=32  TICRATE=1000
 #   RCON_PASSWORD     rcon password (default: none, rcon off)
 #   NO_BUILD=1        start the installed engine as it is
 #   INSTALL_ONLY=1    build and install, don't start
@@ -48,7 +48,7 @@ else
 fi
 
 # shellcheck disable=SC2086
-set -- -game cstrike -port "${PORT:-27016}" +maxplayers "${MAXPLAYERS:-20}" \
+set -- -game cstrike -port "${PORT:-27016}" +maxplayers "${MAXPLAYERS:-32}" \
 	-sys_ticrate "${TICRATE:-1000}" $features "$@"
 [ "${METAMOD:-1}" = 1 ] && set -- -dll addons/metamod/metamod_amd64.so "$@"
 [ -n "${RCON_PASSWORD:-}" ] && set -- "$@" +rcon_password "$RCON_PASSWORD"

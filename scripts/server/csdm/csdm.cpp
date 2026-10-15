@@ -59,11 +59,28 @@ plugin_info_t Plugin_info =
 static IReGameApi *g_ReGameApi;
 static const ReGameFuncs_t *g_ReGameFuncs;
 
-static cvar_t cv_spawns = { "csdm_spawns", "1", FCVAR_SERVER, 0.0f, nullptr };
-static cvar_t cv_refill_clip = { "csdm_refill_clip", "1", FCVAR_SERVER, 0.0f, nullptr };
-static cvar_t cv_heal_kill = { "csdm_heal_kill", "15", FCVAR_SERVER, 0.0f, nullptr };
-static cvar_t cv_heal_headshot = { "csdm_heal_headshot", "30", FCVAR_SERVER, 0.0f, nullptr };
-static cvar_t cv_armor_headshot = { "csdm_armor_headshot", "30", FCVAR_SERVER, 0.0f, nullptr };
+// Xash3D keeps its own copy of a registered cvar: the values are read through
+// the engine's pointer (CVAR_GET_POINTER), not from these definitions
+static cvar_t cvar_spawns = { "csdm_spawns", "1", FCVAR_SERVER, 1.0f, nullptr };
+static cvar_t cvar_refill_clip = { "csdm_refill_clip", "1", FCVAR_SERVER, 1.0f, nullptr };
+static cvar_t cvar_heal_kill = { "csdm_heal_kill", "15", FCVAR_SERVER, 15.0f, nullptr };
+static cvar_t cvar_heal_headshot = { "csdm_heal_headshot", "30", FCVAR_SERVER, 30.0f, nullptr };
+static cvar_t cvar_armor_headshot = { "csdm_armor_headshot", "30", FCVAR_SERVER, 30.0f, nullptr };
+static cvar_t cvar_debug = { "csdm_debug", "0", 0, 0.0f, nullptr };
+
+static cvar_t *cv_spawns = &cvar_spawns;
+static cvar_t *cv_refill_clip = &cvar_refill_clip;
+static cvar_t *cv_heal_kill = &cvar_heal_kill;
+static cvar_t *cv_heal_headshot = &cvar_heal_headshot;
+static cvar_t *cv_armor_headshot = &cvar_armor_headshot;
+static cvar_t *cv_debug = &cvar_debug;
+
+static cvar_t *RegisterCvar(cvar_t *def)
+{
+	CVAR_REGISTER(def);
+	cvar_t *live = CVAR_GET_POINTER(def->name);
+	return live ? live : def;
+}
 
 static const char HEAL_SOUND[] = "items/smallmedkit1.wav";
 static const float MIN_SPAWN_RADIUS = 450.0f;
@@ -165,8 +182,12 @@ static bool RandomSpawn(CBasePlayer *player)
 	edict_t *ed = player->edict();
 	int index = ENTINDEX(ed);
 
-	if (!cv_spawns.value || g_NumSpawns < 2 || index < 1 || index > MAX_CLIENTS || g_FirstSpawn[index])
+	if (!cv_spawns->value || g_NumSpawns < 2 || index < 1 || index > MAX_CLIENTS || g_FirstSpawn[index])
+	{
+		if (cv_debug->value)
+			ServerPrintf("[CSDM] %s: map spawn (first %d)\n", STRING(ed->v.netname), index >= 1 && index <= MAX_CLIENTS ? g_FirstSpawn[index] : -1);
 		return false;
+	}
 
 	// CSDM-ReAPI's walk: random start, then the next points
 	int spot = RANDOM_LONG(0, g_NumSpawns - 2);
@@ -181,6 +202,8 @@ static bool RandomSpawn(CBasePlayer *player)
 			ed->v.punchangle = Vector(0, 0, 0);
 			ed->v.fixangle = 1;
 			g_LastSpawn[index] = spot;
+			if (cv_debug->value)
+				ServerPrintf("[CSDM] %s: spawn %d (%.0f %.0f %.0f)\n", STRING(ed->v.netname), spot, ed->v.origin.x, ed->v.origin.y, ed->v.origin.z);
 			return true;
 		}
 
@@ -201,7 +224,7 @@ static edict_t *Hook_GetPlayerSpawnSpot(IReGameHook_CSGameRules_GetPlayerSpawnSp
 
 static BOOL Hook_TeamFull(IReGameHook_CSGameRules_TeamFull *chain, int team)
 {
-	if (cv_spawns.value && g_NumSpawns >= 2)
+	if (cv_spawns->value && g_NumSpawns >= 2)
 		return FALSE;
 
 	return chain->callNext(team);
@@ -233,17 +256,17 @@ static void Hook_PlayerKilled(IReGameHook_CSGameRules_PlayerKilled *chain, CBase
 	if (!killer)
 		return;
 
-	if (cv_refill_clip.value && killer->m_pActiveItem)
+	if (cv_refill_clip->value && killer->m_pActiveItem)
 		killer->CSPlayer()->ReloadWeapons(killer->m_pActiveItem, true, true);
 
 	float maxHealth = killer->pev->max_health > 0.0f ? killer->pev->max_health : MAX_HEALTH;
-	killer->pev->health = Q_min(killer->pev->health + (headshot ? cv_heal_headshot.value : cv_heal_kill.value), maxHealth);
+	killer->pev->health = Q_min(killer->pev->health + (headshot ? cv_heal_headshot->value : cv_heal_kill->value), maxHealth);
 
 	if (headshot)
 	{
-		if (cv_armor_headshot.value > 0.0f)
+		if (cv_armor_headshot->value > 0.0f)
 		{
-			killer->pev->armorvalue = Q_min(killer->pev->armorvalue + cv_armor_headshot.value, MAX_ARMOR);
+			killer->pev->armorvalue = Q_min(killer->pev->armorvalue + cv_armor_headshot->value, MAX_ARMOR);
 			if (killer->m_iKevlar == ARMOR_NONE)
 				killer->m_iKevlar = ARMOR_KEVLAR;
 		}
@@ -391,11 +414,12 @@ C_DLLEXPORT int Meta_Attach(PLUG_LOADTIME, META_FUNCTIONS *table, meta_globals_t
 		return FALSE;
 	}
 
-	CVAR_REGISTER(&cv_spawns);
-	CVAR_REGISTER(&cv_refill_clip);
-	CVAR_REGISTER(&cv_heal_kill);
-	CVAR_REGISTER(&cv_heal_headshot);
-	CVAR_REGISTER(&cv_armor_headshot);
+	cv_spawns = RegisterCvar(&cvar_spawns);
+	cv_refill_clip = RegisterCvar(&cvar_refill_clip);
+	cv_heal_kill = RegisterCvar(&cvar_heal_kill);
+	cv_heal_headshot = RegisterCvar(&cvar_heal_headshot);
+	cv_armor_headshot = RegisterCvar(&cvar_armor_headshot);
+	cv_debug = RegisterCvar(&cvar_debug);
 
 	IReGameHookchains *hooks = g_ReGameApi->GetHookchains();
 	hooks->CSGameRules_GetPlayerSpawnSpot()->registerHook(Hook_GetPlayerSpawnSpot);
