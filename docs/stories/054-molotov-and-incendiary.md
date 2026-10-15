@@ -70,8 +70,9 @@ the view and the hand of both teams.
 ## Design
 - Weapon id 2 (`WEAPON_GLOCK`, never used by CS 1.6) for both: the team
   picks the model, the fire's length and the price, like the CS2 pair.
-- Projectile: a grenade with more gravity and less throw speed (a heavy
-  bottle); bounces off walls; bursts on touching a floor (surface normal
+- Projectile: thrown and falling as a flashbang (gravity 0.55, full throw
+  speed: CS2's bottle is no heavier than its grenades; at first heavier,
+  it fell too short in play); bounces off walls; bursts on touching a floor (surface normal
   pointing up enough); bursts in the air without fire when its fuse runs
   out (`mp_molotov_detonate_time`, CS:GO's 2 seconds by default).
 - Fire: points of flame laid on the ground around the burst (traces down

@@ -94,7 +94,7 @@ void CMolotov::PrimaryAttack()
 	}
 }
 
-// the throw of the other grenades, slower: a bottle is heavier
+// the throw of the other grenades
 void CMolotov::Throw()
 {
 	m_pPlayer->Radio("%!MRAD_FIREINHOLE", "#Fire_in_the_hole");

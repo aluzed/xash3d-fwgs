@@ -21,8 +21,9 @@ General Public License for more details.
 //
 // An HE grenade (SmokeBlast: origin, radius) empties the cells around it
 // and throws their puffs outwards; after a moment the smoke flows back in,
-// from the outside of the hole to its centre. The smoke's own end (its fade
-// after 15 seconds, the end of the round) never moves.
+// from the outside of the hole to its centre. The smoke's own end (it thins
+// from 13 seconds, the outer layers first, and is gone at 17, or the round
+// ends) never moves.
 //
 // Drawn with the TriAPI in the client's transparent pass: ref_vk gives it
 // ref_gl's 3D state there, blends its alpha as GL does in gamma space, and
@@ -60,11 +61,12 @@ const float MAX_RISE = 120.0f;       // the cloud's top above the grenade
 const float MAX_DROP = 64.0f;        // and how far it flows down
 const float FILL_TIME = 1.0f;        // seconds to fill the volume
 const float APPEAR_TIME = 0.35f;     // seconds for a cell to thicken
-const float FADE_START = 15.0f;      // as the 20 puffs of Counter-Strike
-const float FADE_RATE = 18.0f / 255.0f; // opacity lost per second then
+const float FADE_START = 13.0f;      // the smoke thins from the outside in
+const float FADE_END = 17.0f;        // and is gone, as the server's
+const float CELL_FADE = 1.5f;        // seconds for one cell to dissolve
 const float BLAST_HOLD = 1.5f;       // the hole stays open, then
 const float BLAST_REFILL = 2.5f;     // the smoke flows back in
-const float BLAST_PUSH = 70.0f;      // how far a puff is thrown at most
+const float BLAST_PUSH = 160.0f;     // how far a puff is thrown at most
 const float PUFF_SIZE = 44.0f;       // half the size of a puff
 const float PUFF_ALPHA = 0.9f;
 
@@ -77,6 +79,7 @@ struct Cell
 	int variant;        // one of the four puffs of smoke_puff.spr
 	float shade;        // light at the cell
 	float edge;         // 1 inside the cloud, less on its border
+	float dissolve;     // age at which it starts to dissolve
 	// the last blast that reached it
 	float removed;      // part of the cell blown away (0..1)
 	float blastTime;
@@ -160,6 +163,7 @@ void Build( Smoke &smoke, const Vector &origin, int seed, bool light )
 		c.angle = rnd.Float( 0.0f, 6.2831853f );
 		c.variant = (int)rnd.Float( 0.0f, 3.999f );
 		c.edge = 1.0f;
+		c.dissolve = rnd.Float( 0.0f, 1.0f ); // a random share, turned into an age once the layers are known
 		c.removed = 0.0f;
 		c.blastTime = c.refillStart = 0.0f;
 		c.push = Vector( 0.0f, 0.0f, 0.0f );
@@ -265,6 +269,15 @@ void Build( Smoke &smoke, const Vector &origin, int seed, bool light )
 		if( c.layer + 1 > smoke.layers )
 			smoke.layers = c.layer + 1;
 
+	// the end: the outer layers dissolve first, the core last, each cell a
+	// little apart from its neighbours so that the cloud frays as it thins
+	const float span = FADE_END - CELL_FADE - FADE_START;
+	for( Cell &c : cells )
+	{
+		const float outer = 1.0f - float( c.layer ) / smoke.layers;
+		c.dissolve = FADE_START + span * ( 0.75f * outer + 0.25f * c.dissolve );
+	}
+
 	if( cl_smoke_debug && cl_smoke_debug->value )
 		gEngfuncs.Con_Printf( "smoke at %.0f %.0f %.0f: %d cells, %d layers, seed %d\n", origin.x, origin.y, origin.z, (int)cells.size(), smoke.layers, seed );
 }
@@ -289,10 +302,10 @@ void Blast( Smoke &smoke, const Vector &origin, float radius, float now )
 		if( d >= radius )
 			continue;
 
-		// blown away in the middle, thinned over the last fifth of the
+		// blown away in the middle, thinned over the last tenth of the
 		// radius: a puff is half a cell wide around its cell, the cells left
 		// at the edge must not close the hole again
-		const float depth = Smoothstep(( radius - d ) / ( 0.2f * radius ));
+		const float depth = Smoothstep(( radius - d ) / ( 0.1f * radius ));
 		const float now_removed = Removed( c, now );
 		if( depth <= now_removed )
 			continue;
@@ -389,7 +402,7 @@ void SmokeBlastTest_f( void )
 	if( !cl_smoke_debug || !cl_smoke_debug->value )
 		return;
 
-	SmokeVolume_Blast( s_testPoint + Vector( 0.0f, 0.0f, 24.0f ), 180.0f );
+	SmokeVolume_Blast( s_testPoint + Vector( 0.0f, 0.0f, 24.0f ), 300.0f );
 }
 
 } // namespace
@@ -436,7 +449,7 @@ void SmokeVolume_Draw( void )
 		return;
 
 	const float now = gEngfuncs.GetClientTime();
-	const float life = FADE_START + 1.0f / FADE_RATE;
+	const float life = FADE_END;
 
 	// smokes of a past round or over
 	s_smokes.erase( std::remove_if( s_smokes.begin(), s_smokes.end(), [&]( const Smoke &s )
@@ -459,10 +472,9 @@ void SmokeVolume_Draw( void )
 	for( const Smoke &smoke : s_smokes )
 	{
 		const float age = now - smoke.created;
-		float fade = 1.0f;
-		if( age > FADE_START )
-			fade = 1.0f - ( age - FADE_START ) * FADE_RATE;
-		if( fade <= 0.0f )
+		// the whole cloud lighter as it thins, on top of its cells leaving
+		const float fade = 1.0f - 0.6f * Smoothstep(( age - FADE_START ) / ( FADE_END - FADE_START ));
+		if( age >= FADE_END )
 			continue;
 
 		const float layerTime = FILL_TIME / smoke.layers;
@@ -472,7 +484,11 @@ void SmokeVolume_Draw( void )
 			if( appear <= 0.0f )
 				continue;
 
-			float alpha = PUFF_ALPHA * c.edge * appear * fade * ( 1.0f - Removed( c, now ));
+			const float dissolve = 1.0f - Smoothstep(( age - c.dissolve ) / CELL_FADE );
+			if( dissolve <= 0.0f )
+				continue;
+
+			float alpha = PUFF_ALPHA * c.edge * appear * fade * dissolve * ( 1.0f - Removed( c, now ));
 			if( alpha < 0.01f )
 				continue;
 

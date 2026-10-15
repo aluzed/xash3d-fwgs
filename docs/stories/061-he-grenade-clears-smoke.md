@@ -38,9 +38,13 @@ dome of about 145 units, 230 for a light smoke), one puff per cell from
 `sprites/smoke_puff.spr` (four thick puffs in a 512 sheet,
 `scripts/make_smoke_puff.py`; Valve's gas puff is at most 25% opaque),
 lit from above, sorted back to front, drawn with the TriAPI. An HE grenade
-(`SmokeBlast`, `mp_smoke_blast_radius 180`) empties the cells within 80%
-of its radius, thins the rest, throws the puffs out; 1.5 s later the smoke
-flows back from the outside in over 2.5 s. ReGameDLL_CS's bots see through
+(`SmokeBlast`, `mp_smoke_blast_radius 300`: with 180 the edge of the
+cloud stayed, played) empties the cells within 90% of its radius, thins the
+rest, throws the puffs out up to 160 units; 1.5 s later the smoke flows back
+from the outside in over 2.5 s. A smoke lasts 17 s as CS2's (the server's
+too, for the bots and the molotov): from 13 s its cells dissolve, the outer
+layers first, each over 1.5 s, while the whole cloud lightens; a fade of
+every puff together kept it dense to the end. ReGameDLL_CS's bots see through
 the hole. Seed in the event: every client builds the same volume.
 `cl_smoke_volume 0` gives Valve's 20 puffs back; `cl_smoke_debug 1` prints
 and enables `smoke_test`, `smoke_blast_test`, `smoke_stats`.
@@ -77,8 +81,8 @@ than one smoke on an older GPU (net_graph 4), bullets thinning a smoke.
   `cl_smoke_blast_hold` (about 1.5 s) the smoke flows back: empty cells
   refill from their full neighbours, front by front, over about 2 to 3
   seconds.
-- The smoke keeps its own end: the fade after 15 s and the removal at the
-  end of the round are unchanged, a blast never lengthens a smoke.
+- The smoke keeps its own end: its thinning from 13 s, gone at 17 s, and
+  the removal at the end of the round, a blast never lengthens a smoke.
 - Several blasts on one smoke: each pushes from its own centre, the
   return starts after the last.
 - Bots: during the hole, ReGameDLL_CS's bots see through the part of the

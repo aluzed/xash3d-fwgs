@@ -3,10 +3,11 @@
 /*
 Molotov and incendiary grenade (story 054 of the xash3d-fwgs fork)
 
-The bottle (molotov_projectile) flies with more gravity than a grenade and
-bounces off walls and players. It bursts when it touches a floor, or when
-its fuse (mp_molotov_detonate_time) runs out: near the ground it still lays
-its fire, higher up it only bursts in the air, as in Counter-Strike 2.
+The bottle (molotov_projectile) flies as a flashbang does, CS2's bottle is
+no heavier than its grenades, and bounces off walls and players. It bursts
+when it touches a floor, or when its fuse (mp_molotov_detonate_time) runs
+out: near the ground it still lays its fire, higher up it only bursts in
+the air, as in Counter-Strike 2.
 
 The fire (molotov, the name the kill feed shows) lays points of flame on
 the ground around the burst, from the centre outwards, each a fire sprite;
@@ -20,8 +21,8 @@ cvar_t molotov_duration       = { "mp_molotov_duration", "7.0", 0, 7.0f, nullptr
 cvar_t incendiary_duration    = { "mp_incendiary_duration", "5.5", 0, 5.5f, nullptr };
 cvar_t molotov_damage         = { "mp_molotov_damage", "40", 0, 40.0f, nullptr };
 cvar_t molotov_radius         = { "mp_molotov_radius", "100", 0, 100.0f, nullptr };
-cvar_t molotov_gravity        = { "mp_molotov_gravity", "0.8", 0, 0.8f, nullptr };
-cvar_t molotov_throw_scale    = { "mp_molotov_throw_scale", "0.85", 0, 0.85f, nullptr };
+cvar_t molotov_gravity        = { "mp_molotov_gravity", "0.55", 0, 0.55f, nullptr };
+cvar_t molotov_throw_scale    = { "mp_molotov_throw_scale", "1.0", 0, 1.0f, nullptr };
 cvar_t molotov_debug          = { "mp_molotov_debug", "0", 0, 0.0f, nullptr }; // draws where the fire hurts
 
 #define MOLOTOV_SPRITE          "sprites/fire.spr"
@@ -36,7 +37,7 @@ cvar_t molotov_debug          = { "mp_molotov_debug", "0", 0, 0.0f, nullptr }; /
 #define MOLOTOV_DAMAGE_STEP     0.25f
 #define MOLOTOV_AIR_BURST_FIRE  48.0f  // a fuse running out this close to the ground still lays the fire
 #define MOLOTOV_SMOKE_RADIUS    144.0f
-#define MOLOTOV_SMOKE_TIME      18.0f  // seconds a smoke cloud lasts
+#define MOLOTOV_SMOKE_TIME      17.0f  // seconds a smoke cloud lasts, as the clients draw it
 
 static const char *s_szBreakSounds[] = { "debris/bustglass1.wav", "debris/bustglass2.wav", "debris/bustglass3.wav" };
 static const char *s_szBurnSounds[] = { "ambience/burning1.wav", "ambience/burning2.wav", "ambience/burning3.wav" };
