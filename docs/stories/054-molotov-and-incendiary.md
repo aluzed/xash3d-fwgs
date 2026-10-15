@@ -46,10 +46,11 @@ needs the change too), the bottle model, a kill icon.
   `mp_molotov_duration` (7 s, incendiary 5.5 s), hurting about 40 HP a
   second whoever stands in a flame (burn damage, armour counts), put out
   by a smoke grenade's cloud. Fire sprites and sounds of Half-Life and CS.
-- Purchase: equipment menu (8), item 6 for both teams, after the smoke
-  grenade as in CS2; night vision moves to 9 (the defusal kit and the
-  shield stay 7 and 8); console `molotov` / `incgrenade`; $400 / $600 as in
-  CS2; one at a time.
+- Purchase: equipment menu (6 since the ammo isn't bought any more), item 6
+  for both teams, after the smoke grenade as in CS2; night vision follows:
+  7 for the terrorists, 9 for the counter-terrorists after the defusal kit
+  (7) and the shield (8); console `molotov` / `incgrenade`; $400 / $600 as
+  in CS2; one at a time.
 - Models: the smoke grenade's for both until a bottle with a clear licence
   is found (GameBanana, credited) or made.
 
