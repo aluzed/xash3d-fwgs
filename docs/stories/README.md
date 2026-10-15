@@ -76,6 +76,11 @@ the regression harness shows no new diff outside the story's scope.
 | 053 | ["Half-Life 1.5" and "Counter-Strike 1.7"](053-half-life-1.5-and-cs-1.7-names.md) | Distribution |
 | 054 | [Molotov and incendiary grenade](054-molotov-and-incendiary.md) | Game - Counter-Strike |
 | 055 | [Scoreboard sorted by damage](055-scoreboard-by-damage.md) | Game - Counter-Strike |
+| 056 | [Server game modes: match, FFA, CSDM](056-server-game-modes.md) | Game - Counter-Strike |
+| 057 | [Match mode: MR13 with its overtime](057-match-mr13.md) | Game - Counter-Strike |
+| 058 | [Match interludes: the teams at the start, the switches and the end](058-match-interludes.md) | Game - Counter-Strike |
+| 059 | [FFA mode: rounds, everyone against everyone](059-ffa-rounds.md) | Game - Counter-Strike |
+| 060 | [CSDM mode: free for all or team deathmatch](060-csdm-modes.md) | Game - Counter-Strike |
 
 Phases 0 to 5 deliver a renderer that is a drop-in replacement for `ref_gl`.
 Phases 6 and 7 can be developed in parallel once phase 5 is signed off.
