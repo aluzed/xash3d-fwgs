@@ -13,6 +13,10 @@ layout( location = 0 ) out vec2 out_texcoord;
 layout( location = 1 ) out vec4 out_color;
 layout( location = 2 ) out float out_fogdist; // eye plane distance: -z of the eye, w of the clip
 
+// the same depth in every pipeline: multipass draws test GL_LEQUAL against
+// what their first pass wrote
+invariant gl_Position;
+
 void main()
 {
 	gl_Position = pc.mvp * vec4( in_position, 1.0 );

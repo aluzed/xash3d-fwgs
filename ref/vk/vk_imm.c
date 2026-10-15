@@ -121,6 +121,12 @@ void VK_ImmFlush( void )
 	cmd = VK_BeginMainPass();
 	dst = cmd ? VK_DynamicAlloc( imm.num_vertices * sizeof( vk_imm_vertex_t ), 16, &buffer, &offset ) : NULL;
 
+	// before the ranges are placed: a job placed may write its vertices at
+	// once, the copy of the batch (stale vertices in the ranges) must not
+	// come after
+	if( dst )
+		memcpy( dst, imm.vertices, imm.num_vertices * sizeof( vk_imm_vertex_t ));
+
 	// the ranges written later: where they go, or nowhere
 	for( int i = 0; i < imm.num_pending; i++ )
 	{
@@ -137,8 +143,6 @@ void VK_ImmFlush( void )
 
 	if( dst )
 	{
-		memcpy( dst, imm.vertices, imm.num_vertices * sizeof( vk_imm_vertex_t ));
-
 		vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, VK_ImmPipeline( imm.batch_topology, imm.batch_blend ) );
 		vkCmdSetCullMode( cmd, imm.batch_raster.cull );
 		vkCmdSetDepthTestEnable( cmd, imm.batch_raster.depth_test );

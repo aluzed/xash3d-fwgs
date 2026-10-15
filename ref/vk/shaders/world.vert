@@ -15,6 +15,10 @@ layout( location = 2 ) out float out_fogdist; // eye plane distance: -z of the e
 layout( location = 3 ) flat out int out_surface; // VK_DrawSurface draws a surface as its instance
 layout( location = 4 ) out vec3 out_position;    // model space
 
+// the same depth in every pipeline: the passes drawn over a surface (its
+// lightmap, detail texture) test GL_LEQUAL against what its first pass wrote
+invariant gl_Position;
+
 void main()
 {
 	gl_Position = pc.mvp * vec4( in_position, 1.0 );
