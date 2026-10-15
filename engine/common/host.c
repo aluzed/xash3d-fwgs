@@ -30,6 +30,7 @@ GNU General Public License for more details.
 #include "host_scheduler.h"
 #include "async_log.h"
 #include "net_replay.h"
+#include "sv_workers.h"
 #include "base_cmd.h"
 #include "client.h"
 #include "server.h"
@@ -1464,6 +1465,7 @@ void Host_ShutdownWithReason( const char *reason )
 #endif
 
 	SV_Shutdown( "Server shutdown\n" );
+	SV_WorkersShutdown( );
 	SV_UnloadProgs();
 	SV_ShutdownFilter();
 	CL_Shutdown();

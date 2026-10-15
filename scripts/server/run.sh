@@ -42,9 +42,10 @@ fi
 # arguments come after them, so that they can turn one off
 if [ "${FEATURES:-1}" = 1 ]; then
 	features="+sys_scheduler 1 +sys_spin_us ${SPIN_US:-200}
-		+sv_snapshot_spread 1 +sv_log_async 1 +sv_client_lookup_cache 1 -netthread +sv_a2s_cache 1 -netsend"
+		+sv_snapshot_spread 1 +sv_log_async 1 +sv_client_lookup_cache 1 -netthread +sv_a2s_cache 1 -netsend
+		+sv_parallel_send 1 -sys_threads 2"
 else
-	features="+sys_scheduler 0 +sv_snapshot_spread 0 +sv_log_async 0 +sv_client_lookup_cache 0"
+	features="+sys_scheduler 0 +sv_snapshot_spread 0 +sv_log_async 0 +sv_client_lookup_cache 0 +sv_parallel_send 0"
 fi
 
 # shellcheck disable=SC2086

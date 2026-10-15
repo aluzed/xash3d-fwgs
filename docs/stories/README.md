@@ -142,11 +142,11 @@ by default (ground rule 4) and on with `scripts/server/run.sh`. Results:
 [`../benchmarks/README.md`](../benchmarks/README.md); operator guide:
 [`../../Documentation/dedicated-server-tuning.md`](../../Documentation/dedicated-server-tuning.md).
 
-Next: 045-048 (parallel snapshot encoding). With 32 players at 100 Hz the
-encoding is 56 µs per frame (p99 88 µs) beside 240 µs of game library calls
-that stay on the main thread; CS's custom delta encoders (`Entity_Encode`,
-`Player_Encode`) write the shared delta descriptions, so the encoders' results
-must be recorded on the main thread during the gather, as ReHLDS does.
+Then 045-048 (parallel snapshot encoding): snapshots gathered first with the
+game's custom delta encoders recorded as masks, encoded on the workers,
+byte-identical to the original code; 13 µs saved per frame with 32 players,
+no race under TSan, no crash over map changes with Metamod and a plugin.
+Next: 050, field validation with players.
 
 Not carried over:
 - MT-306 (Steam calls on demand): Xash3D has no Steam server API.

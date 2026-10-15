@@ -164,10 +164,24 @@ static inline void Sys_CondBroadcast( sys_cond_t *c ) { pthread_cond_broadcast( 
 static inline uint32_t Sys_AtomicLoad( volatile uint32_t *p ) { return *p; }
 static inline void Sys_AtomicStore( volatile uint32_t *p, uint32_t v ) { *p = v; }
 static inline void Sys_AtomicAdd( volatile uint32_t *p, uint32_t v ) { InterlockedExchangeAdd( (volatile LONG *)p, v ); }
+static inline uint32_t Sys_AtomicLoadAcquire( volatile uint32_t *p ) { return InterlockedCompareExchange( (volatile LONG *)p, 0, 0 ); }
+static inline void Sys_AtomicStoreRelease( volatile uint32_t *p, uint32_t v ) { InterlockedExchange( (volatile LONG *)p, v ); }
+static inline uint32_t Sys_AtomicFetchAdd( volatile uint32_t *p, uint32_t v ) { return InterlockedExchangeAdd( (volatile LONG *)p, v ); }
+static inline void Sys_CpuRelax( void ) { YieldProcessor( ); }
 #else
 static inline uint32_t Sys_AtomicLoad( volatile uint32_t *p ) { return __atomic_load_n( p, __ATOMIC_RELAXED ); }
 static inline void Sys_AtomicStore( volatile uint32_t *p, uint32_t v ) { __atomic_store_n( p, v, __ATOMIC_RELAXED ); }
 static inline void Sys_AtomicAdd( volatile uint32_t *p, uint32_t v ) { __atomic_fetch_add( p, v, __ATOMIC_RELAXED ); }
+static inline uint32_t Sys_AtomicLoadAcquire( volatile uint32_t *p ) { return __atomic_load_n( p, __ATOMIC_ACQUIRE ); }
+static inline void Sys_AtomicStoreRelease( volatile uint32_t *p, uint32_t v ) { __atomic_store_n( p, v, __ATOMIC_RELEASE ); }
+// acquire and release: the work a counter hands out or counts done
+static inline uint32_t Sys_AtomicFetchAdd( volatile uint32_t *p, uint32_t v ) { return __atomic_fetch_add( p, v, __ATOMIC_ACQ_REL ); }
+static inline void Sys_CpuRelax( void )
+{
+#if defined( __i386__ ) || defined( __x86_64__ )
+	__builtin_ia32_pause( );
+#endif
+}
 #endif
 
 #endif // SYS_THREAD_H

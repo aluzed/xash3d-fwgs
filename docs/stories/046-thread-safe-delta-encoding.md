@@ -34,7 +34,8 @@ Global state map of the encode path (`engine/common/net_encode.c`):
       `MSG_WriteClientDataMasked`, `MSG_WriteWeaponDataMasked` write without
       touching shared state. A custom encoder on client or weapon data (none
       in Counter-Strike) turns the gathering first off.
-- [ ] TSan with encoder threads (047).
+- [x] TSan with 4 encoding workers, 8 clients, 4 bots, every thread and a
+      flood: no report.
 
 ## Acceptance criteria
 - Global state map of the encode path in this story.

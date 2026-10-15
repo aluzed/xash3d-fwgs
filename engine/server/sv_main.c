@@ -16,6 +16,7 @@ GNU General Public License for more details.
 #include "common.h"
 #include "server.h"
 #include "net_thread.h"
+#include "sv_workers.h"
 #include "net_encode.h"
 #include "platform/platform.h"
 
@@ -1014,6 +1015,7 @@ void SV_Init( void )
 
 	SV_InitHostCommands();
 	SV_ProfileInit();
+	SV_WorkersInit();
 
 	Cvar_Getf( "protocol", FCVAR_READ_ONLY, "displays server protocol version", "%i", PROTOCOL_VERSION );
 	Cvar_Get( "suitvolume", "0.25", FCVAR_ARCHIVE, "HEV suit volume" );

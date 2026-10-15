@@ -15,6 +15,7 @@ GNU General Public License for more details.
 
 #include "common.h"
 #include "server.h"
+#include "sv_workers.h"
 #include "const.h"
 #include "net_encode.h"
 
@@ -1242,8 +1243,17 @@ SV_EncodeSnapshots
 after the gather; story 047 spreads this over the workers
 =============
 */
+static client_snapshot_t *encode_list[MAX_CLIENTS];
+static int num_encode;
+
+static void SV_EncodeSnapshotItem( int index, void *ctx )
+{
+	SV_EncodeClientDatagram( encode_list[index] );
+}
+
 static void SV_EncodeSnapshots( void )
 {
+	uint32_t workers_before;
 	int i;
 
 	// a delta frame overwritten by the later gathers of this frame: the
@@ -1260,12 +1270,18 @@ static void SV_EncodeSnapshots( void )
 		}
 	}
 
-	SV_ProfileBegin( SVP_SEND_DATAGRAM );
+	// the snapshots to encode, spread over the workers (story 047)
+	num_encode = 0;
 	for( i = 0; i < num_snapshots; i++ )
 	{
 		if( snapshots[i].datagram && !snapshots[i].skip )
-			SV_EncodeClientDatagram( &snapshots[i] );
+			encode_list[num_encode++] = &snapshots[i];
 	}
+
+	SV_ProfileBegin( SVP_SEND_DATAGRAM );
+	workers_before = SV_WorkersItems( );
+	SV_ParallelFor( num_encode, SV_EncodeSnapshotItem, NULL );
+	SV_ProfileCount( SVC_SEND_WORKER_ITEMS, SV_WorkersItems( ) - workers_before );
 	SV_ProfileEnd( SVP_SEND_DATAGRAM );
 }
 
