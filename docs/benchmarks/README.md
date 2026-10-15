@@ -36,6 +36,13 @@ phases. 30 s after 20 s of warm-up.
   `AddToFullPack`, `UpdateClientData`), encode 56 µs, transmit 47 µs, reading
   the 3200 commands per second 119 µs; the frame takes half of the tick.
 
+Client lookup by address (044), all the other options on:
+
+| `sv_client_lookup_cache` | `read_packets` avg | `netchan_process` | `execute_client_msg` | dispatch (rest) |
+|---|---|---|---|---|
+| 0 | 108.7 µs | 0.7 µs | 100.1 µs | 7.9 µs |
+| 1 | 111.3 µs | 0.8 µs | 102.8 µs | 7.7 µs |
+
 ## 19 bots (2026-10-15)
 
 `BOTS=19`, no client, 60 s. Bots receive no snapshots: this is the scheduler

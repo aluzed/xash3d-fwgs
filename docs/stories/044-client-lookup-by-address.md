@@ -19,7 +19,13 @@ against the slot, kept up to date on connect, disconnect and port change.
   qport), so that a client whose NAT changed its port is still found. The cache
   hits on the full address; when the slot it gives rejects the packet, or on a
   miss, the original scan runs.
-- [ ] Measured with load clients (036).
+- [x] Measured with 32 load clients, every other option on (2026-10-15):
+      dispatching a packet (`read_packets` less `netchan_process` and
+      `execute_client_msg`) costs 7.9 µs per frame for 3.2 packets with the
+      scan, 7.7 µs with the cache: the difference is within the noise. Reading
+      the packets is `execute_client_msg` (31 µs per packet, the player's
+      movement in the game library). Same conclusion as ReHLDS (MT-104): the
+      option is kept, its gain only shows with many more slots.
 
 ## Acceptance criteria
 - Same client found for every packet (debug check against the scan).
