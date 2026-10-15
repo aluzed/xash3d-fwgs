@@ -842,6 +842,32 @@ static qboolean SV_CanSendDatagram( sv_client_t *cl )
 
 /*
 =======================
+SV_NextSpreadMessageTime
+
+Time of the next snapshot for a client, on a fixed per-client phase within
+its update interval (story 039). With "now + interval", every client becomes
+due in the same frame after any long frame and they stay aligned for good, so
+all the snapshots of the server are built in one frame out of N. A fixed phase
+spreads them evenly over the frames and keeps the update rate exact.
+=======================
+*/
+static double SV_NextSpreadMessageTime( const sv_client_t *cl )
+{
+	double interval = cl->next_messageinterval;
+	double now = host.realtime + sv.frametime;
+	double phase;
+
+	if( interval <= 0.0 )
+		return now;
+
+	phase = interval * ( cl - svs.clients ) / svs.maxclients;
+
+	// first phase-aligned time at least half an interval ahead
+	return phase + interval * floor(( now + 1.5 * interval - phase ) / interval );
+}
+
+/*
+=======================
 SV_SendClientMessages
 =======================
 */
@@ -929,7 +955,9 @@ void SV_SendClientMessages( void )
 
 			// now that we were able to send, reset timer to point to next possible send time.
 			// check here also because sv_max/minupdaterate could been changed in runtime
-			cl->next_messagetime = host.realtime + sv.frametime + cl->next_messageinterval;
+			if( sv_snapshot_spread.value )
+				cl->next_messagetime = SV_NextSpreadMessageTime( cl );
+			else cl->next_messagetime = host.realtime + sv.frametime + cl->next_messageinterval;
 			ClearBits( cl->flags, FCL_SEND_NET_MESSAGE );
 
 			// NOTE: we should send frame even if server is not simulated to prevent overflow

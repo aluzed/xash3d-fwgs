@@ -115,6 +115,7 @@ static CVAR_DEFINE_AUTO( sv_airmove, "1", FCVAR_SERVER, "obsolete, compatibility
 static CVAR_DEFINE_AUTO( sv_version, "", FCVAR_READ_ONLY, "engine version string" );
 CVAR_DEFINE_AUTO( hostname, "", FCVAR_PRINTABLEONLY, "name of current host" );
 static CVAR_DEFINE_AUTO( sv_fps, "0.0", 0, "set this cvar to decouple server framerate from client framerate" );
+CVAR_DEFINE_AUTO( sv_snapshot_spread, "0", 0, "send each client's snapshots at a fixed phase of its update interval, spread over the frames" );
 
 // gore-related cvars
 static CVAR_DEFINE_AUTO( violence_hblood, "1", 0, "draw human blood" );
@@ -922,6 +923,7 @@ void SV_Init( void )
 	Cvar_RegisterVariable( &sv_airmove );
 #if !XASH_DEDICATED
 	Cvar_RegisterVariable( &sv_fps );
+	Cvar_RegisterVariable( &sv_snapshot_spread );
 #endif // !XASH_DEDICATED
 	Cvar_RegisterVariable( &showtriggers );
 	Cvar_RegisterVariable( &sv_aim );

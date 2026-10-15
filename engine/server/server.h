@@ -406,6 +406,7 @@ extern convar_t		sv_instancedbaseline;
 extern convar_t		sv_background_freeze;
 extern convar_t		sv_minupdaterate;
 extern convar_t		sv_maxupdaterate;
+extern convar_t		sv_snapshot_spread;
 extern convar_t		sv_minrate;
 extern convar_t		sv_maxrate;
 extern convar_t		sv_downloadurl;
