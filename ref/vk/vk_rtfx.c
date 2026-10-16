@@ -74,6 +74,7 @@ CVAR_DEFINE_AUTO( r_vk_rt_ao_radius, "32", FCVAR_GLCONFIG, "r_vk_quality rt: amb
 CVAR_DEFINE_AUTO( r_vk_rt_reflections, "1", FCVAR_GLCONFIG, "r_vk_quality rt: reflections on water, glass and reflective materials, 0 disables them" );
 CVAR_DEFINE_AUTO( r_vk_rt_sun, "1", FCVAR_GLCONFIG, "r_vk_quality rt: part of movevars skycolor the sun puts in the lightmaps" );
 CVAR_DEFINE_AUTO( r_vk_rt_shadow_keep, "0.3", FCVAR_GLCONFIG, "r_vk_quality rt: least part of its light a shadowed surface keeps" );
+CVAR_DEFINE_AUTO( r_vk_rt_dlight, "1.75", FCVAR_GLCONFIG, "r_vk_quality rt: brightness of the dynamic lights (explosions, flashes) where they reach, 1 as the lightmaps add them" );
 CVAR_DEFINE_AUTO( r_vk_rt_sun_size, "1.5", FCVAR_GLCONFIG, "r_vk_quality rt: angular size of the sun in degrees, how soft the shadows of entities are; 0 for hard ones" );
 CVAR_DEFINE_AUTO( r_vk_rt_gi, "0", FCVAR_GLCONFIG, "r_vk_quality rt: part of the lighting of lightmapped surfaces the rays give, 0 the lightmaps, 1 the rays only" );
 CVAR_DEFINE_AUTO( r_vk_rt_gi_scale, "1", FCVAR_GLCONFIG, "r_vk_quality rt: brightness of the ray traced lighting against the lightmaps" );
@@ -159,6 +160,7 @@ void VK_RegisterRTEffectsCvars( void )
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_rt_reflections );
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_rt_sun );
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_rt_shadow_keep );
+	gEngfuncs.Cvar_RegisterVariable( &r_vk_rt_dlight );
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_rt_sun_size );
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_rt_gi );
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_rt_gi_scale );
@@ -553,6 +555,7 @@ qboolean VK_RTEffects( VkCommandBuffer cmd, vk_image_t *scene, int x, int y, int
 	params->rect[2] = w;
 	params->rect[3] = h;
 	params->shadow[2] = tanf( DEG2RAD( bound( 0.0f, r_vk_rt_sun_size.value, 20.0f ) * 0.5f ));
+	params->shadow[3] = bound( 0.0f, r_vk_rt_dlight.value, 8.0f );
 	params->gi[0] = bound( 0.0f, r_vk_rt_gi.value, 1.0f );
 	params->gi[1] = Q_max( 0.0f, r_vk_rt_gi_scale.value );
 	params->gi[2] = Q_max( 0.0f, r_vk_rt_gi_bounce.value );

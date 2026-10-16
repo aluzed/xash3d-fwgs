@@ -217,6 +217,12 @@ void main()
 				color[c] = mix( drawn, color[c] * TexelRatio( scene, l, l2 ), smoothstep( 0.03, 0.12, texel[c] ));
 			}
 			else color[c] *= TexelRatio( scene, l, l2 );
+
+			// the dynamic lights brighter where they reach (r_vk_rt_dlight):
+			// an explosion lights a dark corner
+			float boost = lit[c] * max( p.shadow.w - 1.0, 0.0 );
+			if( boost > 0.0 )
+				color[c] *= TexelRatio( scene, l2, l2 + boost );
 		}
 	}
 

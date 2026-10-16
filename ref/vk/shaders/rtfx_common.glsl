@@ -20,7 +20,7 @@ layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer 
 	vec4 prev_eye;       // the previous frame's eye
 	vec4 ao;             // radius, strength
 	vec4 refl;           // strength, time
-	vec4 shadow;         // sun scale, part of the light a shadow keeps, tan of the sun's radius
+	vec4 shadow;         // sun scale, part of the light a shadow keeps, tan of the sun's radius, dynamic lights' scale
 	vec4 light;          // lightmap pass: GL blend factor (2 overbright, else 1), glColor scale
 	ivec4 misc;          // FX_* flags, frame number, online
 	ivec4 rect;          // the view, pixels: x, y, width, height
