@@ -262,10 +262,101 @@ static void Con_MessageMode2_f( void )
 Con_ToggleConsole_f
 ================
 */
+// story 066: the lines dropped from the top, and a count of the prints,
+// for the menu's console window
+static int con_lines_dropped;
+static int con_serial;
+
+/*
+================
+Con_UI_*
+
+the console's lines for the menu's console window (story 066)
+================
+*/
+int Con_UI_Lines( int *first )
+{
+	if( first )
+		*first = con_lines_dropped;
+	return con.initialized ? CON_LINES_COUNT : 0;
+}
+
+const char *Con_UI_Line( int number )
+{
+	int i = number - con_lines_dropped;
+
+	if( !con.initialized || i < 0 || i >= CON_LINES_COUNT )
+		return NULL;
+
+	return CON_LINES( i ).start;
+}
+
+int Con_UI_Serial( void )
+{
+	return con_serial;
+}
+
+typedef struct
+{
+	const char *partial;
+	char *out;
+	int size, used, count;
+} con_completions_t;
+
+static void Con_UI_AddCompletion( const char *name, const char *value, const void *unused, void *ptr )
+{
+	con_completions_t *c = ptr;
+	int len = Q_strlen( name );
+
+	if( *name == '@' || Q_strnicmp( name, c->partial, Q_strlen( c->partial )))
+		return;
+
+	if( c->used + len + 2 > c->size )
+		return;
+
+	memcpy( c->out + c->used, name, len );
+	c->used += len;
+	c->out[c->used++] = '\n';
+	c->out[c->used] = '\0';
+	c->count++;
+}
+
+int Con_UI_Completions( const char *partial, char *out, int size )
+{
+	con_completions_t c = { partial, out, size, 0, 0 };
+
+	if( size <= 0 )
+		return 0;
+
+	out[0] = '\0';
+	Cmd_LookupCmds( NULL, &c, (setpair_t)Con_UI_AddCompletion );
+	Cvar_LookupVars( 0, NULL, &c, (setpair_t)Con_UI_AddCompletion );
+	return c.count;
+}
+
 void Con_ToggleConsole_f( void )
 {
 	if( !host.allow_console || UI_CreditsActive( ))
 		return; // disabled
+
+	// story 066: the menu's console window, as Steam's GoldSrc had it: over
+	// the menu, in game too; the engine's own console when the menu has none
+	if( gameui.dllFuncs2.pfnShowConsole && cls.key_dest != key_console )
+	{
+		SCR_EndLoadingPlaque();
+
+		if( gameui.dllFuncs2.pfnConsoleShown && gameui.dllFuncs2.pfnConsoleShown( ))
+		{
+			gameui.dllFuncs2.pfnShowConsole( false );
+		}
+		else
+		{
+			if( !UI_IsVisible( ))
+				UI_SetActiveMenu( true );
+			gameui.dllFuncs2.pfnShowConsole( true );
+		}
+		return;
+	}
 
 	SCR_EndLoadingPlaque();
 
@@ -347,6 +438,8 @@ static void Con_DeleteLine( void )
 {
 	if( con.lines_count == 0 )
 		return;
+	con_lines_dropped++;
+	con_serial++;
 	con.lines_count--;
 	con.lines_first = (con.lines_first + 1) % con.maxlines;
 }
@@ -426,6 +519,7 @@ static void Con_AddLine( const char *line, int length, qboolean newline )
 
 	Con_FixTimes();
 	length++;	// reserve space for term
+	con_serial++;
 
 	ASSERT( length < CON_TEXTSIZE );
 

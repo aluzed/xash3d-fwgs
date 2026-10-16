@@ -30,7 +30,23 @@ Out: the notify lines at the top of the game and the chat (they stay as
 they are), a console of the dedicated server (its own window).
 
 ## Status (2026-10-16)
-Written, not started; the look to agree on.
+Done as Steam's GoldSrc console, the user's choice: a window of the menu
+(`menus/Console.cpp`, the same in Counter-Strike's and Half-Life's
+menus) over the menu, in game too, in Steam's Counter-Strike scheme
+(olive grey, light text, a bevelled frame): title bar to move it, corner
+to resize it, close box; the log in Tahoma sized for the screen, its
+colours, wrapped, scrolled with the wheel, Page Up / Down, a scroll bar;
+selection with the mouse (drag, double click a word, triple click a line),
+copied with Ctrl+C or a right click (CR LF on Windows), Ctrl+A for all;
+the input line with its history, the commands and cvars suggested as one
+types (with the cvars' values), Tab and Enter to complete, Ctrl+V,
+"Submit". The engine gives the menu the lines (numbered from the first
+ever printed, so that a selection holds while older lines are dropped), a
+serial of prints, the clipboard and the completions (`ui_extendedfuncs_t`),
+and the console key toggles the menu's window; without it, the engine's
+old console. Seen on screen at 2560 x 1440. Left: played by the user
+(selection, copy into another program, suggestions), ref_gl, small
+resolutions.
 
 ## Design
 - A panel taking the top half of the screen by default (CS2's: a window,

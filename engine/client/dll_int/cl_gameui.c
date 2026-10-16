@@ -1310,6 +1310,11 @@ static ui_extendedfuncs_t gExtendedfuncs =
 	pfnGetModInfo,
 	pfnIsCvarReadOnly,
 	pfnSetTextInputRect,
+	Con_UI_Lines,
+	Con_UI_Line,
+	Con_UI_Serial,
+	Platform_SetClipboardText,
+	Con_UI_Completions,
 };
 
 void UI_UnloadProgs( void )

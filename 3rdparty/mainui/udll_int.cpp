@@ -63,6 +63,10 @@ extern "C" EXPORT int GetMenuAPI(UI_FUNCTIONS *pFunctionTable, ui_enginefuncs_t*
 	return true;
 }
 
+// story 066: the console as a window (menus/Console.cpp)
+void UI_ShowConsole( int show );
+int UI_ConsoleShown( void );
+
 static UI_EXTENDED_FUNCTIONS gExtendedTable =
 {
 	AddTouchButtonToList,
@@ -76,7 +80,9 @@ static UI_EXTENDED_FUNCTIONS gExtendedTable =
 	UI_ConnectionProgress_Precache,
 	UI_ConnectionProgress_Connect,
 	UI_ConnectionProgress_ChangeLevel,
-	UI_ConnectionProgress_ParseServerInfo
+	UI_ConnectionProgress_ParseServerInfo,
+	UI_ShowConsole,
+	UI_ConsoleShown,
 };
 
 extern "C" EXPORT int GetExtAPI( int version, UI_EXTENDED_FUNCTIONS *pFunctionTable, ui_extendedfuncs_t *pEngfuncsFromEngine )

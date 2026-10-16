@@ -234,6 +234,17 @@ typedef struct ui_extendedfuncs_s {
 	// engine tries to keep this rect visible, when the on-screen keyboard covers the screen
 	// must be called before pfnEnableTextInput( true ), empty rect means the whole screen
 	void (*pfnSetTextInputRect)( int x, int y, int w, int h );
+
+	// the console as a window of the menu (story 066 of the xash3d-fwgs fork):
+	// its lines numbered from the first ever printed, so that a number keeps
+	// its line while older ones are dropped; NULL for a dropped or future one
+	int (*pfnConsoleLines)( int *first );	// how many, the number of the oldest
+	const char *(*pfnConsoleLine)( int number );
+	int (*pfnConsoleSerial)( void );		// changes with every print
+	void (*pfnSetClipboardData)( const char *text );
+	// the commands and cvars starting with partial, '\n' after each, as many
+	// as fit; returns their count
+	int (*pfnConsoleCompletions)( const char *partial, char *out, int size );
 } ui_extendedfuncs_t;
 
 // deprecated export from old engine
@@ -253,6 +264,10 @@ typedef struct
 	void (*pfnConnectionProgress_Connect)( const char *server ); // NULL for local server
 	void (*pfnConnectionProgress_ChangeLevel)( void );
 	void (*pfnConnectionProgress_ParseServerInfo)( const char *server );
+
+	// story 066: the console key opens the menu's console window
+	void (*pfnShowConsole)( int show );
+	int (*pfnConsoleShown)( void );
 } UI_EXTENDED_FUNCTIONS;
 
 typedef int (*MENUAPI)( UI_FUNCTIONS *pFunctionTable, ui_enginefuncs_t* engfuncs, ui_globalvars_t *pGlobals );
