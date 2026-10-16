@@ -66,11 +66,6 @@ public:
 	CMenuCheckBox	filtering;
 	CMenuCheckBox	detailtex;
 	CMenuCheckBox	hudscale;
-	// the Vulkan renderer's section: greyed, with what it needs, when the
-	// renderer isn't loaded or the GPU can't trace rays
-	CMenuAction	vkPanel, vkTitle, vkStatus;
-	CMenuSpinControl	quality; // r_vk_preset
-	CMenuCheckBox	rtShadows, rtOcclusion, rtReflections, rtLighting; // ray traced effects
 	CMenuYesNoMessageBox	msgBox;
 
 	HIMAGE		hTestImage;
@@ -174,7 +169,7 @@ void CMenuVidOptions::_Init( void )
 	banner.SetPicture( ART_BANNER );
 
 	testImage.iFlags = QMF_INACTIVE;
-	testImage.SetRect( 390, 225, 480, 320 ); // the Vulkan section goes under it
+	testImage.SetRect( 390, 225, 480, 320 );
 	testImage.SetPicture( ART_GAMMA );
 
 	int height = 280;
@@ -208,18 +203,6 @@ void CMenuVidOptions::_Init( void )
 	done.onReleased = VoidCb( &CMenuVidOptions::SaveAndPopMenu );
 	height += 60;
 
-	detailtex.szName = L( "Detail textures" );
-	detailtex.SetCoord( 72, height );
-	height += 50;
-
-	vbo.szName = L( "Use VBO" );
-	vbo.SetCoord( 72, height );
-	height += 50;
-
-	swwater.szName = L( "Water ripples" );
-	swwater.SetCoord( 72, height );
-	height += 50;
-
 	overbright.szName = L( "Overbrights" );
 	overbright.SetCoord( 72, height );
 	height += 50;
@@ -232,77 +215,19 @@ void CMenuVidOptions::_Init( void )
 	hudscale.SetCoord( 72, height );
 	height += 50;
 
-	// the values of r_vk_preset, in the order of the names; another value
-	// (a setting changed by hand) shows as the last one
-	static const char *qualityValues[] = { "classic", "low", "medium", "high", "ultra" };
-	static const char *qualityNames[] =
-	{
-		L( "Classic" ),
-		L( "Low (HDR)" ),
-		L( "Medium (HDR)" ),
-		L( "High (ray tracing)" ),
-		L( "Ultra (ray tracing)" ),
-		L( "Custom" ),
-	};
-	static CStringArrayModel qualityModel( qualityNames, V_ARRAYSIZE( qualityNames ));
+	// the OpenGL renderer's own: hidden with the others (the Vulkan
+	// renderer's quality and ray tracing have their page under Video)
+	detailtex.szName = L( "Detail textures" );
+	detailtex.SetCoord( 72, height );
+	height += 50;
 
-	// a dark card under the section, for contrast with the artwork
-	vkPanel.iFlags = QMF_INACTIVE;
-	vkPanel.SetBackground( 0xC0101010 );
-	vkPanel.SetRect( 380, 555, 620, 210 );
+	vbo.szName = L( "Use VBO" );
+	vbo.SetCoord( 72, height );
+	height += 50;
 
-	vkTitle.szName = L( "Vulkan renderer" );
-	vkTitle.iFlags = QMF_INACTIVE | QMF_DROPSHADOW;
-	vkTitle.SetCharSize( QM_SMALLFONT );
-	vkTitle.SetCoord( 395, 565 );
-
-	vkStatus.iFlags = QMF_INACTIVE | QMF_DROPSHADOW;
-	vkStatus.colorBase = uiColorHelp;
-	vkStatus.SetCharSize( QM_SMALLFONT );
-	vkStatus.SetCoord( 395, 592 );
-
-	quality.szName = L( "Rendering quality" );
-	quality.Setup( &qualityModel );
-	quality.SetRect( 395, 660, 280, 32 );
-	quality.SetCharSize( QM_SMALLFONT );
-	quality.onChanged = CMenuEditable::WriteCvarCb; // applies at once, no restart
-	quality.onCvarGet.pExtra = (void *)qualityValues;
-	SET_EVENT_MULTI( quality.onCvarGet,
-	{
-		CMenuSpinControl *spin = (CMenuSpinControl *)pSelf;
-		const char **values = (const char **)pExtra;
-		const char *cvar = EngFuncs::GetCvarString( spin->CvarName( ));
-		int i;
-
-		for( i = 0; i < 5; i++ )
-		{
-			if( !stricmp( cvar, values[i] ))
-				break;
-		}
-
-		spin->SetCurrentValue( (float)i );
-	});
-	quality.onCvarWrite.pExtra = (void *)qualityValues;
-	SET_EVENT_MULTI( quality.onCvarWrite,
-	{
-		CMenuSpinControl *spin = (CMenuSpinControl *)pSelf;
-		const char **values = (const char **)pExtra;
-		const int i = (int)spin->GetCurrentValue();
-
-		// "Custom" is what the settings are: nothing to set
-		if( i < 5 )
-			EngFuncs::CvarSetString( spin->CvarName(), values[i] );
-	});
-
-	// each ray traced effect, on top of the preset: the preset becomes custom
-	CMenuCheckBox *rtBoxes[] = { &rtShadows, &rtOcclusion, &rtReflections, &rtLighting };
-	static const char *rtNames[] = { L( "RT shadows" ), L( "RT ambient occlusion" ), L( "RT reflections" ), L( "RT lighting" ) };
-
-	for( int i = 0; i < 4; i++ )
-	{
-		rtBoxes[i]->szName = rtNames[i];
-		rtBoxes[i]->SetCoord( 700, 625 + i * 34 ); // under the status line
-	}
+	swwater.szName = L( "Water ripples" );
+	swwater.SetCoord( 72, height );
+	height += 50;
 
 	msgBox.SetMessage( L( "^1WARNING: This is an experimental option and turning it on might break mods!^7\n\nReload the game or reconnect to the server to apply the settings."));
 	msgBox.onNegative.pExtra = &hudscale;
@@ -363,14 +288,6 @@ void CMenuVidOptions::_Init( void )
 	AddItem( overbright );
 	AddItem( filtering );
 	AddItem( hudscale );
-	AddItem( vkPanel );
-	AddItem( vkTitle );
-	AddItem( vkStatus );
-	AddItem( quality );
-	AddItem( rtShadows );
-	AddItem( rtOcclusion );
-	AddItem( rtReflections );
-	AddItem( rtLighting );
 	AddItem( testImage );
 
 #if LEGACY_VIEWSIZE
@@ -401,41 +318,9 @@ void CMenuVidOptions::Reload()
 	// ref_vk shares ref_gl's overbright and texture filtering cvars
 	bool vk_active = !stricmp( EngFuncs::GetCvarString( "r_refdll_loaded" ), "vk" );
 
-	// the ray traced effects need a GPU (and a driver: 64-bit on AMD) that traces rays
-	bool rt_active = vk_active && EngFuncs::GetCvarFloat( "r_vk_rt_supported" ) != 0.0f;
-	CMenuCheckBox *rtBoxes[] = { &rtShadows, &rtOcclusion, &rtReflections, &rtLighting };
+	if( gl_active ) detailtex.Show(); else detailtex.Hide();
 
-	if( !vk_active )
-		vkStatus.szName = L( "Needs the Vulkan renderer: Video modes, Renderer, Vulkan" );
-	else if( !rt_active )
-		vkStatus.szName = L( "No ray tracing on this GPU or driver" );
-	else vkStatus.szName = L( "Ray tracing available" );
-
-	quality.SetGrayed( !vk_active );
-	quality.SetInactive( !vk_active );
-	if( vk_active )
-		quality.LinkCvar( "r_vk_preset", CMenuEditable::CVAR_STRING );
-	else quality.SetCurrentValue( 0.0f ); // Classic, as the other renderers draw
-
-	for( int i = 0; i < 4; i++ )
-	{
-		rtBoxes[i]->SetGrayed( !rt_active );
-		rtBoxes[i]->SetInactive( !rt_active );
-	}
-
-	if( vk_active )
-	{
-		rtShadows.LinkCvar( "r_vk_rt_shadows" );
-		rtOcclusion.LinkCvar( "r_vk_rt_ao" );
-		rtReflections.LinkCvar( "r_vk_rt_reflections" );
-		rtLighting.LinkCvar( "r_vk_rt_gi" );
-	}
-
-	detailtex.SetGrayed( !gl_active );
-	detailtex.SetInactive( !gl_active );
-
-	vbo.SetGrayed( !gl_active );
-	vbo.SetInactive( !gl_active );
+	if( gl_active ) vbo.Show(); else vbo.Hide();
 
 	if( gl_active )
 	{
@@ -457,8 +342,7 @@ void CMenuVidOptions::Reload()
 		}
 	}
 
-	swwater.SetGrayed( !gl_active );
-	swwater.SetInactive( !gl_active );
+	if( gl_active ) swwater.Show(); else swwater.Hide();
 
 	overbright.SetGrayed( !gl_active && !vk_active );
 	overbright.SetInactive( !gl_active && !vk_active );

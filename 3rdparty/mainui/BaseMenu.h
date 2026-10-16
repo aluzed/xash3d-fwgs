@@ -286,6 +286,7 @@ void UI_CreateGame_Menu( void );
 void UI_Audio_Menu( void );
 void UI_Video_Menu( void );
 void UI_VidOptions_Menu( void );
+void UI_RayTracing_Menu( void );
 void UI_VidModes_Menu( void );
 void UI_CustomGame_Menu( void );
 void UI_Credits_Menu( void );

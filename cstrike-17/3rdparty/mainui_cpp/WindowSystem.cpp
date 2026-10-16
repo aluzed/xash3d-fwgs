@@ -302,7 +302,9 @@ void CWindowStack::Remove( CMenuBaseWindow *menu )
 		}
 		else
 		{
-			EngFuncs::KEY_SetDest( KEY_CONSOLE );
+			// out of a game the menu stays: its main page, not the
+			// engine's old console
+			UI_Main_Menu();
 		}
 	}
 
