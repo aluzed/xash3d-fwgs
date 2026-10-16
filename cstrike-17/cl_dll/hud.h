@@ -1049,7 +1049,6 @@ public:
 	int		m_iFOV;
 	int		m_Teamplay;
 	cvar_t *m_pCvarDraw;
-	cvar_t *fastsprites;
 	cvar_t *cl_nopred;
 	cvar_t *cl_weapon_wallpuff;
 	cvar_t *cl_weapon_sparks;

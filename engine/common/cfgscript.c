@@ -264,6 +264,11 @@ finish:
 
 static void CSCR_RegisterVariable( scrvardef_t *var, void *unused )
 {
+	// Counter-Strike 1.6's smoke settings, in its user.scr: Counter-Strike
+	// 1.7's smoke is a volume (story 061), they change nothing
+	if( !Q_stricmp( var->name, "fastsprites" ) || !Q_stricmp( var->name, "max_smokepuffs" ))
+		return;
+
 	if( !Cvar_FindVar( var->name ))
 		Cvar_Get( var->name, var->value, var->flags|FCVAR_TEMPORARY, var->desc );
 }

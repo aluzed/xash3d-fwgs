@@ -301,6 +301,11 @@ scrvardef_t *CSCR_LoadDefaultCVars( const char *scriptfilename, int *count )
 		// Create a new object
 		if( CSCR_ParseSingleCvar( &state, &var ) )
 		{
+			// Counter-Strike 1.6's smoke settings: its smoke is a volume now
+			// (story 061), they change nothing; neither shown nor created
+			if( !stricmp( var.name, "fastsprites" ) || !stricmp( var.name, "max_smokepuffs" ))
+				continue;
+
 			scrvardef_t *entry = new scrvardef_t;
 			*entry = var;
 
