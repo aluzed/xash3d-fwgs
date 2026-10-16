@@ -395,7 +395,6 @@ public:
 	CMenuSpinControl background;
 	CMenuCheckBox fire;
 
-	CMenuPicButton done, cancel, defaults, presets;
 
 private:
 	void _Init() override;
@@ -434,9 +433,9 @@ void CMenuCrosshairValue::Setup( CMenuCrosshair *p, const char *name, float min,
 
 void CMenuCrosshairValue::SetCoord( int x, int y )
 {
-	label.SetRect( x, y, 150, 26 );
-	slider.SetRect( x + 150, y + 6, 120, 14 );
-	field.SetRect( x + 280, y, 60, 26 );
+	label.SetRect( x, y, 130, 26 );
+	slider.SetRect( x + 135, y + 6, 115, 14 );
+	field.SetRect( x + 260, y, 55, 26 );
 }
 
 void CMenuCrosshairValue::SetVisible( bool visible )
@@ -703,19 +702,27 @@ void CMenuCrosshair::_Init()
 	static const char *channels[] = { L( "Red" ), L( "Green" ), L( "Blue" ), L( "Alpha" ) };
 	static const char *outlineChannels[] = { L( "Outline red" ), L( "Outline green" ), L( "Outline blue" ), L( "Outline alpha" ) };
 
-	const int colA = 72, colB = 440, top = 320;
+	// as the other pages: the buttons in the framework's column on the left
+	// (72, from 230), the preview under them, the options on the right in
+	// two columns (from 360, as Video modes' list)
+	const int colA = 360, colB = 690, top = 275;
 	int y;
 
 	banner.SetPicture( ART_BANNER );
 	AddItem( banner );
 
-	XHair_SetupPanel( panel, colA - 12, 205, colB + 340 + 12 - ( colA - 12 ), 525 );
+	AddButton( L( "GameUI_OK" ), nullptr, PC_DONE, VoidCb( &CMenuCrosshair::SaveAndPopMenu ));
+	AddButton( L( "GameUI_Cancel" ), nullptr, PC_CANCEL, VoidCb( &CMenuCrosshair::Revert ));
+	AddButton( L( "GameUI_UseDefaults" ), nullptr, PC_USE_DEFAULTS, VoidCb( &CMenuCrosshair::UseDefaults ));
+	AddButton( L( "Presets" ), nullptr, PC_PRESETS, UI_CrosshairPresets_Menu );
+
+	XHair_SetupPanel( panel, colA - 12, 220, colB + 315 + 12 - ( colA - 12 ), 430 );
 	AddItem( panel );
-	XHair_SetupPanel( previewPanel, 788, 205, 224, 525 );
+	XHair_SetupPanel( previewPanel, 60, 440, 264, 300 );
 	AddItem( previewPanel );
 
 	enable.SetNameAndStatus( L( "Enhanced crosshair" ), L( "Enables enhanced crosshair" ) );
-	enable.SetCoord( colA, 215 );
+	enable.SetCoord( colA, 230 );
 	SET_EVENT_MULTI( enable.onChanged,
 	{
 		CMenuCrosshair *page = (CMenuCrosshair *)pSelf->Parent();
@@ -724,39 +731,16 @@ void CMenuCrosshair::_Init()
 	});
 	AddItem( enable );
 
-	done.szName = L( "GameUI_OK" );
-	done.SetPicture( PC_DONE );
-	done.SetCoord( colA, 262 );
-	done.onReleased = VoidCb( &CMenuCrosshair::SaveAndPopMenu );
-	AddItem( done );
-
-	cancel.szName = L( "GameUI_Cancel" );
-	cancel.SetPicture( PC_CANCEL );
-	cancel.SetCoord( colA + 150, 262 );
-	cancel.onReleased = VoidCb( &CMenuCrosshair::Revert );
-	AddItem( cancel );
-
-	defaults.szName = L( "GameUI_UseDefaults" );
-	defaults.SetPicture( PC_USE_DEFAULTS );
-	defaults.SetCoord( colA + 300, 262 );
-	defaults.onReleased = VoidCb( &CMenuCrosshair::UseDefaults );
-	AddItem( defaults );
-
-	presets.szName = L( "Presets" );
-	presets.SetCoord( colA + 450, 256 ); // text, not a picture: centred on the pictures' row
-	presets.onReleased = UI_CrosshairPresets_Menu;
-	AddItem( presets );
-
 	// classic crosshair, in place of the first column
 	y = top;
 	classicSize.Setup( &sizeModel );
-	classicSize.SetRect( colA, y, 260, 32 );
+	classicSize.SetRect( colA, y, 300, 32 );
 	classicSize.onChanged = VoidCb( &CMenuCrosshair::Apply );
 	AddItem( classicSize );
 	y += 50;
 
 	classicColor.Setup( &colorModel );
-	classicColor.SetRect( colA, y, 260, 32 );
+	classicColor.SetRect( colA, y, 300, 32 );
 	classicColor.onChanged = VoidCb( &CMenuCrosshair::Apply );
 	AddItem( classicColor );
 	y += 50;
@@ -769,11 +753,11 @@ void CMenuCrosshair::_Init()
 	// first column: shape
 	y = top;
 	XHair_SetupLabel( styleLabel, L( "Style" ));
-	styleLabel.SetRect( colA, y, 150, 26 );
+	styleLabel.SetRect( colA, y, 130, 26 );
 	AddItem( styleLabel );
 
 	style.Setup( &styleModel );
-	style.SetRect( colA + 150, y, 190, 26 );
+	style.SetRect( colA + 135, y, 180, 26 );
 	style.SetCharSize( QM_SMALLFONT );
 	style.onChanged = VoidCb( &CMenuCrosshair::Apply );
 	AddItem( style );
@@ -824,27 +808,27 @@ void CMenuCrosshair::_Init()
 	});
 
 	XHair_SetupCheckBox( this, dynamicMove, L( "Dynamic" ), colB, y );
-	XHair_SetupCheckBox( this, gapUseWeapon, L( "Weapon gap" ), colB + 170, y );
+	XHair_SetupCheckBox( this, gapUseWeapon, L( "Weapon gap" ), colB + 160, y );
 	y += XHAIR_ROW_STEP;
 
 	dynamicScale.Setup( this, L( "Dynamic scale" ), 0.0f, 3.0f, 0.1f, 2 );
 	dynamicScale.SetCoord( colB, y );
 
 	// preview
-	preview.SetRect( 800, 215, 200, 420 );
+	preview.SetRect( 72, 450, 240, 200 );
 	preview.hMap = EngFuncs::PIC_Load( "gfx/vgui/crosshair.tga", 0 );
 	preview.hWhite = EngFuncs::PIC_Load( "*white" );
 	AddItem( preview );
 
 	background.Setup( &backgroundModel );
-	background.SetRect( 800, 650, 200, 26 );
+	background.SetRect( 72, 662, 240, 26 );
 	background.SetCharSize( QM_SMALLFONT );
 	background.LinkCvar( "ui_xhair_background", CMenuEditable::CVAR_VALUE );
 	background.onChanged = CMenuEditable::WriteCvarCb;
 	AddItem( background );
 
 	fire.SetNameAndStatus( L( "Fire" ), L( "Shoots to show the dynamic gap" ) );
-	fire.SetRect( 800, 690, 26, 26 );
+	fire.SetRect( 72, 702, 26, 26 );
 	fire.SetCharSize( QM_SMALLFONT );
 	fire.bChecked = false;
 	SET_EVENT_MULTI( fire.onChanged,
@@ -912,7 +896,6 @@ private:
 	CMenuCrosshairPresetsModel model;
 	CMenuAction nameLabel, codeLabel, status;
 	CMenuField name, code;
-	CMenuPicButton apply, save, rename, remove, copy, import, done;
 	CMenuCrosshairPreview preview;
 	CMenuSpinControl background;
 
@@ -1173,76 +1156,62 @@ void CMenuCrosshairPresets::_Init()
 	banner.SetPicture( ART_BANNER );
 	AddItem( banner );
 
-	XHair_SetupPanel( panel, 60, 205, 720, 525 );
+	// as the other pages: the buttons in the framework's column on the left,
+	// the list, the fields and the preview on the right
+	AddButton( L( "Use" ), nullptr, PC_USE, VoidCb( &CMenuCrosshairPresets::ApplySelected ));
+	AddButton( L( "Save current" ), nullptr, PC_SAVE, VoidCb( &CMenuCrosshairPresets::SaveCurrent ));
+	AddButton( L( "Rename" ), nullptr, PC_RENAME, VoidCb( &CMenuCrosshairPresets::RenameSelected ));
+	AddButton( L( "Delete" ), nullptr, PC_DELETE, VoidCb( &CMenuCrosshairPresets::DeleteSelected ));
+	AddButton( L( "Copy code" ), nullptr, PC_COPYCODE, VoidCb( &CMenuCrosshairPresets::CopyCode ));
+	AddButton( L( "Use code" ), nullptr, PC_USECODE, VoidCb( &CMenuCrosshairPresets::ImportCode ));
+	AddButton( L( "Done" ), nullptr, PC_DONE, VoidCb( &CMenuCrosshairPresets::Hide ));
+
+	const int x = 360, w = 650;
+
+	XHair_SetupPanel( panel, x - 12, 220, w + 24, 530 );
 	AddItem( panel );
-	XHair_SetupPanel( previewPanel, 788, 205, 224, 525 );
-	AddItem( previewPanel );
 
 	model.page = this;
 	list.SetModel( &model );
 	list.SetupColumn( 0, L( "Name" ), 0.7f );
 	list.SetupColumn( 1, L( "Type" ), 0.3f );
-	list.SetRect( 72, 215, 696, 300 );
+	list.SetRect( x, 230, w, 250 );
 	list.SetCharSize( QM_SMALLFONT );
 	list.onChanged = VoidCb( &CMenuCrosshairPresets::Select );
 	AddItem( list );
 
 	XHair_SetupLabel( nameLabel, L( "Name" ));
-	nameLabel.SetRect( 72, 530, 80, 30 );
+	nameLabel.SetRect( x, 495, 90, 30 );
 	AddItem( nameLabel );
 
 	name.iMaxLength = XHAIR_PRESET_NAME - 1;
-	name.SetRect( 160, 530, 608, 30 );
+	name.SetRect( x + 90, 495, w - 90, 30 );
 	name.SetCharSize( QM_SMALLFONT );
 	AddItem( name );
 
 	XHair_SetupLabel( codeLabel, L( "Code" ));
-	codeLabel.SetRect( 72, 575, 80, 30 );
+	codeLabel.SetRect( x, 535, 90, 30 );
 	AddItem( codeLabel );
 
 	code.iMaxLength = XHAIR_CODE_MAX - 1;
-	code.SetRect( 160, 575, 608, 30 );
+	code.SetRect( x + 90, 535, w - 90, 30 );
 	code.SetCharSize( QM_SMALLFONT );
 	AddItem( code );
 
-	struct
-	{
-		CMenuPicButton *button;
-		const char *name;
-		const char *status;
-		VoidIHCallback cb;
-		int x, y;
-	} buttons[] = {
-		{ &apply, L( "Use" ), L( "Use the selected preset" ), VoidCb( &CMenuCrosshairPresets::ApplySelected ), 72, 625 },
-		{ &save, L( "Save current" ), L( "Save the current crosshair under the name above" ), VoidCb( &CMenuCrosshairPresets::SaveCurrent ), 222, 625 },
-		{ &rename, L( "Rename" ), L( "Give the selected preset the name above" ), VoidCb( &CMenuCrosshairPresets::RenameSelected ), 432, 625 },
-		{ &remove, L( "Delete" ), L( "Delete the selected preset" ), VoidCb( &CMenuCrosshairPresets::DeleteSelected ), 592, 625 },
-		{ &copy, L( "Copy code" ), L( "Copy the code above to the clipboard" ), VoidCb( &CMenuCrosshairPresets::CopyCode ), 72, 665 },
-		{ &import, L( "Use code" ), L( "Use the crosshair of the code above (paste with Ctrl+V)" ), VoidCb( &CMenuCrosshairPresets::ImportCode ), 272, 665 },
-		{ &done, L( "Done" ), NULL, VoidCb( &CMenuCrosshairPresets::Hide ), 592, 665 },
-	};
-
-	for( size_t i = 0; i < V_ARRAYSIZE( buttons ); i++ )
-	{
-		buttons[i].button->SetNameAndStatus( buttons[i].name, buttons[i].status );
-		buttons[i].button->SetCoord( buttons[i].x, buttons[i].y );
-		buttons[i].button->onReleased = buttons[i].cb;
-		AddItem( buttons[i].button );
-	}
 	status.szName = statusText;
 	status.iFlags = QMF_INACTIVE | QMF_DROPSHADOW;
 	status.colorBase = uiColorHelp;
 	status.SetCharSize( QM_SMALLFONT );
-	status.SetRect( 72, 700, 696, 26 );
+	status.SetRect( x, 575, w, 26 );
 	AddItem( status );
 
-	preview.SetRect( 800, 215, 200, 420 );
+	preview.SetRect( x, 610, 300, 130 );
 	preview.hMap = EngFuncs::PIC_Load( "gfx/vgui/crosshair.tga", 0 );
 	preview.hWhite = EngFuncs::PIC_Load( "*white" );
 	AddItem( preview );
 
 	background.Setup( &backgroundModel );
-	background.SetRect( 800, 650, 200, 26 );
+	background.SetRect( x + 320, 612, 220, 26 );
 	background.SetCharSize( QM_SMALLFONT );
 	background.LinkCvar( "ui_xhair_background", CMenuEditable::CVAR_VALUE );
 	background.onChanged = CMenuEditable::WriteCvarCb;

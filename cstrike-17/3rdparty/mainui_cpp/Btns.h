@@ -107,6 +107,15 @@ enum EDefaultBtns
 #define PC_FAVORITE      "gfx/shell/btn_favorite"
 #define PC_UNFAVORITE    "gfx/shell/btn_unfavorite"
 #define PC_CROSSHAIR	 "gfx/shell/btn_xhair"
+// words btns_main.bmp has not, in its lettering (scripts/make_menu_buttons.py)
+#define PC_PRESETS	 "gfx/shell/btn_presets"
+#define PC_RAYTRACING	 "gfx/shell/btn_raytracing"
+#define PC_GAMEOPTIONS	 "gfx/shell/btn_gameoptions"
+#define PC_USE	 "gfx/shell/btn_use"
+#define PC_RENAME	 "gfx/shell/btn_rename"
+#define PC_COPYCODE	 "gfx/shell/btn_copycode"
+#define PC_USECODE	 "gfx/shell/btn_usecode"
+#define PC_SAVE	 "gfx/shell/btn_touch_save"
 #define PC_GYRO          "gfx/shell/btn_gyro"
 
 #define BUTTON_NOFOCUS	0
