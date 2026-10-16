@@ -65,6 +65,12 @@ void CMenuOptions::_Init( void )
 	if( EngFuncs::GetCvarString( "xhair_color" )[0] )
 		AddButton( L( "Crosshair" ), L( "Change the crosshair shape, size and colours." ),
 			PC_CROSSHAIR, UI_Crosshair_Menu, QMF_NOTIFY );
+	// the game's own options (user.scr: the team and buy menus' style, the
+	// players' names centred, the radar, the hand...), reachable only from
+	// Multiplayer > Customize until now
+	if( UI_AdvUserOptions_IsAvailable( ))
+		AddButton( L( "Game options" ), L( "Change the game's options: menus, radar, player names, hand." ),
+			PC_GAME_OPTIONS, UI_AdvUserOptions_Menu, QMF_NOTIFY );
 	AddButton( L( "Done" ), L( "Go back to the Main Menu." ),
 		PC_DONE, VoidCb( &CMenuOptions::Hide ), QMF_NOTIFY );
 }
