@@ -949,6 +949,10 @@ void CMenuServerBrowser::RefreshList()
 	{
 		m_LanServers.RemoveAll();
 		EngFuncs::ClientCmd( false, "localservers\n" );
+
+		// and the servers added by address, beyond the local network
+		FOR_EACH_VEC( favoritesList, i )
+			favoritesList[i].QueryServer();
 	}
 	else if( uiStatic.realTime > refreshTime2 )
 	{
@@ -1055,7 +1059,13 @@ void CMenuServerBrowser::AddServer( void )
 {
 	netadr_t adr;
 
-	if( !EngFuncs::textfuncs.pNetAPI->StringToAdr( (char *)addressField.GetBuffer(), &adr ))
+	// an address or a domain name; without a port, the game's
+	char sadr[128];
+	Q_strncpy( sadr, addressField.GetBuffer(), sizeof( sadr ));
+	if( sadr[0] && !strchr( sadr, ':' ))
+		snprintf( sadr, sizeof( sadr ), "%s:27015", addressField.GetBuffer());
+
+	if( !EngFuncs::textfuncs.pNetAPI->StringToAdr( sadr, &adr ))
 	{
 		UI_ShowMessageBox( L( "Invalid address" ));
 		return;
@@ -1081,7 +1091,7 @@ void CMenuServerBrowser::AddServer( void )
 	// Check for duplicates in favorites list
 	FOR_EACH_VEC( favoritesList, i )
 	{
-		if( !strcmp( favoritesList[i].sadr, addressField.GetBuffer() ) &&
+		if( !strcmp( favoritesList[i].sadr, sadr ) &&
 		    !strcmp( favoritesList[i].prot, proto ))
 		{
 			UI_ShowMessageBox( L( "Server already in favorites" ));
@@ -1089,8 +1099,18 @@ void CMenuServerBrowser::AddServer( void )
 		}
 	}
 
-	favlist_entry_t entry( addressField.GetBuffer(), proto, false );
+	// kept as a favorite, by the name it was given: a domain is looked up
+	// again each time
+	favlist_entry_t entry( sadr, proto, true );
 	favoritesList.AddToTail( entry );
+	SaveLists();
+
+	// on the local network's list it shows once it answers
+	if( m_bLanOnly )
+	{
+		entry.QueryServer();
+		return;
+	}
 
 	int previousTab = tabSwitch.GetState();
 	if( previousTab != 2 )
@@ -1101,13 +1121,13 @@ void CMenuServerBrowser::AddServer( void )
 	CUtlString fakeInfoString;
 	entry.GenerateDummyInfoString( fakeInfoString );
 
-	server_t serv( adr, fakeInfoString, false, true );
+	server_t serv( adr, fakeInfoString, true, true );
 	serv.UpdateData();
 	serv.SetPing( MAX_PING );
 	m_InternetServers[2].AddToTail( serv );
 	if( tabSwitch.GetState() == 2 )
 	{
-		gameListModel.AddServerToList( adr, fakeInfoString, false );
+		gameListModel.AddServerToList( adr, fakeInfoString, true );
 	}
 
 	entry.QueryServer();
@@ -1261,7 +1281,7 @@ void CMenuServerBrowser::_Init( void )
 	serverProtocol.SetRect( 64, 100, 512, 32 );\
 
 	addServerBox.onPositive = VoidCb( &CMenuServerBrowser::AddServer );
-	addServerBox.SetMessage( L( "Enter server Internet address\n(e.g., 209.255.10.255:27015)" ));
+	addServerBox.SetMessage( L( "Enter server address or domain name\n(e.g., 209.255.10.255:27015 or cs.example.com)" ));
 	addServerBox.dlgMessage1.SetCoord( 8, 8 ); // a bit offset
 	addServerBox.dlgMessage1.eTextAlignment = QM_TOPLEFT;
 	addServerBox.Link( this );
@@ -1435,7 +1455,7 @@ void CMenuServerBrowser::Show()
 	{
 		banner.SetPicture( ART_BANNER_LAN );
 		favorite->Hide();
-		addServer->Hide();
+		addServer->Show();
 		tabSwitch.Hide();
 		filterProtocol.Hide();
 		gameListModel.filterProtocol = 0;
@@ -1449,13 +1469,15 @@ void CMenuServerBrowser::Show()
 		filterProtocol.Show();
 		gameListModel.filterProtocol = filterProtocol.GetItem( );
 
-		favoritesList.RemoveAll();
-		historyList.RemoveAll();
-		if( EngFuncs::FileExists( "favorite_servers.lst", true ) )
-			ParseServerListFromFile( "favorite_servers.lst", favoritesList );
-		if( EngFuncs::FileExists( "history_servers.lst", true ) )
-			ParseServerListFromFile( "history_servers.lst", historyList );
 	}
+
+	// the favorites and the servers added by address, for both lists
+	favoritesList.RemoveAll();
+	historyList.RemoveAll();
+	if( EngFuncs::FileExists( "favorite_servers.lst", true ) )
+		ParseServerListFromFile( "favorite_servers.lst", favoritesList );
+	if( EngFuncs::FileExists( "history_servers.lst", true ) )
+		ParseServerListFromFile( "history_servers.lst", historyList );
 
 	RealignButtons();
 
@@ -1494,9 +1516,6 @@ void CMenuServerBrowser::SaveLists()
 	// player opens up this menu, they instantly get server list at first
 	// and then re-sync with master server is just delayed
 	// ... but I'm tired with this, so let's do it next time :)
-
-	if( m_bLanOnly )
-		return;
 
 	SaveServerListToFile( "favorite_servers.lst", favoritesList );
 	SaveServerListToFile( "history_servers.lst", historyList );

@@ -173,8 +173,10 @@ Default build-depended cvar and constant values
 	#define DEFAULT_DEV 0
 #endif // DEFAULT_DEV
 
+// the console from the menu too, with its key, not only once in a
+// multiplayer game or with -console (this fork's games)
 #ifndef DEFAULT_ALLOWCONSOLE
-	#define DEFAULT_ALLOWCONSOLE 0
+	#define DEFAULT_ALLOWCONSOLE 1
 #endif // DEFAULT_ALLOWCONSOLE
 
 #ifndef DEFAULT_FULLSCREEN
