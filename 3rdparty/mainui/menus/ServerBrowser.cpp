@@ -157,6 +157,7 @@ struct favlist_entry_t
 		info.AppendFormat( "\\host\\%s", sadr );
 		info.AppendFormat( "\\gamedir\\%s", gMenu.m_gameinfo.gamefolder );
 		info.Append( "\\map\\unknown\\numcl\\0\\maxcl\\0" );
+		info.AppendFormat( "\\gp\\%s", EngFuncs::GetCvarString( "cl_gameprotocol" ));
 		if( !stricmp( prot, "current" ) || !strcmp( prot, "49" ))
 		{
 			info.Append( "\\p\\49" );
@@ -1073,18 +1074,8 @@ void CMenuServerBrowser::AddServer( void )
 
 	const char *proto;
 
-	switch( (int)serverProtocol.GetCurrentValue( ))
-	{
-	case 0:
-		proto = "49";
-		break;
-	case 1:
-		proto = "gs";
-		break;
-	default:
-		UI_ShowMessageBox( L( "Invalid protocol" ));
-		return;
-	}
+	// the engine's protocol; the game's is checked when it answers
+	proto = "49";
 
 	// FIXME: for now we can only show custom servers at favorites tab
 
@@ -1286,7 +1277,6 @@ void CMenuServerBrowser::_Init( void )
 	addServerBox.dlgMessage1.eTextAlignment = QM_TOPLEFT;
 	addServerBox.Link( this );
 	addServerBox.Init();
-	addServerBox.AddItem( serverProtocol );
 	addServerBox.AddItem( addressField );
 
 	filterPing.AddItem( "500ms", 500.0f );
@@ -1466,8 +1456,8 @@ void CMenuServerBrowser::Show()
 		favorite->Show();
 		addServer->Show();
 		tabSwitch.Show();
-		filterProtocol.Show();
-		gameListModel.filterProtocol = filterProtocol.GetItem( );
+		filterProtocol.Hide();
+		gameListModel.filterProtocol = 0;
 
 	}
 
@@ -1533,6 +1523,11 @@ void CMenuServerBrowser::AddServerToList( netadr_t adr, const char *info )
 	if( stricmp( gMenu.m_gameinfo.gamefolder, Info_ValueForKey( info, "gamedir" )) != 0 )
 		return;
 #endif
+
+	// story 064: a server of another game protocol (GoldSrc, another Xash3D
+	// game on this folder, another version of this one) can't be joined
+	if( strcmp( Info_ValueForKey( info, "gp" ), EngFuncs::GetCvarString( "cl_gameprotocol" )) != 0 )
+		return;
 
 	if( !WasInit() )
 		return;

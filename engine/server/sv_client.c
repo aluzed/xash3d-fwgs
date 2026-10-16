@@ -146,6 +146,19 @@ qboolean SV_ValidateChallenge( netadr_t from, int challenge )
 	return false;
 }
 
+/*
+================
+SV_GameProtocol
+
+the protocol of the game on top of the engine's (cs17-1, hl15-1): its
+server DLL sets sv_gameprotocol; empty for a game without one
+================
+*/
+static const char *SV_GameProtocol( void )
+{
+	return Cvar_VariableString( "sv_gameprotocol" );
+}
+
 static void SV_SendChallenge( netadr_t from, qboolean skip_bandwidth_test )
 {
 	qboolean error = false;
@@ -154,8 +167,11 @@ static void SV_SendChallenge( netadr_t from, qboolean skip_bandwidth_test )
 	if( error )
 		return;
 
-	// send it back
-	Netchan_OutOfBandPrint( NS_SERVER, from, S2C_CHALLENGE" %i %i", challenge, skip_bandwidth_test ? 0 : 1 );
+	// send it back, with the game's protocol (a third argument older
+	// clients don't read): the client refuses another game's server before
+	// loading anything
+	const char *gp = SV_GameProtocol();
+	Netchan_OutOfBandPrint( NS_SERVER, from, S2C_CHALLENGE" %i %i%s%s", challenge, skip_bandwidth_test ? 0 : 1, gp[0] ? " " : "", gp );
 }
 
 static int SV_GetFragmentSize( void *pcl, fragsize_t mode )
@@ -411,7 +427,24 @@ static void SV_ConnectClient( netadr_t from )
 			netchan_cookie = ( netchan_cookie << 8 ) | buf[i];
 	}
 
+	// the game's protocol (sv_gameprotocol, set by the game's server DLL):
+	// a client of another game, or of another version of this one, cannot
+	// play here; a local client is the same game
+	if( from.type != NA_LOOPBACK )
+	{
+		const char *mine = SV_GameProtocol();
+		const char *theirs = Info_ValueForKey( protinfo, "gp" );
+
+		if( Q_strcmp( mine, theirs ))
+		{
+			SV_RejectConnection( from, "This server needs game protocol %s, your game has %s\n",
+				mine[0] ? mine : "none", theirs[0] ? theirs : "none" );
+			return;
+		}
+	}
+
 	// these keys aren't useragent
+	Info_RemoveKey( protinfo, "gp" );
 	Info_RemoveKey( protinfo, "cookie" );
 	Info_RemoveKey( protinfo, "ext" );
 	Info_RemoveKey( protinfo, "qport" );
@@ -1047,6 +1080,8 @@ static void SV_Info( netadr_t from, int protocolVersion )
 		Info_SetValueForKeyf( s, "maxcl", sizeof( s ), "%i", svs.maxclients );
 		Info_SetValueForKey( s, "gamedir", GI->gamefolder, sizeof( s ));
 		Info_SetValueForKey( s, "password", SV_HavePassword() ? "1" : "0", sizeof( s ));
+		if( SV_GameProtocol()[0] )
+			Info_SetValueForKey( s, "gp", SV_GameProtocol(), sizeof( s ));
 
 		// write host last so we can try to cut off too long hostnames
 		// TODO: value size limit for infostrings

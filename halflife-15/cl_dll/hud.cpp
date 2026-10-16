@@ -292,6 +292,12 @@ int __MsgFunc_AllowSpec( const char *pszName, int iSize, void *pbuf )
 // This is called every time the DLL is loaded
 void CHud::Init( void )
 {
+	// story 064: Half-Life 1.5's protocol on top of the engine's; the
+	// engine refuses servers of another one (sv_gameprotocol, set by the
+	// server DLL: dlls/game.cpp, the same value)
+	gEngfuncs.pfnRegisterVariable( "cl_gameprotocol", "hl15-1", 0 );
+	gEngfuncs.Cvar_Set( "cl_gameprotocol", "hl15-1" ); // not a setting
+
 	HOOK_MESSAGE( Logo );
 	HOOK_MESSAGE( ResetHUD );
 	HOOK_MESSAGE( GameMode );

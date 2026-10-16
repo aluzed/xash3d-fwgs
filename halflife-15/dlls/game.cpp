@@ -465,9 +465,17 @@ cvar_t sv_busters = { "sv_busters", "0" };
 
 // Register your console variables here
 // This gets called one time when the game is initialied
+// story 064: Half-Life 1.5's protocol on top of the engine's; the engine
+// refuses clients of another one (cl_gameprotocol, set by the client DLL:
+// cl_dll/hud.cpp, the same value)
+static cvar_t sv_gameprotocol = { "sv_gameprotocol", "hl15-1", FCVAR_SERVER };
+
 void GameDLLInit( void )
 {
 	g_psv_gravity = CVAR_GET_POINTER( "sv_gravity" );
+
+	CVAR_REGISTER( &sv_gameprotocol );
+	CVAR_SET_STRING( "sv_gameprotocol", "hl15-1" ); // not a setting
 	g_psv_aim = CVAR_GET_POINTER( "sv_aim" );
 	g_psv_allow_autoaim = CVAR_GET_POINTER( "sv_allow_autoaim" );
 	g_footsteps = CVAR_GET_POINTER( "mp_footsteps" );

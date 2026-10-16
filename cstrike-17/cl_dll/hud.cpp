@@ -284,6 +284,12 @@ void CHud :: Init( void )
 {
 	SetGameType(); // call it first, so we will know gamedir at very early stage
 
+	// story 064: Counter-Strike 1.7's protocol on top of the engine's; the
+	// engine refuses servers of another one (sv_gameprotocol, set by
+	// ReGameDLL_CS: dlls/game.cpp, the same value)
+	gEngfuncs.pfnRegisterVariable( "cl_gameprotocol", "cs17-1", 0 );
+	gEngfuncs.Cvar_Set( "cl_gameprotocol", "cs17-1" ); // not a setting
+
 	HOOK_COMMAND_FUNC( "special", __CmdFunc_InputCommandSpecial, );
 	HOOK_COMMAND_FUNC( "gunsmoke", __CmdFunc_GunSmoke, );
 

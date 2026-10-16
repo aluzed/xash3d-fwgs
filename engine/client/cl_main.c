@@ -1266,6 +1266,19 @@ We have gotten a challenge from the server, so try and
 connect.
 ======================
 */
+/*
+=================
+CL_GameProtocol
+
+the protocol of the game on top of the engine's (cs17-1, hl15-1): its
+client DLL sets cl_gameprotocol; empty for a game without one
+=================
+*/
+static const char *CL_GameProtocol( void )
+{
+	return Cvar_VariableString( "cl_gameprotocol" );
+}
+
 static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
 {
 	char protinfo[MAX_INFO_STRING];
@@ -1286,6 +1299,11 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
 
 	int input_devices = IN_CollectInputDevices();
 	IN_LockInputDevices( adrtype != NA_LOOPBACK ? true : false );
+
+	// the game's protocol on top of the engine's (cl_gameprotocol, set by
+	// the game's client DLL): the server refuses another game's client
+	if( proto != PROTO_GOLDSRC && CL_GameProtocol()[0] )
+		Info_SetValueForKey( protinfo, "gp", CL_GameProtocol(), sizeof( protinfo ));
 
 	// GoldSrc doesn't need useragent string
 	if( adrtype != NA_LOOPBACK && proto != PROTO_GOLDSRC )
@@ -2734,6 +2752,31 @@ static void CL_Challenge( const char *c, netadr_t from, sizebuf_t *msg )
 			// arg 4 if steam is server's VAC status
 			cls.server_steamid = strtoull( Cmd_Argv( 3 ), NULL, 10 );
 			cls.vac2_secure = Q_atoi( Cmd_Argv( 4 ));
+		}
+	}
+
+	// the server's game protocol comes after the challenge (none from a
+	// GoldSrc server or an engine without it): another game, or another
+	// version of this one, is refused here, before anything is loaded
+	{
+		const char *mine = CL_GameProtocol();
+		const char *theirs = ( cls.net_protocol != PROTO_GOLDSRC && Cmd_Argc() > 3 ) ? Cmd_Argv( 3 ) : "";
+
+		// a listen server is this very game
+		if( from.type == NA_LOOPBACK )
+			theirs = mine;
+
+		if( Q_strcmp( mine, theirs ))
+		{
+			char text[MAX_VA_STRING];
+
+			Q_snprintf( text, sizeof( text ), "^3Cannot join this server^7\nIt runs game protocol %s, this game has %s.",
+				theirs[0] ? theirs : "none (another game or GoldSrc)", mine[0] ? mine : "none" );
+			if( !UI_IsVisible() || !UI_ShowMessageBox( text ))
+				Msg( "%s\n", text );
+
+			CL_Disconnect_f();
+			return;
 		}
 	}
 

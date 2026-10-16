@@ -264,6 +264,12 @@ void GameDLL_SwapTeams_f()
 
 SpewRetval_t GameDLL_SpewHandler(SpewType_t spewType, int level, const char *pMsg);
 
+// story 064: Counter-Strike 1.7's protocol on top of the engine's; the
+// engine refuses clients of another one (cl_gameprotocol, set by the
+// client DLL: cstrike-17/cl_dll/hud.cpp, the same value). Bumped when an
+// older client can no longer play with this server.
+cvar_t sv_gameprotocol = { "sv_gameprotocol", "cs17-1", FCVAR_SERVER, 0.0f, nullptr };
+
 void EXT_FUNC GameDLLInit()
 {
 	// By default, direct dbg reporting...
@@ -271,6 +277,9 @@ void EXT_FUNC GameDLLInit()
 
 	g_pskill          = CVAR_GET_POINTER("skill");
 	g_psv_gravity     = CVAR_GET_POINTER("sv_gravity");
+
+	CVAR_REGISTER(&sv_gameprotocol);
+	CVAR_SET_STRING("sv_gameprotocol", "cs17-1"); // not a setting
 	g_psv_aim         = CVAR_GET_POINTER("sv_aim");
 	g_footsteps       = CVAR_GET_POINTER("mp_footsteps");
 	g_psv_accelerate  = CVAR_GET_POINTER("sv_accelerate");
