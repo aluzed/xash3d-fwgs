@@ -267,12 +267,24 @@ void CMenuCrosshairPreview::DrawLayer( const xhair_params_t *params, bool outlin
 
 void CMenuCrosshairPreview::Draw()
 {
-	// the real size view on top, the zoomed one below
-	const int gapY = 20 * uiStatic.scaleY;
-	Size realSize( m_scSize.w, ( m_scSize.h - gapY ) * 2 / 5 );
-	Size zoomSize( m_scSize.w, m_scSize.h - gapY - realSize.h );
-	Point realPos = m_scPos;
-	Point zoomPos( m_scPos.x, m_scPos.y + realSize.h + gapY );
+	// the real size view and the zoomed one: one above the other in a tall
+	// frame, side by side in a wide one, so that the zoomed crosshair is
+	// never cut
+	const int gap = 20 * uiStatic.scaleY;
+	Size realSize, zoomSize;
+	Point realPos = m_scPos, zoomPos;
+	if( m_scSize.w > m_scSize.h * 6 / 5 )
+	{
+		realSize = Size(( m_scSize.w - gap ) * 2 / 5, m_scSize.h );
+		zoomSize = Size( m_scSize.w - gap - realSize.w, m_scSize.h );
+		zoomPos = Point( m_scPos.x + realSize.w + gap, m_scPos.y );
+	}
+	else
+	{
+		realSize = Size( m_scSize.w, ( m_scSize.h - gap ) * 2 / 5 );
+		zoomSize = Size( m_scSize.w, m_scSize.h - gap - realSize.h );
+		zoomPos = Point( m_scPos.x, m_scPos.y + realSize.h + gap );
+	}
 
 	xhair_settings_t settings;
 	xhair_params_t params;
@@ -1175,26 +1187,26 @@ void CMenuCrosshairPresets::_Init()
 	list.SetModel( &model );
 	list.SetupColumn( 0, L( "Name" ), 0.7f );
 	list.SetupColumn( 1, L( "Type" ), 0.3f );
-	list.SetRect( x, 230, w, 250 );
+	list.SetRect( x, 230, w, 170 );
 	list.SetCharSize( QM_SMALLFONT );
 	list.onChanged = VoidCb( &CMenuCrosshairPresets::Select );
 	AddItem( list );
 
 	XHair_SetupLabel( nameLabel, L( "Name" ));
-	nameLabel.SetRect( x, 495, 90, 30 );
+	nameLabel.SetRect( x, 412, 90, 30 );
 	AddItem( nameLabel );
 
 	name.iMaxLength = XHAIR_PRESET_NAME - 1;
-	name.SetRect( x + 90, 495, w - 90, 30 );
+	name.SetRect( x + 90, 412, w - 90, 30 );
 	name.SetCharSize( QM_SMALLFONT );
 	AddItem( name );
 
 	XHair_SetupLabel( codeLabel, L( "Code" ));
-	codeLabel.SetRect( x, 535, 90, 30 );
+	codeLabel.SetRect( x, 452, 90, 30 );
 	AddItem( codeLabel );
 
 	code.iMaxLength = XHAIR_CODE_MAX - 1;
-	code.SetRect( x + 90, 535, w - 90, 30 );
+	code.SetRect( x + 90, 452, w - 90, 30 );
 	code.SetCharSize( QM_SMALLFONT );
 	AddItem( code );
 
@@ -1202,16 +1214,16 @@ void CMenuCrosshairPresets::_Init()
 	status.iFlags = QMF_INACTIVE | QMF_DROPSHADOW;
 	status.colorBase = uiColorHelp;
 	status.SetCharSize( QM_SMALLFONT );
-	status.SetRect( x, 575, w, 26 );
+	status.SetRect( x, 494, w - 240, 26 );
 	AddItem( status );
 
-	preview.SetRect( x, 610, 300, 130 );
+	preview.SetRect( x, 530, w, 210 );
 	preview.hMap = EngFuncs::PIC_Load( "gfx/vgui/crosshair.tga", 0 );
 	preview.hWhite = EngFuncs::PIC_Load( "*white" );
 	AddItem( preview );
 
 	background.Setup( &backgroundModel );
-	background.SetRect( x + 320, 612, 220, 26 );
+	background.SetRect( x + w - 220, 494, 220, 26 );
 	background.SetCharSize( QM_SMALLFONT );
 	background.LinkCvar( "ui_xhair_background", CMenuEditable::CVAR_VALUE );
 	background.onChanged = CMenuEditable::WriteCvarCb;
