@@ -82,6 +82,8 @@ the regression harness shows no new diff outside the story's scope.
 | 059 | [FFA mode: rounds, everyone against everyone](059-ffa-rounds.md) | Game - Counter-Strike |
 | 060 | [CSDM mode: free for all or team deathmatch](060-csdm-modes.md) | Game - Counter-Strike |
 | 061 | [An HE grenade blows a smoke away for a moment](061-he-grenade-clears-smoke.md) | Game - Counter-Strike |
+| 062 | [The knife thrown straight, and picked up from the ground](062-throwing-knife.md) | Game - Counter-Strike |
+| 063 | [The knife lobbed, deadly as it comes down](063-lobbed-knife.md) | Game - Counter-Strike |
 
 Phases 0 to 5 deliver a renderer that is a drop-in replacement for `ref_gl`.
 Phases 6 and 7 can be developed in parallel once phase 5 is signed off.
