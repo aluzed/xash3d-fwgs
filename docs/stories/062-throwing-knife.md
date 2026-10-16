@@ -53,11 +53,24 @@ ReGameDLL_CS's classname hash, so `UTIL_RemoveOther` never found it: the
 molotov's bottle, fire and flames (054) were never removed at a round's
 restart either; all are named with `MAKE_STRING_CLASS` now.
 
+Played: the knife's spin turned the model about the end of its blade and
+drew circles: it flies point first now, along its curve. Valve's
+`w_knife.mdl` is a knife held by a hand 50 units over its origin, upright:
+the knife seemed thrown from over the head and floated upright at mid
+height on the ground; `scripts/make_throwing_knife.py` makes
+`w_throwknife.mdl` (cstrike-17 extras), a combat knife lying flat along its
+flight, its balance point on the origin, 1024 texture. The straight throw
+leaves from the hand (below the eyes, to the right), aimed at what the
+crosshair is on. E held with the knife readies the throw: the arm goes down
+out of sight (`V_CalcKnifeCharge`, the client) and comes back up with the
+throw. A knife hitting a wall was put back in it as a box and stayed stuck:
+it rests as a point off the surface, and is picked up wherever it lies.
+
 Tested on de_dust2 against a frozen YaPB teammate (ff reduction 1): a body
 hit takes 90 (100 to 10), a head hit kills, with the headshot in the kill
 feed; a knife on the ground picked up; a throw at a wall, at the floor;
 the restart removes the knife. Left: limbs (70) measured, a second human
-player, the knife's model in flight (`w_knife.mdl` is small), bots coping
+player, bots coping
 without a knife over a whole match, a kill icon of its own.
 
 ## Design

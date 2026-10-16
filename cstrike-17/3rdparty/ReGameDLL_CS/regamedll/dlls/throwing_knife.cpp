@@ -30,9 +30,12 @@ cvar_t knife_lob_dmg_body   = { "mp_knife_lob_dmg_body", "100", 0, 100.0f, nullp
 cvar_t knife_lob_dmg_limb   = { "mp_knife_lob_dmg_limb", "90", 0, 90.0f, nullptr };
 cvar_t knife_throw_debug    = { "mp_knife_throw_debug", "0", 0, 0.0f, nullptr };  // the thrower's console: where it hit, where it lies
 
-#define THROWN_KNIFE_MODEL      "models/w_knife.mdl"
+// cstrike-17's knife lying flat along its flight (scripts/make_throwing_knife.py);
+// Valve's w_knife.mdl, a knife held 50 units over its origin, without it
+#define THROWN_KNIFE_MODEL      "models/w_throwknife.mdl"
+#define THROWN_KNIFE_FALLBACK   "models/w_knife.mdl"
+static const char *s_szKnifeModel = THROWN_KNIFE_FALLBACK;
 #define THROWN_KNIFE_IGNORE     0.25f   // seconds the knife passes through its thrower
-#define THROWN_KNIFE_SPIN       1080.0f // degrees a second, end over end
 #define THROWN_KNIFE_BOUNCE     0.25f   // of its speed kept off a wall
 #define LOBBED_KNIFE_GRAVITY    0.55f   // an HE grenade's
 
@@ -56,7 +59,13 @@ void ThrowingKnife_RegisterCvars()
 
 void ThrowingKnife_Precache()
 {
-	PRECACHE_MODEL(THROWN_KNIFE_MODEL);
+	int length = 0;
+	byte *data = LOAD_FILE_FOR_ME((char *)THROWN_KNIFE_MODEL, &length);
+	s_szKnifeModel = (data && length > 0) ? THROWN_KNIFE_MODEL : THROWN_KNIFE_FALLBACK;
+	if (data)
+		FREE_FILE(data);
+
+	PRECACHE_MODEL((char *)s_szKnifeModel);
 	PRECACHE_SOUND("items/gunpickup2.wav");
 }
 
@@ -88,12 +97,14 @@ public:
 	void Drop(const Vector &vecVelocity);
 
 	void Debug(const char *pszWhat, const char *pszDetail = "");
+	void FaceFlight();
 
 	EHANDLE m_hThrower;
 	bool m_bLob;
 	float m_flLaunch;
 	Vector m_vecLaunch;
 	bool m_bRested;
+	float m_flDropped;
 };
 
 LINK_ENTITY_TO_CLASS(throwing_knife, CThrownKnife, CCSEntity)
@@ -104,7 +115,7 @@ void CThrownKnife::Spawn()
 	pev->movetype = MOVETYPE_NOCLIP;
 	pev->solid = SOLID_NOT;
 
-	SET_MODEL(edict(), THROWN_KNIFE_MODEL);
+	SET_MODEL(edict(), s_szKnifeModel);
 	UTIL_SetSize(pev, g_vecZero, g_vecZero);
 }
 
@@ -155,7 +166,8 @@ void CThrownKnife::HitPlayer(CBasePlayer *pVictim, TraceResult &tr)
 	}
 }
 
-// the knife falls from where it hit, and lies as a dropped weapon
+// the knife falls from where it hit, and lies as a dropped weapon: a point
+// as a weapon box is, a box would start in the wall it hit and stay there
 void CThrownKnife::Drop(const Vector &vecVelocity)
 {
 	pev->movetype = MOVETYPE_TOSS;
@@ -165,12 +177,22 @@ void CThrownKnife::Drop(const Vector &vecVelocity)
 	pev->friction = 0.7f;
 	pev->velocity = vecVelocity;
 	pev->avelocity = Vector(RANDOM_FLOAT(-300, 300), RANDOM_FLOAT(-200, 200), 0);
-	UTIL_SetSize(pev, Vector(-8, -8, 0), Vector(8, 8, 4));
+	UTIL_SetSize(pev, g_vecZero, g_vecZero);
 	UTIL_SetOrigin(pev, pev->origin);
+	m_flDropped = gpGlobals->time;
 
 	SetTouch(&CThrownKnife::PickUpTouch);
 	SetThink(&CThrownKnife::LieThink);
 	pev->nextthink = gpGlobals->time + 0.1f;
+}
+
+// point first along its flight, no spin: a spin turns the model about its
+// origin, at the end of the blade, and the knife drew circles in the air
+void CThrownKnife::FaceFlight()
+{
+	pev->angles = UTIL_VecToAngles(pev->velocity);
+	pev->angles.x = -pev->angles.x;
+	pev->avelocity = g_vecZero;
 }
 
 void CThrownKnife::FlyThink()
@@ -193,6 +215,8 @@ void CThrownKnife::FlyThink()
 		pev->velocity.z -= flGravity * CVAR_GET_FLOAT("sv_gravity") * dt;
 	}
 
+	FaceFlight();
+
 	// where the engine is about to carry it this frame
 	const Vector vecEnd = pev->origin + pev->velocity * dt;
 	CBaseEntity *pThrower = m_hThrower;
@@ -212,7 +236,13 @@ void CThrownKnife::FlyThink()
 
 	CBaseEntity *pHit = CBaseEntity::Instance(tr.pHit);
 	const Vector vecDir = pev->velocity.Normalize();
-	UTIL_SetOrigin(pev, tr.vecEndPos - vecDir * 2.0f);
+
+	// out of what it hit: back along its way, and off a surface along its
+	// normal
+	Vector vecRest = tr.vecEndPos - vecDir * 2.0f;
+	if (!(pHit && pHit->IsPlayer()))
+		vecRest = vecRest + tr.vecPlaneNormal * 4.0f;
+	UTIL_SetOrigin(pev, vecRest);
 
 	if (pHit && pHit->IsPlayer() && pHit->IsAlive())
 	{
@@ -246,6 +276,18 @@ void CThrownKnife::LieThink()
 		return;
 	}
 
+	// stopped without a floor under it (on a ledge's edge, against a wall):
+	// down to the floor below, where it can be reached
+	if (!(pev->flags & FL_ONGROUND) && pev->velocity.Length() < 1.0f && gpGlobals->time - m_flDropped > 1.0f)
+	{
+		TraceResult tr;
+		UTIL_TraceLine(pev->origin, pev->origin - Vector(0, 0, 4096), ignore_monsters, edict(), &tr);
+		if (!tr.fStartSolid && tr.flFraction < 1.0f)
+		{
+			UTIL_SetOrigin(pev, tr.vecEndPos + Vector(0, 0, 1));
+		}
+	}
+
 	// on the ground it lies flat, as the knife's world model does
 	if (pev->flags & FL_ONGROUND)
 	{
@@ -261,7 +303,8 @@ void CThrownKnife::LieThink()
 
 void CThrownKnife::PickUpTouch(CBaseEntity *pOther)
 {
-	if (!(pev->flags & FL_ONGROUND) || !pOther->IsPlayer() || !pOther->IsAlive())
+	// once it fell: wherever it lies, on a floor or caught on a ledge
+	if (gpGlobals->time - m_flDropped < 0.2f || !pOther->IsPlayer() || !pOther->IsAlive())
 		return;
 
 	CBasePlayer *pPlayer = static_cast<CBasePlayer *>(pOther);
@@ -286,9 +329,7 @@ void ThrowingKnife_Launch(CBasePlayer *pThrower, const Vector &vecSrc, const Vec
 
 	UTIL_SetOrigin(pKnife->pev, vecSrc);
 	pKnife->pev->velocity = vecVelocity;
-	pKnife->pev->angles = UTIL_VecToAngles(vecVelocity);
-	pKnife->pev->angles.x = -pKnife->pev->angles.x;
-	pKnife->pev->avelocity = Vector(-THROWN_KNIFE_SPIN, 0, 0);
+	pKnife->FaceFlight();
 	pKnife->pev->owner = pThrower->edict();
 
 	pKnife->m_hThrower = pThrower;

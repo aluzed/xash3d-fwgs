@@ -223,8 +223,29 @@ void CKnife::ThrowRelease()
 
 	UTIL_MakeVectors(angThrow);
 
-	const Vector vecSrc = m_pPlayer->GetGunPosition() + gpGlobals->v_forward * 16.0f;
-	const Vector vecVelocity = gpGlobals->v_forward * clamp(flSpeed, 0.0f, 4000.0f) + m_pPlayer->pev->velocity;
+	Vector vecSrc = m_pPlayer->GetGunPosition() + gpGlobals->v_forward * 16.0f;
+	Vector vecDir = gpGlobals->v_forward;
+
+	if (!m_bThrowLob)
+	{
+		// from the hand, below the eyes and to the right, towards what the
+		// crosshair is on: from the eyes it seemed thrown over the head
+		const Vector vecEye = m_pPlayer->GetGunPosition();
+		TraceResult trAim, trHand;
+		UTIL_TraceLine(vecEye, vecEye + gpGlobals->v_forward * 8192.0f, dont_ignore_monsters, m_pPlayer->edict(), &trAim);
+
+		// not through a wall right in front
+		const Vector vecHand = vecEye + gpGlobals->v_forward * 12.0f + gpGlobals->v_right * 6.0f - gpGlobals->v_up * 10.0f;
+		UTIL_TraceLine(vecEye, vecHand, ignore_monsters, m_pPlayer->edict(), &trHand);
+
+		if (trHand.flFraction >= 1.0f && (trAim.vecEndPos - vecHand).Length() > 64.0f)
+		{
+			vecSrc = vecHand;
+			vecDir = (trAim.vecEndPos - vecHand).Normalize();
+		}
+	}
+
+	const Vector vecVelocity = vecDir * clamp(flSpeed, 0.0f, 4000.0f) + m_pPlayer->pev->velocity;
 
 	ThrowingKnife_Launch(m_pPlayer, vecSrc, vecVelocity, m_bThrowLob);
 

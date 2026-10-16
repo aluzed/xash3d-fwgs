@@ -169,8 +169,15 @@ static bool KnifeThrowWanted(CBasePlayer *pPlayer)
 	return (pPlayer->pev->button & IN_USE) && !pPlayer->HasShield();
 }
 
+#ifdef CLIENT_DLL
+extern bool g_bKnifeThrown;
+#endif
+
 static void KnifeThrowPredict(CKnife *pKnife)
 {
+#ifdef CLIENT_DLL
+	g_bKnifeThrown = true; // the lowered arm comes back up for the throw
+#endif
 	pKnife->SendWeaponAnim(KNIFE_STABMISS, pKnife->UseDecrement() != FALSE);
 	pKnife->m_flNextPrimaryAttack = pKnife->m_flNextSecondaryAttack = pKnife->m_flTimeWeaponIdle = UTIL_WeaponTimeBase() + 1.0f;
 }

@@ -114,6 +114,8 @@ bool   g_bHoldingShield;
 bool   g_bHoldingKnife;
 float  g_flPlayerSpeed;
 int    g_iPlayerFlags;
+int    g_iPlayerButtons;
+bool   g_bKnifeThrown;
 Vector g_vPlayerVelocity;
 int    g_iWaterLevel;
 
@@ -1223,6 +1225,7 @@ void HUD_WeaponsPostThink( local_state_s *from, local_state_s *to, usercmd_t *cm
 
 	// Set player variables that weapons code might check/alter
 	player.pev->button = cmd->buttons;
+	g_iPlayerButtons = cmd->buttons;
 
 	player.pev->velocity = from->client.velocity;
 

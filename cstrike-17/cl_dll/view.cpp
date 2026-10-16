@@ -34,6 +34,7 @@
 #include "kbutton.h"
 #include "input.h"
 #include "com_weapons.h"
+#include "in_buttons.h"
 
 #ifndef M_PI
 #define M_PI		3.14159265358979323846	// matches value in gcc v2 math.h
@@ -682,6 +683,38 @@ V_CalcRefdef
 
 ==================
 */
+/*
+==================
+V_CalcKnifeCharge
+
+Stories 062 and 063: the use key held with the knife in hand readies a
+throw; the arm goes down out of sight, as at the start of the knife's draw,
+and comes back up with the throw or when the key is let go
+==================
+*/
+void V_CalcKnifeCharge( struct ref_params_s *pparams, cl_entity_t *view )
+{
+	static float charge;
+
+	const bool held = g_bHoldingKnife && ( g_iPlayerButtons & IN_USE ) && pparams->health > 0;
+	if( !held )
+		g_bKnifeThrown = false;
+
+	if( held && !g_bKnifeThrown )
+		charge = min( charge + pparams->frametime * 4.0f, 1.0f );
+	else
+		charge = g_bKnifeThrown ? 0.0f : max( charge - pparams->frametime * 6.0f, 0.0f );
+
+	if( charge <= 0.0f )
+		return;
+
+	// eased, the arm drawn down and a little back
+	const float k = charge * charge * ( 3.0f - 2.0f * charge );
+	for( int i = 0; i < 3; i++ )
+		view->origin[i] += -pparams->up[i] * ( 14.0f * k ) - pparams->forward[i] * ( 3.0f * k );
+	view->angles[PITCH] += 12.0f * k;
+}
+
 void V_CalcNormalRefdef ( struct ref_params_s *pparams )
 {
 	cl_entity_t		*ent, *view;
@@ -954,6 +987,7 @@ void V_CalcNormalRefdef ( struct ref_params_s *pparams )
 
 	V_CalcQuakeGuns();
 	V_CalcViewModelLag( pparams, view->origin, view->angles );
+	V_CalcKnifeCharge( pparams, view );
 
 	// Smooth out whole view in multiplayer when on trains, lifts
 	if ( cl_vsmoothing && cl_vsmoothing->value && ( pparams->smoothing && ( pparams->maxclients > 1 ) ) )
