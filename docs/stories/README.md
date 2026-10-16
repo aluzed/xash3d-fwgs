@@ -85,6 +85,8 @@ the regression harness shows no new diff outside the story's scope.
 | 062 | [The knife thrown straight, and picked up from the ground](062-throwing-knife.md) | Game - Counter-Strike |
 | 063 | [The knife lobbed, deadly as it comes down](063-lobbed-knife.md) | Game - Counter-Strike |
 | 064 | [A protocol of Counter-Strike 1.7's own](064-cs17-game-protocol.md) | Game - Counter-Strike |
+| 065 | [Dust2: small crates to climb alone](065-dust2-mid-step-crate.md) | Game - Counter-Strike |
+| 066 | [A console of today: selectable, copyable, readable](066-new-console.md) | Engine |
 
 Phases 0 to 5 deliver a renderer that is a drop-in replacement for `ref_gl`.
 Phases 6 and 7 can be developed in parallel once phase 5 is signed off.
