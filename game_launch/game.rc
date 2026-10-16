@@ -25,4 +25,4 @@
 
 #include <common.ver>
 
-IDI_ICON1	ICON    DISCARDABLE		"icon-xash-material.ico"
+IDI_ICON1	ICON    DISCARDABLE		"icon-game.ico" // the set's own, as its installer's (Xash3D's red cross looked like an error)
