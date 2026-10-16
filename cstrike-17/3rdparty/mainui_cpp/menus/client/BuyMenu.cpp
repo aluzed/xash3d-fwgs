@@ -686,7 +686,7 @@ void CClientItemTMenu::_Init()
 	AddWeapon( BuyMenuWeaponInfo{ "Smoke_Grenade", "smokegrenade", "sgren", "SmokeGrenade" });
 	// the grenades together, as in Counter-Strike 2, on the same key for both
 	// teams; the smoke grenade's picture until the bottle has its own
-	AddWeapon( BuyMenuWeaponInfo{ "Molotov", "smokegrenade", "molotov", "Molotov" }, '6' );
+	AddWeapon( BuyMenuWeaponInfo{ "Molotov", "molotov", "molotov", "Molotov" }, '6' );
 	AddWeapon( BuyMenuWeaponInfo{ "NightVision_Button_TER", "nightvision", "nvgs", "Nightvision" }, '7' );
 }
 void CClientItemCTMenu::_Init()
@@ -699,7 +699,7 @@ void CClientItemCTMenu::_Init()
 	AddWeapon( BuyMenuWeaponInfo{ "Flashbang", "flashbang", "flash", "Flashbang" });
 	AddWeapon( BuyMenuWeaponInfo{ "HE_Grenade", "hegrenade", "hegren", "HEGrenade" });
 	AddWeapon( BuyMenuWeaponInfo{ "Smoke_Grenade", "smokegrenade", "sgren", "SmokeGrenade" });
-	AddWeapon( BuyMenuWeaponInfo{ "Incendiary", "smokegrenade", "incgrenade", "Incendiary" }, '6' );
+	AddWeapon( BuyMenuWeaponInfo{ "Incendiary", "incgrenade", "incgrenade", "Incendiary" }, '6' );
 	AddWeapon( BuyMenuWeaponInfo{ "Defuser", "defuser", "defuser", "Defuser" }, '7' );
 	AddWeapon( BuyMenuWeaponInfo{ "Shield", "shield", "shield", "Shield" }, '8' );
 	AddWeapon( BuyMenuWeaponInfo{ "NightVision_Button_CT", "nightvision", "nvgs", "Nightvision" }, '9' );
