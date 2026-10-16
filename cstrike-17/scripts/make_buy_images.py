@@ -1,162 +1,122 @@
 #!/usr/bin/env python3
 # make_buy_images.py - renders gfx/vgui/molotov.tga and incgrenade.tga, the
 # buy menu pictures of the molotov and the incendiary grenade (story 054),
-# 256x128 with alpha as Valve's: a small ray marcher over the shapes of the
-# two grenades, lit from the top left.
+# 256x128 with alpha as Valve's: the game's own models
+# (make_molotov_models.py, their meshes and textures) seen as Valve's
+# grenades are, from the side, leaning up to the right, lit from the top
+# left, supersampled.
 #
 #   python make_buy_images.py <gfx/vgui directory> [preview.png]
+import math
+import os
 import sys
 
 import numpy as np
 from PIL import Image
 
+sys.path.insert( 0, os.path.dirname( os.path.abspath( __file__ )))
+import make_molotov_models as models
+
 W, H = 256, 128
-SS = 3
+SS = 3            # supersampling
+FILL = 0.80       # of the picture's height the object takes, as Valve's grenades
+LEAN = 38.0       # degrees from upright, its top to the right
+LIGHT = np.array([ -0.45, 0.65, 0.62 ])
 
-def normalize( v ):
-	return v / np.maximum( np.linalg.norm( v, axis = -1, keepdims = True ), 1e-9 )
+def rotation( yaw, lean, tilt ):
+	# turn about the object's axis (y), tip it towards the camera, lean it
+	cy, sy = math.cos( yaw ), math.sin( yaw )
+	ct, st = math.cos( tilt ), math.sin( tilt )
+	cl, sl = math.cos( lean ), math.sin( lean )
+	Ry = np.array([[ cy, 0, sy ], [ 0, 1, 0 ], [ -sy, 0, cy ]])
+	Rx = np.array([[ 1, 0, 0 ], [ 0, ct, -st ], [ 0, st, ct ]])
+	Rz = np.array([[ cl, sl, 0 ], [ -sl, cl, 0 ], [ 0, 0, 1 ]])
+	return Rz @ Rx @ Ry
 
-def rot_z( a ):
-	c, s = np.cos( a ), np.sin( a )
-	return np.array([[ c, -s, 0 ], [ s, c, 0 ], [ 0, 0, 1 ]])
+def render( mesh, texture, yaw, tilt ):
+	verts, norms, uvs, tris = mesh
+	verts = np.asarray( verts, float )
+	norms = np.asarray( norms, float )
+	uvs = np.asarray( uvs, float )
+	tex = np.asarray( texture.convert( 'RGB' ), float ) / 255.0
+	th, tw = tex.shape[:2]
 
-def rot_x( a ):
-	c, s = np.cos( a ), np.sin( a )
-	return np.array([[ 1, 0, 0 ], [ 0, c, -s ], [ 0, s, c ]])
+	R = rotation( yaw, math.radians( LEAN ), tilt )
+	v = ( verts - verts.mean( 0 )) @ R.T
+	n = norms @ R.T
 
-def lathe( p, ys, rs ):
-	# a solid of revolution around y: the radius rs at the heights ys
-	q = np.sqrt( p[..., 0] ** 2 + p[..., 2] ** 2 )
-	y = p[..., 1]
-	r = np.interp( y, ys, rs )
-	d = q - r
-	d = np.maximum( d, ys[0] - y )
-	d = np.maximum( d, y - ys[-1] )
-	return d * 0.7
-
-def capsule( p, a, b, r ):
-	pa, ba = p - a, b - a
-	h = np.clip(( pa * ba ).sum( -1 ) / ( ba * ba ).sum(), 0, 1 )
-	return np.linalg.norm( pa - ba * h[..., None], axis = -1 ) - r
-
-def torus_y( p, c, R, r ):
-	q = p - c
-	x = np.sqrt( q[..., 0] ** 2 + q[..., 2] ** 2 ) - R
-	return np.sqrt( x * x + q[..., 1] ** 2 ) - r
-
-def box( p, c, b ):
-	q = np.abs( p - c ) - b
-	return np.linalg.norm( np.maximum( q, 0 ), axis = -1 ) + np.minimum( q.max( -1 ), 0 )
-
-def wobble( p, f, a ):
-	return a * ( np.sin( f * p[..., 0] + 1.3 ) * np.sin( f * 1.3 * p[..., 1] + 0.4 ) * np.sin( f * 0.9 * p[..., 2] + 2.1 ))
-
-# --- the molotov: a bottle with a rag in its neck and around it ---------------
-
-BOTTLE_Y = np.array([ 0.0, 0.05, 2.6, 2.95, 3.35, 3.65, 4.35, 4.40, 4.55 ])
-BOTTLE_R = np.array([ 0.88, 0.95, 0.95, 0.80, 0.45, 0.33, 0.30, 0.36, 0.34 ])
-
-def molotov( p ):
-	glass = lathe( p, BOTTLE_Y, BOTTLE_R )
-	rag_top = capsule( p, np.array([ 0, 4.3, 0 ]), np.array([ 0.25, 5.2, -0.1 ]), 0.26 ) + wobble( p, 5, 0.08 )
-	rag_wrap = torus_y( p, np.array([ 0, 3.85, 0 ]), 0.36, 0.13 ) + wobble( p, 11, 0.03 )
-	rag_tail = capsule( p, np.array([ 0.2, 3.8, -0.30 ]), np.array([ 0.55, 2.4, -0.95 ]), 0.12 ) + wobble( p, 8, 0.04 )
-	rag = np.minimum( np.minimum( rag_top, rag_wrap ), rag_tail )
-	return np.minimum( glass, rag ), np.where( rag < glass, 1, 0 )
-
-def molotov_color( p, mat, n, v ):
-	y = p[..., 1]
-	# glass: brown, darker where it is seen through (the facing middle),
-	# the liquid below its surface at y 2.1
-	facing = np.abs(( n * v ).sum( -1 ))
-	glass = np.stack([ 0.42, 0.22, 0.07 ], -1 ) * ( 0.55 + 0.45 * ( 1 - facing ))[..., None]
-	liquid = np.where( y < 2.7, 1.0, 0.65 )[..., None]
-	glass = glass * liquid
-	label = (( y > 0.8 ) & ( y < 1.9 ))[..., None]
-	glass = np.where( label, np.stack([ 0.75, 0.70, 0.55 ], -1 ) * ( 0.5 + 0.5 * ( 1 - facing ))[..., None], glass )
-	cloth = np.stack([ 0.80, 0.74, 0.62 ], -1 ) * ( 0.75 + 0.25 * np.sin( 25 * p[..., 0] + 17 * p[..., 1] ))[..., None]
-	soot = np.clip(( p[..., 1] - 4.8 ) * 2.5, 0, 1 )[..., None]
-	cloth = cloth * ( 1 - 0.7 * soot )
-	shiny = np.where( mat == 0, 1.0, 0.1 )
-	return np.where(( mat == 1 )[..., None], cloth, glass ), shiny
-
-# --- the incendiary grenade: a canister, its fuse, lever and pin -------------
-
-CAN_Y = np.array([ 0.0, 0.08, 2.15, 2.30, 2.55, 2.62 ])
-CAN_R = np.array([ 0.58, 0.64, 0.64, 0.55, 0.30, 0.26 ])
-
-def incendiary( p ):
-	can = lathe( p, CAN_Y, CAN_R )
-	fuse = lathe( p, np.array([ 2.55, 2.62, 2.95, 3.0 ]), np.array([ 0.20, 0.24, 0.24, 0.18 ]))
-	# the lever lies along the canister, held by the fuse at its top
-	lever = box( p, np.array([ 0, 1.85, -0.68 ]), np.array([ 0.13, 0.95, 0.04 ]))
-	lever = np.minimum( lever, box( p, np.array([ 0, 2.9, -0.45 ]), np.array([ 0.13, 0.05, 0.25 ])))
-	ring = torus_y( p[..., [ 1, 0, 2 ]], np.array([ 2.75, 0.32, -0.25 ]), 0.20, 0.035 )
-	metal = np.minimum( np.minimum( fuse, lever ), ring )
-	return np.minimum( can, metal ), np.where( metal < can, 1, 0 )
-
-def incendiary_color( p, mat, n, v ):
-	y = p[..., 1]
-	body = np.stack([ 0.40, 0.42, 0.40 ], -1 ) * np.ones_like( y )[..., None]
-	band = (( y > 1.65 ) & ( y < 1.95 )) | (( y > 0.25 ) & ( y < 0.4 ))
-	body = np.where( band[..., None], np.stack([ 0.85, 0.32, 0.06 ], -1 ), body )
-	text = ( y > 0.8 ) & ( y < 1.3 ) & ( np.abs( p[..., 0] - 0.25 ) < 0.25 ) & ( p[..., 2] < 0 ) & ( np.sin( 40 * p[..., 0] ) > 0.2 )
-	body = np.where( text[..., None], np.stack([ 0.85, 0.80, 0.70 ], -1 ), body )
-	steel = np.stack([ 0.62, 0.62, 0.64 ], -1 ) * np.ones_like( y )[..., None]
-	return np.where(( mat == 1 )[..., None], steel, body ), np.where( mat == 1, 0.9, 0.5 )
-
-def render( sdf, color, angle, tilt, scale, center ):
 	w, h = W * SS, H * SS
-	ys, xs = np.mgrid[ 0:h, 0:w ]
-	u = ( xs - w / 2 ) / ( h / 2 ) * scale
-	v = -( ys - h / 2 ) / ( h / 2 ) * scale
-	R = rot_x( tilt ) @ rot_z( angle )
-	Ri = R.T
-	ro = np.stack([ u, v, np.full_like( u, -10.0 )], -1 ) @ Ri.T + center
-	rd = np.broadcast_to( np.array([ 0, 0, 1.0 ]) @ Ri.T, ro.shape )
-	t = np.zeros( u.shape )
-	hit = np.zeros( u.shape, bool )
-	for _ in range( 160 ):
-		p = ro + rd * t[..., None]
-		d, _ = sdf( p )
-		hit |= d < 1e-3
-		t = np.where( hit, t, t + np.maximum( d, 2e-3 ))
-		if ( t > 20 ).all():
-			break
-	hit &= t < 20
-	p = ro + rd * t[..., None]
-	e = 1e-3
-	n = np.stack([ sdf( p + np.array([ e, 0, 0 ]))[0] - sdf( p - np.array([ e, 0, 0 ]))[0],
-		sdf( p + np.array([ 0, e, 0 ]))[0] - sdf( p - np.array([ 0, e, 0 ]))[0],
-		sdf( p + np.array([ 0, 0, e ]))[0] - sdf( p - np.array([ 0, 0, e ]))[0] ], -1 )
-	n = normalize( n )
-	_, mat = sdf( p )
-	view = -rd
-	light = normalize( np.array([ -0.6, 0.7, -0.5 ]) @ Ri.T )
-	base, shiny = color( p, mat, n, view )
-	diff = np.clip(( n * light ).sum( -1 ), 0, 1 )
-	half = normalize( light + view )
-	spec = np.clip(( n * half ).sum( -1 ), 0, 1 ) ** 40 * shiny
-	rim = ( 1 - np.clip(( n * view ).sum( -1 ), 0, 1 )) ** 3 * 0.25
-	rgb = base * ( 0.30 + 0.85 * diff )[..., None] + ( spec + rim )[..., None]
-	rgba = np.concatenate([ np.clip( rgb, 0, 1 ), hit[..., None].astype( float )], -1 )
-	rgba[..., :3] *= rgba[..., 3:]
-	im = ( rgba.reshape( H, SS, W, SS, 4 ).mean(( 1, 3 )))
-	a = im[..., 3:]
-	im[..., :3] = np.where( a > 0, im[..., :3] / np.maximum( a, 1e-6 ), 0 )
-	return Image.fromarray(( im * 255 + 0.5 ).astype( np.uint8 ), 'RGBA' )
+	extent = max(( v[:, 1].max() - v[:, 1].min()) / ( FILL * h ), ( v[:, 0].max() - v[:, 0].min()) / ( 0.92 * w ))
+	cx, cy = ( v[:, 0].max() + v[:, 0].min()) / 2, ( v[:, 1].max() + v[:, 1].min()) / 2
+	sx = ( v[:, 0] - cx ) / extent + w / 2
+	sy = h / 2 - ( v[:, 1] - cy ) / extent
+
+	color = np.zeros(( h, w, 3 ))
+	alpha = np.zeros(( h, w ))
+	zbuf = np.full(( h, w ), -1e9 )
+	L = LIGHT / np.linalg.norm( LIGHT )
+	V = np.array([ 0.0, 0.0, 1.0 ])
+	Hv = ( L + V ) / np.linalg.norm( L + V )
+
+	for a, b, c in tris:
+		xs = np.array([ sx[a], sx[b], sx[c] ]); ys = np.array([ sy[a], sy[b], sy[c] ])
+		x0, x1 = int( max( 0, xs.min())), int( min( w - 1, xs.max() + 1 ))
+		y0, y1 = int( max( 0, ys.min())), int( min( h - 1, ys.max() + 1 ))
+		if x1 < x0 or y1 < y0:
+			continue
+		d = ( ys[1] - ys[2] ) * ( xs[0] - xs[2] ) + ( xs[2] - xs[1] ) * ( ys[0] - ys[2] )
+		if abs( d ) < 1e-9:
+			continue
+		X, Y = np.meshgrid( np.arange( x0, x1 + 1 ) + 0.5, np.arange( y0, y1 + 1 ) + 0.5 )
+		w0 = (( ys[1] - ys[2] ) * ( X - xs[2] ) + ( xs[2] - xs[1] ) * ( Y - ys[2] )) / d
+		w1 = (( ys[2] - ys[0] ) * ( X - xs[2] ) + ( xs[0] - xs[2] ) * ( Y - ys[2] )) / d
+		w2 = 1 - w0 - w1
+		inside = ( w0 >= -1e-4 ) & ( w1 >= -1e-4 ) & ( w2 >= -1e-4 )
+		if not inside.any():
+			continue
+		z = w0 * v[a, 2] + w1 * v[b, 2] + w2 * v[c, 2]
+		zs = zbuf[y0:y1 + 1, x0:x1 + 1]
+		ok = inside & ( z > zs )
+		if not ok.any():
+			continue
+		uu = w0 * uvs[a, 0] + w1 * uvs[b, 0] + w2 * uvs[c, 0]
+		vv = w0 * uvs[a, 1] + w1 * uvs[b, 1] + w2 * uvs[c, 1]
+		nn = w0[..., None] * n[a] + w1[..., None] * n[b] + w2[..., None] * n[c]
+		nn /= np.linalg.norm( nn, axis = -1, keepdims = True ) + 1e-9
+		# both sides of the thin parts (the lever, the rag)
+		nn = np.where(( nn @ V )[..., None] < 0, -nn, nn )
+		albedo = tex[np.clip(( vv * ( th - 1 )).astype( int ), 0, th - 1 ), np.clip(( uu * ( tw - 1 )).astype( int ), 0, tw - 1 )]
+		diffuse = np.clip( nn @ L, 0, 1 )
+		spec = np.clip( nn @ Hv, 0, 1 ) ** 28
+		rim = ( 1 - np.clip( nn @ V, 0, 1 )) ** 3
+		shade = albedo * ( 0.30 + 0.85 * diffuse )[..., None] + ( 0.35 * spec + 0.10 * rim )[..., None]
+		zs[ok] = z[ok]
+		color[y0:y1 + 1, x0:x1 + 1][ok] = np.clip( shade[ok], 0, 1 )
+		alpha[y0:y1 + 1, x0:x1 + 1][ok] = 1.0
+
+	# down to the picture's size, colour weighted by coverage
+	rgb = ( color * alpha[..., None] ).reshape( H, SS, W, SS, 3 ).mean(( 1, 3 ))
+	a = alpha.reshape( H, SS, W, SS ).mean(( 1, 3 ))
+	rgb = rgb / np.maximum( a, 1e-6 )[..., None]
+	out = np.dstack(( rgb, a ))
+	return Image.fromarray(( np.clip( out, 0, 1 ) * 255 ).astype( np.uint8 ), 'RGBA' )
 
 def main():
 	out = sys.argv[1]
-	mol = render( molotov, molotov_color, np.radians( -62 ), np.radians( -10 ), 1.65, np.array([ 0, 2.6, 0 ]))
-	inc = render( incendiary, incendiary_color, np.radians( -62 ), np.radians( -10 ), 1.25, np.array([ 0, 1.5, 0 ]))
-	mol.save( out + '/molotov.tga' )
-	inc.save( out + '/incgrenade.tga' )
+	pictures = {}
+	# the stencils face the camera (u 0.25 of the body's texture: +z), the
+	# lever to the side, tipped a little to show the top
+	for kind, name, yaw in (( 'molotov', 'molotov.tga', 0.35 ), ( 'incgrenade', 'incgrenade.tga', -1.1 )):
+		k = models.KINDS[kind]
+		img = render( k['mesh'](), k['texture'](), yaw, math.radians( 12 ))
+		img.save( '%s/%s' % ( out, name ))
+		pictures[name] = img
+
 	if len( sys.argv ) > 2:
-		sheet = Image.new( 'RGBA', ( W, H * 2 + 8 ), ( 40, 40, 40, 255 ))
-		sheet.alpha_composite( mol, ( 0, 0 ))
-		sheet.alpha_composite( inc, ( 0, H + 8 ))
-		sheet.resize(( W * 2, ( H * 2 + 8 ) * 2 ), Image.NEAREST ).save( sys.argv[2] )
+		sheet = Image.new( 'RGBA', ( W * 2 + 8, H ), ( 60, 70, 55, 255 ))
+		for i, img in enumerate( pictures.values()):
+			sheet.alpha_composite( img, ( i * ( W + 8 ), 0 ))
+		sheet.resize(( sheet.width * 2, sheet.height * 2 ), Image.LANCZOS ).save( sys.argv[2] )
 
 if __name__ == '__main__':
 	main()
