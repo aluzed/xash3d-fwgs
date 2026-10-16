@@ -11,6 +11,7 @@
 #    that one reaches the short's parapet alone.
 #  - two small crates at the terrorists' big crates under the upper passage
 #    (x -1536, y -128), below and on them as at the mid's: up alone.
+#  - long A: a small crate at the medium crate (64) against the north wall.
 # Everything else is kept byte for byte; new things are brush models added
 # after the map's own (bsp30.py).
 #
@@ -202,10 +203,23 @@ def add_t_crates( bsp, textures ):
 	}, textures )
 	return low, high
 
+def add_long_crate( bsp, textures ):
+	# long A: the medium crate (64, x 896..960, y 1152..1216) against the
+	# north wall, before the big one (128): a small crate on its east side,
+	# against the wall, to climb it alone
+	medium_east = light_sampler( bsp, find_face( bsp, 'SandCrtSmSd', ( 1, 0, 0 ), ( 960, 1184, 32 )))
+	medium_south = light_sampler( bsp, find_face( bsp, 'SandCrtSmSd', ( 0, -1, 0 ), ( 928, 1152, 32 )))
+	medium_top = light_sampler( bsp, find_face( bsp, 'SandCrtSmTp', ( 0, 0, 1 ), ( 928, 1184, 64 )))
+	return add_crate( bsp, ( 960.0, 1168.0, 0.0 ), {
+		'+x': ( medium_east, lambda p: ( 960, p[1], p[2] )),
+		'-y': ( medium_south, lambda p: ( p[0] - 64, 1152, p[2] )),
+		'+z': ( medium_top, lambda p: ( p[0] - 48, p[1], 64 )),
+	}, textures )
+
 def main():
 	src, dst = sys.argv[1], sys.argv[2]
 	bsp = Bsp( open( src, 'rb' ).read())
-	models = add_mid_crates( bsp ) + ( add_elevator_crate( bsp, crate_textures( bsp )), ) + add_t_crates( bsp, crate_textures( bsp ))
+	models = add_mid_crates( bsp ) + ( add_elevator_crate( bsp, crate_textures( bsp )), ) + add_t_crates( bsp, crate_textures( bsp )) + ( add_long_crate( bsp, crate_textures( bsp )), )
 	with open( dst, 'wb' ) as f:
 		f.write( bsp.save())
 	print( 'patch_dust2: the crates as %s -> %s' % ( ', '.join( '*%d' % m for m in models ), dst ))
