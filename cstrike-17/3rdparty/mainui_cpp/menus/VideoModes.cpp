@@ -77,6 +77,25 @@ static const char *AspectName( int w, int h )
 	return nullptr;
 }
 
+// the size of one of the engine's modes; false past the last
+static bool ModeSize( int mode, int &w, int &h )
+{
+	const char *str = EngFuncs::GetModeString( mode );
+	w = h = 0;
+	return str && sscanf( str, "%ix%i", &w, &h ) == 2;
+}
+
+// the engine's mode of a size, -1 when it has none: the size the game runs
+// at is width and height, vid_mode can be left over from another size
+static int ModeOfSize( int w, int h )
+{
+	int mw, mh;
+	for( int i = 0; EngFuncs::GetModeString( i ); i++ )
+		if( ModeSize( i, mw, mh ) && mw == w && mh == h )
+			return i;
+	return -1;
+}
+
 // the engine's modes, narrowed to one aspect ratio; a row keeps the index
 // of its mode, which vid_mode and vid_setmode take
 class CMenuVidModesModel : public CMenuBaseArrayModel
@@ -182,7 +201,9 @@ public:
 	bool IsRendererChanged();
 
 	void SetAspect( int aspect );
+	bool HasChanges();
 
+	CMenuPicButton *apply = nullptr;
 	CMenuCheckBox	vsync;
 
 	CMenuTable	vidList;
@@ -311,7 +332,9 @@ void CMenuVidModes::GetConfig()
 	vidListModel.SetAspect( current );
 	vidListModel.Update();
 
-	int vid_mode = EngFuncs::GetCvarFloat( "vid_mode" );
+	int vid_mode = ModeOfSize( width, height );
+	if( vid_mode < 0 )
+		vid_mode = EngFuncs::GetCvarFloat( "vid_mode" );
 	int row = vidListModel.RowOf( vid_mode );
 	if( row < 0 )
 	{
@@ -366,7 +389,9 @@ void CMenuVidModes::SetConfig( )
 	bool testMode = false;
 	int  currentWindowModeIndex = windowMode.GetCurrentValue();
 	int  currentModeIndex = vidListModel.ModeOf( vidList.GetCurrentIndex( ));
-	bool isVidModeChanged = currentModeIndex >= 0 && prevMode != currentModeIndex;
+	int  w, h;
+	bool isVidModeChanged = currentModeIndex >= 0 && ModeSize( currentModeIndex, w, h )
+		&& ( w != prevModeX || h != prevModeY );
 	bool isWindowedModeChanged = prevFullscreen != currentWindowModeIndex;
 
 	/*
@@ -412,10 +437,32 @@ void CMenuVidModes::SetConfig( )
 
 void CMenuVidModes::FinalizeChanges()
 {
-	prevMode = EngFuncs::GetCvarFloat( "vid_mode" );
 	prevFullscreen = EngFuncs::GetCvarFloat( "fullscreen" );
 	prevModeX = EngFuncs::GetCvarFloat( "width" );
 	prevModeY = EngFuncs::GetCvarFloat( "height" );
+	prevMode = ModeOfSize( prevModeX, prevModeY );
+	if( prevMode < 0 )
+		prevMode = EngFuncs::GetCvarFloat( "vid_mode" );
+}
+
+// Apply does something only when a choice differs from what runs now: the
+// size (not the mode's index), the window mode, the renderer, the vsync
+bool CMenuVidModes::HasChanges()
+{
+	if( windowMode.GetCurrentValue() != prevFullscreen )
+		return true;
+
+	int w, h;
+	const int mode = vidListModel.ModeOf( vidList.GetCurrentIndex( ));
+	if( windowMode.GetCurrentValue() != 2 && mode >= 0 && ModeSize( mode, w, h ) && ( w != prevModeX || h != prevModeY ))
+		return true;
+
+	// a renderer other than the one chosen last (that one waits for a restart)
+	const int r = renderers.GetCurrentValue();
+	if( r >= 0 && r < renderersModel.GetRows() && stricmp( renderersModel.GetShortName( r ), EngFuncs::GetCvarString( "r_refdll" )) != 0 )
+		return true;
+
+	return vsync.bChecked != ( EngFuncs::GetCvarFloat( "gl_vsync" ) != 0.0f );
 }
 
 void CMenuVidModes::ApplyChanges()
@@ -459,6 +506,14 @@ void CMenuVidModes::Draw()
 			RevertChanges();
 		}
 	}
+
+	if( apply )
+	{
+		const bool changes = HasChanges();
+		apply->SetGrayed( !changes );
+		apply->SetInactive( !changes );
+	}
+
 	CMenuFramework::Draw();
 }
 
@@ -535,7 +590,7 @@ void CMenuVidModes::_Init( void )
 	});
 
 	AddItem( banner );
-	AddButton( L( "GameUI_Apply" ), nullptr, PC_OK, VoidCb( &CMenuVidModes::SetConfig ) );
+	apply = AddButton( L( "GameUI_Apply" ), nullptr, PC_OK, VoidCb( &CMenuVidModes::SetConfig ) );
 	AddButton( L( "GameUI_Cancel" ), nullptr, PC_CANCEL, VoidCb( &CMenuVidModes::Hide ) );
 	AddItem( renderers );
 	AddItem( windowMode );
