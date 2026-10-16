@@ -162,8 +162,27 @@ void FindHullIntersection(const Vector &vecSrc, TraceResult &tr, float *mins, fl
 	}
 }
 
+// stories 062 and 063: E held, the server throws the knife; predicted
+// here as the stab's swing, the knife gone with it
+static bool KnifeThrowWanted(CBasePlayer *pPlayer)
+{
+	return (pPlayer->pev->button & IN_USE) && !pPlayer->HasShield();
+}
+
+static void KnifeThrowPredict(CKnife *pKnife)
+{
+	pKnife->SendWeaponAnim(KNIFE_STABMISS, pKnife->UseDecrement() != FALSE);
+	pKnife->m_flNextPrimaryAttack = pKnife->m_flNextSecondaryAttack = pKnife->m_flTimeWeaponIdle = UTIL_WeaponTimeBase() + 1.0f;
+}
+
 void CKnife::PrimaryAttack()
 {
+	if (KnifeThrowWanted(m_pPlayer))
+	{
+		KnifeThrowPredict(this);
+		return;
+	}
+
 	Swing(TRUE);
 }
 
@@ -238,6 +257,12 @@ void CKnife::SecondaryAttack()
 {
 	if (!ShieldSecondaryFire(KNIFE_SHIELD_UP, KNIFE_SHIELD_DOWN))
 	{
+		if (KnifeThrowWanted(m_pPlayer))
+		{
+			KnifeThrowPredict(this);
+			return;
+		}
+
 		Stab(TRUE);
 		pev->nextthink = UTIL_WeaponTimeBase() + 0.35f;
 	}

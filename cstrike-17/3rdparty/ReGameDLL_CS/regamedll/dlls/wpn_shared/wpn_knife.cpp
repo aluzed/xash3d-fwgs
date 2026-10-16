@@ -48,6 +48,8 @@ void CKnife::Precache()
 
 	m_usKnife = PRECACHE_EVENT(1, "events/knife.sc");
 
+	ThrowingKnife_Precache();
+
 #ifdef REGAMEDLL_API
 	m_flStabBaseDamage = KNIFE_STAB_DAMAGE;
 	m_flSwingBaseDamage = KNIFE_SWING_DAMAGE;
@@ -172,7 +174,64 @@ void FindHullIntersection(const Vector &vecSrc, TraceResult &tr, float *mins, fl
 
 void CKnife::PrimaryAttack()
 {
+	if (ThrowingKnife_Wanted(m_pPlayer))
+	{
+		StartThrow(false);
+		return;
+	}
+
 	Swing(TRUE);
+}
+
+// stories 062 and 063: the stab's swing, the knife let go on its way
+// forward; the player is then without a knife and takes their next weapon
+void CKnife::StartThrow(bool bLob)
+{
+	SendWeaponAnim(KNIFE_STABMISS, UseDecrement() != FALSE);
+	m_pPlayer->SetAnimation(PLAYER_ATTACK1);
+	EMIT_SOUND(m_pPlayer->edict(), CHAN_WEAPON, "weapons/knife_slash1.wav", VOL_NORM, ATTN_NORM);
+
+	m_flNextPrimaryAttack = m_flNextSecondaryAttack = m_flTimeWeaponIdle = UTIL_WeaponTimeBase() + 1.0f;
+
+	m_bThrowLob = bLob;
+	SetThink(&CKnife::ThrowRelease);
+	pev->nextthink = gpGlobals->time + 0.2f;
+}
+
+void CKnife::ThrowRelease()
+{
+	SetThink(nullptr);
+
+	// put away or dead before letting go: no throw
+	if (!m_pPlayer || !m_pPlayer->IsAlive() || m_pPlayer->m_pActiveItem != this)
+		return;
+
+	Vector angThrow = m_pPlayer->pev->v_angle + m_pPlayer->pev->punchangle;
+	float flSpeed = knife_throw_speed.value;
+
+	if (m_bThrowLob)
+	{
+		// thrown as an HE grenade (CHEGrenade::WeaponIdle): raised, faster
+		// the higher one aims
+		if (angThrow.x < 0)
+			angThrow.x = -10 + angThrow.x * ((90 - 10) / 90.0);
+		else
+			angThrow.x = -10 + angThrow.x * ((90 + 10) / 90.0);
+
+		flSpeed = Q_min((90.0f - angThrow.x) * 6.0f, 750.0f);
+	}
+
+	UTIL_MakeVectors(angThrow);
+
+	const Vector vecSrc = m_pPlayer->GetGunPosition() + gpGlobals->v_forward * 16.0f;
+	const Vector vecVelocity = gpGlobals->v_forward * clamp(flSpeed, 0.0f, 4000.0f) + m_pPlayer->pev->velocity;
+
+	ThrowingKnife_Launch(m_pPlayer, vecSrc, vecVelocity, m_bThrowLob);
+
+	// the hand is empty: the next weapon, then the knife is gone
+	m_pPlayer->pev->weapons &= ~(1 << WEAPON_KNIFE);
+	RetireWeapon();
+	DestroyItem();
 }
 
 void CKnife::SetPlayerShieldAnim()
@@ -237,6 +296,12 @@ void CKnife::SecondaryAttack()
 {
 	if (!ShieldSecondaryFire(KNIFE_SHIELD_UP, KNIFE_SHIELD_DOWN))
 	{
+		if (ThrowingKnife_Wanted(m_pPlayer))
+		{
+			StartThrow(true);
+			return;
+		}
+
 		Stab(TRUE);
 		pev->nextthink = UTIL_WeaponTimeBase() + 0.35f;
 	}

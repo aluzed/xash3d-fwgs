@@ -1243,6 +1243,10 @@ public:
 	void SetPlayerShieldAnim();
 	void ResetPlayerShieldAnim();
 
+	// stories 062 and 063: E held, the knife is thrown or lobbed
+	void StartThrow(bool bLob);
+	void EXPORT ThrowRelease();
+
 	float KnifeStabDamage() const;
 	float KnifeSwingDamage(bool fast) const;
 	float KnifeStabDistance() const;
@@ -1252,6 +1256,7 @@ public:
 private:
 	TraceResult m_trHit;
 	unsigned short m_usKnife;
+	bool m_bThrowLob;
 
 #ifdef REGAMEDLL_API
 	float m_flStabBaseDamage;
@@ -1748,6 +1753,13 @@ float Molotov_ThrowScale();
 void Molotov_Throw(CBasePlayer *pThrower, const Vector &vecSrc, const Vector &vecVelocity);
 void Molotov_SmokeDetonated(const Vector &origin);
 void Molotov_CleanUp();
+
+extern cvar_t knife_throw_speed;
+void ThrowingKnife_RegisterCvars();
+void ThrowingKnife_Precache();
+bool ThrowingKnife_Wanted(CBasePlayer *pPlayer);
+void ThrowingKnife_Launch(CBasePlayer *pThrower, const Vector &vecSrc, const Vector &vecVelocity, bool bLob);
+void ThrowingKnife_CleanUp();
 void Molotov_BurstAt(CBasePlayer *pThrower, const Vector &vecPoint);
 
 const float TMP_MAX_SPEED     = 250.0f;

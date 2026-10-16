@@ -1319,7 +1319,9 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
 
 	// Armor
 	// armor doesn't protect against fall or drown damage!
-	if (pev->armorvalue != 0.0f && !(bitsDamageType & (DMG_DROWN | DMG_FALL)) && IsArmored(m_LastHitGroup))
+	// nor against a thrown knife (story 062): it kills as the Zeus does
+	const bool bThrownKnife = pevInflictor && FClassnameIs(pevInflictor, "throwing_knife");
+	if (pev->armorvalue != 0.0f && !(bitsDamageType & (DMG_DROWN | DMG_FALL)) && !bThrownKnife && IsArmored(m_LastHitGroup))
 	{
 		real_t flNew = flRatio * flDamage;
 		real_t flArmor = (flDamage - flNew) * flBonus;
@@ -10724,7 +10726,17 @@ void EXT_FUNC CBasePlayer::__API_HOOK(OnSpawnEquip)(bool addDefault, bool equipG
 	}
 
 	if (m_bNotKilled)
+	{
 		addDefault = false;
+
+#ifdef REGAMEDLL_ADD
+		// story 062: who threw their knife and lived gets one back, as
+		// everyone does at the start of a round
+		const bool bGiveKnife = (m_iTeam == CT) ? ct_give_player_knife.value != 0 : (m_iTeam == TERRORIST && t_give_player_knife.value != 0);
+		if (bGiveKnife && !HasNamedPlayerItem("weapon_knife") && !HasRestrictItem(ITEM_KNIFE, ITEM_TYPE_EQUIPPED))
+			GiveNamedItemEx("weapon_knife");
+#endif
+	}
 
 	if (addDefault || m_bIsVIP)
 	{

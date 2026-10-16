@@ -508,6 +508,7 @@ void EXT_FUNC GameDLLInit()
 	CVAR_REGISTER(&show_bomb_timer);
 
 	Molotov_RegisterCvars();
+	ThrowingKnife_RegisterCvars();
 
 	// print version
 	CONSOLE_ECHO("ReGameDLL version: " APP_VERSION "\n");

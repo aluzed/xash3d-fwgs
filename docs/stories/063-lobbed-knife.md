@@ -21,17 +21,20 @@ Out: a trajectory preview (CS2 has none for grenades either), bots
 lobbing.
 
 ## Status (2026-10-16)
-Written, not started; after 062.
+Done with 062: E + secondary attack lobs the knife on an HE grenade's
+very flight (the same raised aim, `( 90 - pitch ) * 6` units/s up to 750,
+the same start, gravity 0.55); 1219 units from de_dust2's terrorist spawn
+aimed up. Rising 45, falling 100 / 100 / 90. Left: hits rising and falling
+measured on a player, a lob over a cover in play.
 
 ## Design
 - Input: `CKnife::SecondaryAttack` with `IN_USE` held lobs; without E it
   stabs as in 1.6. With a shield, E + secondary attack keeps raising the
   shield for a start (no lob); to be decided in play.
-- The lob: the same `CThrownKnife`, about 750 units/s
-  (`mp_knife_lob_speed`), along the aim raised as a grenade throw is
-  (`CBasePlayer`'s grenade pitch correction), the server's full gravity:
-  aimed 45° up it lands around 1000 units away on flat ground; it tumbles
-  end over end.
+- The lob: the same `CThrownKnife` on the physics of an HE grenade
+  (`CHEGrenade::WeaponIdle`, `CGrenade::ShootTimed2`): the aim raised by
+  10°, ( 90 - pitch ) * 6 units/s up to 750, plus the thrower's velocity,
+  a gravity of 0.55; it tumbles end over end.
 - Phase: rising while its vertical speed is above zero, falling after.
   Damage by hit group and phase, set as 062's:
   rising 45 anywhere (`mp_knife_lob_dmg_rise`, the 40 to 50 asked);

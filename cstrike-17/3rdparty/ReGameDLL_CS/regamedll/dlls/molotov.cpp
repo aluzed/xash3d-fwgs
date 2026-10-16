@@ -375,7 +375,7 @@ void CMolotovFire::FireThink()
 
 		if (pSprite)
 		{
-			pSprite->pev->classname = MAKE_STRING(MOLOTOV_FLAME_CLASS);
+			MAKE_STRING_CLASS(MOLOTOV_FLAME_CLASS, pSprite->pev);
 			pSprite->SetTransparency(kRenderTransAdd, 255, 255, 255, 255, kRenderFxNone);
 			pSprite->SetScale(scale);
 			pSprite->pev->framerate = RANDOM_FLOAT(12.0f, 18.0f);
@@ -486,7 +486,7 @@ void CMolotovProjectile::Burst(bool bOnGround)
 	if (bFire)
 	{
 		CMolotovFire *pFire = GetClassPtr<CCSEntity>((CMolotovFire *)nullptr);
-		pFire->pev->classname = MAKE_STRING("molotov");
+		MAKE_STRING_CLASS("molotov", pFire->pev);
 		pFire->Spawn();
 		pFire->Start(pThrower, tr.vecEndPos);
 	}
@@ -539,7 +539,7 @@ void Molotov_Throw(CBasePlayer *pThrower, const Vector &vecSrc, const Vector &ve
 {
 	CMolotovProjectile *pBottle = GetClassPtr<CCSEntity>((CMolotovProjectile *)nullptr);
 
-	pBottle->pev->classname = MAKE_STRING("molotov_projectile");
+	MAKE_STRING_CLASS("molotov_projectile", pBottle->pev);
 	pBottle->Spawn();
 	SET_MODEL(pBottle->edict(), Molotov_Model('w', pThrower->m_iTeam));
 	UTIL_SetSize(pBottle->pev, Vector(-1, -1, -1), Vector(1, 1, 1));
@@ -564,7 +564,7 @@ void Molotov_BurstAt(CBasePlayer *pThrower, const Vector &vecPoint)
 {
 	CMolotovProjectile *pBottle = GetClassPtr<CCSEntity>((CMolotovProjectile *)nullptr);
 
-	pBottle->pev->classname = MAKE_STRING("molotov_projectile");
+	MAKE_STRING_CLASS("molotov_projectile", pBottle->pev);
 	pBottle->Spawn();
 	UTIL_SetOrigin(pBottle->pev, vecPoint + Vector(0, 0, 4));
 	pBottle->pev->owner = pThrower->edict();

@@ -32,7 +32,33 @@ throwing (they keep stabbing; ReGameDLL_CS's bots and YaPB only have to
 survive a player without a knife), a knife stuck in walls.
 
 ## Status (2026-10-16)
-Written, not started.
+Done, `dlls/throwing_knife.cpp` (ReGameDLL_CS): E + primary attack plays
+the stab's swing and lets the knife go 0.2 s later; the player takes their
+next weapon (or empty hands), the knife flies as `throwing_knife`, moved by
+the engine without collisions and traced each frame against the world and
+the hitboxes. 1000 units/s, flat for 0.25 s then 1.2 times the gravity:
+about 600 units on flat ground, 0.6 s of flight at that range, so that a
+knife thrown from afar can be seen and dodged (1400 units/s was a bullet).
+Damage set by hit group, neither multiplied nor lessened by armour
+(`CBasePlayer::TakeDamage` skips the armour for a `throwing_knife`); the
+teammate reduction of `ff_damage_reduction_other` applies as to any weapon.
+Off a wall it keeps a quarter of its speed, off a floor a tenth, then lies
+(`SOLID_TRIGGER`, `MOVETYPE_TOSS`); anyone without a knife picks it up by
+walking over it; a survivor without one gets one at the next round; the
+round's restart removes them. Kill feed: the knife's icon.
+`mp_knife_throw_debug 1` prints to the thrower where it hit and lies.
+
+Found on the way: an entity named with `MAKE_STRING` is missing from
+ReGameDLL_CS's classname hash, so `UTIL_RemoveOther` never found it: the
+molotov's bottle, fire and flames (054) were never removed at a round's
+restart either; all are named with `MAKE_STRING_CLASS` now.
+
+Tested on de_dust2 against a frozen YaPB teammate (ff reduction 1): a body
+hit takes 90 (100 to 10), a head hit kills, with the headshot in the kill
+feed; a knife on the ground picked up; a throw at a wall, at the floor;
+the restart removes the knife. Left: limbs (70) measured, a second human
+player, the knife's model in flight (`w_knife.mdl` is small), bots coping
+without a knife over a whole match, a kill icon of its own.
 
 ## Design
 - Input: in `CKnife::PrimaryAttack`, `IN_USE` held (`pev->button`) means
@@ -40,10 +66,11 @@ Written, not started.
   in front opens); while defusing or carrying a hostage nothing is
   thrown, the use wins. The client's predicted knife reads the same
   button so that the slash animation is not played and then corrected.
-- The throw: a `CThrownKnife` entity from the eyes, along the aim, about
-  1400 units/s (`mp_knife_throw_speed`), no gravity for its first 0.15 s
-  then a gravity of about 1.2 (`mp_knife_throw_gravity`): flat up to
-  about 250 units, falling clearly by 600, on the ground before 900. It
+- The throw: a `CThrownKnife` entity from the eyes, along the aim, 1000
+  units/s (`mp_knife_throw_speed`), no gravity for its first 0.25 s
+  (`mp_knife_throw_flat`) then a gravity of 1.2
+  (`mp_knife_throw_gravity`): flat up to about 250 units, on the ground
+  around 600; slow enough to be dodged from afar, it is no bullet. It
   spins along its flight (the model rotated, not the hitbox).
 - Hits: each frame a trace against the players' hitboxes from the last
   position to the new one (not a touch of its box: a touch has no hit

@@ -223,6 +223,7 @@ set(GAMEDLL_SRCS
 	"dlls/gamerules.cpp"
 	"dlls/ggrenade.cpp"
 	"dlls/molotov.cpp"
+	"dlls/throwing_knife.cpp"
 	"dlls/gib.cpp"
 	"dlls/globals.cpp"
 	"dlls/h_battery.cpp"

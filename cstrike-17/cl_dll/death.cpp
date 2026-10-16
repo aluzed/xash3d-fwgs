@@ -254,8 +254,9 @@ int CHudDeathNotice :: MsgFunc_DeathMsg( const char *pszName, int iSize, void *p
 
 	rgDeathNoticeList[i].iHeadShotId = headshot;
 
-	// Find the sprite in the list
-	int spr = gHUD.GetSpriteIndex( killedwith );
+	// Find the sprite in the list; the thrown knife (story 062) has the
+	// knife's
+	int spr = gHUD.GetSpriteIndex( strcmp( killedwith, "d_throwing_knife" ) ? killedwith : "d_knife" );
 
 	// the molotov's fire has no icon in hud.txt yet: the grenade's
 	if( spr == -1 && !strcmp( killedwith, "d_molotov" ))
