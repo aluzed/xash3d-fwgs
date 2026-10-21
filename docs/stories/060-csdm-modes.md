@@ -17,8 +17,10 @@ Tested on 2026-10-22 on the Windows dedicated server of the installed set
 with 10 YaPB bots: `sv_mode csdm team` gave 23 kills in a minute, none
 between teammates, the bots respawning and fighting without objectives;
 `csdm ffa` as the deathmatch of 034 (bots killing teammates). Not tested:
-the plugin (Linux only, its Metamod build isn't on this machine); to check
-on the Linux server with `MODE="csdm team" scripts/server/run.sh`.
+the plugin (Linux only, its Metamod build isn't on this machine; its source
+passes an MSVC syntax check with the template's Metamod headers); to check
+on the Linux server with `MODE="csdm team" scripts/server/run.sh`. Since
+067 the game library does what the plugin did, and the plugin steps aside.
 
 ## Goal
 Deathmatch with respawn, chosen by the mode:

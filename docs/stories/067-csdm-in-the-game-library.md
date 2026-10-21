@@ -54,7 +54,9 @@ file): "no spawn file for de_dust2, its 40 spawn points", 29 respawns in a
 minute on 15 different points of both teams' areas; 106 kills rewarded,
 health given back (73 to 100, 40 to 70 on a headshot), armor up to 100;
 after `sv_mode csdm team` the bots respawned at their team's points (no
-spawn file). Seen with temporary log lines, removed before the commit.
+spawn file). Seen with temporary log lines, removed before the commit. The
+plugin's source passes an MSVC syntax check (Metamod template headers); it
+isn't built nor run here.
 
 ## Dependencies
 056, 060.
