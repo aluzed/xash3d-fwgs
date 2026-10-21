@@ -743,6 +743,11 @@ public:
 	// story 059: rounds in free for all (game_modes.cpp)
 	bool FreeForAllRoundCheck();
 	void FreeForAllRoundEnd(CBasePlayer *pWinner);
+
+	// story 057: the match mode, MR13 with its overtime (game_modes.cpp)
+	void MatchThink();
+	void MatchRoundRestart();
+	bool MatchHoldsIntermission();
 	bool CanPlayerBuy(CBasePlayer *pPlayer) const;
 
 	VFUNC bool HasRoundTimeExpired();

@@ -29,6 +29,18 @@ before the modes.
 On the command line, `+sv_mode csdm ffa` before `+map` starts the server in
 a mode.
 
+## The match
+
+`match` runs a whole match by itself: warmup until `mp_match_players` (10)
+players are in the teams, `mp_match_warmup_time` (60) more seconds, then
+MR12 (`mp_match_rounds 24`): sides switched after round 12, the first to
+13 wins; at 12-12 an overtime (`mp_match_overtime 1`) of
+`mp_match_ot_rounds` (6) rounds with `mp_match_ot_money` ($10 000), sides
+switched after its third round, the first to 16 wins, 15-15 is a draw. The
+result stays on screen until the next `sv_mode`, or for
+`mp_match_end_delay` seconds before the next map. No bots unless
+`mp_match_allow_bots 1` (for tests).
+
 ## Free for all rounds
 
 In `ffa` the last player alive wins the round, a round that runs out of

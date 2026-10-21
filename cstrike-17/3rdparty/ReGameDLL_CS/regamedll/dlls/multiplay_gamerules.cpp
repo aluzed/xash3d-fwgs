@@ -1997,6 +1997,9 @@ void EXT_FUNC CHalfLifeMultiplay::__API_HOOK(RestartRound)()
 	CleanUpMap();
 #endif
 
+	// a match's half time or overtime: sides switched, money set (story 057)
+	MatchRoundRestart();
+
 	// tell bots that the round is restarting
 	CBaseEntity *pEntity = nullptr;
 	while ((pEntity = UTIL_FindEntityByClassname(pEntity, "player")))
@@ -2578,6 +2581,7 @@ void EXT_FUNC CHalfLifeMultiplay::__API_HOOK(Think)()
 		{
 			CheckRestartRound();
 			GameModes_Think();
+			MatchThink();
 			m_tmNextPeriodicThink = gpGlobals->time + 1.0f;
 
 			if (g_psv_accelerate->value != 5.0f)
@@ -2655,8 +2659,9 @@ bool CHalfLifeMultiplay::CheckGameOver()
 
 		m_flIntermissionEndTime = m_flIntermissionStartTime + mp_chattime.value;
 
-		// check to see if we should change levels now
-		if (m_flIntermissionEndTime < gpGlobals->time && !IsCareer())
+		// check to see if we should change levels now; the end of a match
+		// may hold the server on its result (story 057)
+		if (m_flIntermissionEndTime < gpGlobals->time && !IsCareer() && !MatchHoldsIntermission())
 		{
 			if (!UTIL_HumansInGame()				// if only bots, just change immediately
 #ifdef REGAMEDLL_FIXES

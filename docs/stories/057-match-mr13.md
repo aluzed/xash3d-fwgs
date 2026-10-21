@@ -7,6 +7,38 @@ Counter-Strike 1.6 server this needs an admin or a plugin to swap the
 teams, count the rounds and stop the match. The `match` mode of
 [056](056-server-game-modes.md) should run a whole match by itself.
 
+## Status (2026-10-22)
+Done in ReGameDLL_CS (`dlls/game_modes.cpp`: `MatchThink`,
+`MatchRoundRestart`, `MatchHoldsIntermission`), with the cvars of the
+design and the settings of `modes/match.cfg` (056).
+
+- Warmup: the game library sets respawn, buy anywhere, $16 000 and no
+  freeze over the mode's config and restarts; "Warmup: waiting for players
+  (7/10)" every 10 s; with `mp_match_players` in the teams (bots only with
+  `mp_match_allow_bots 1`, otherwise kicked), "the match starts in N s",
+  back to waiting if one leaves; then `modes/match.cfg` again and a
+  complete restart (scores, money, weapons).
+- Rounds counted from the teams' wins (a drawn round, rare, doesn't
+  count). Half time after `mp_match_rounds / 2`: `SwapAllPlayers` (players,
+  models and the teams' scores), everyone respawned with the default pistol
+  and the start money, no bonus nor losing streak carried. Overtime at
+  12-12 with `mp_match_ot_money` (no switch at its start, as in CS2),
+  switch after its half; first to 13, then to 16; 15-15 a draw.
+- End: "The Terrorists win the match 13-9" (or "Draw 15-15") in the centre,
+  the chat and the log, then the intermission (scoreboard), held until a
+  `sv_mode` while `mp_match_end_delay` is 0, else the next map after that
+  many seconds.
+
+Tested on 2026-10-22 on the dedicated server of the installed set with 6
+YaPB bots and a test `cstrike/modes/match.cfg` (`mp_match_rounds 4`,
+`mp_match_players 2`, `mp_match_warmup_time 10`, `mp_match_allow_bots 1`,
+`mp_match_ot_rounds 2`): a match played by the bots to 3-1 with its half
+time, the server held on the result; then with rounds forced by
+`endround`: half time, 2-2 overtime, its switch and a 3-3 draw, and a 4-2
+overtime win; with `mp_match_players 10` and 6 bots the warmup waited, and
+started once lowered to 6. Not checked by a player: the money after a
+switch and the camera of the dead; a full MR12 match with ten players.
+
 ## Goal
 A match that runs alone from its first round to its end:
 - warmup as long as the server has fewer than 10 players; with 10, one
@@ -67,12 +99,12 @@ the match), several overtimes.
   "<team> wins the match 13-9", "Draw 15-15".
 
 ## Tasks
-- [ ] Warmup until 10 players, then a minute, then the first round.
-- [ ] Match state and team scores kept across switches.
-- [ ] Half time switch with money reset; overtime with its money and
+- [x] Warmup until 10 players, then a minute, then the first round.
+- [x] Match state and team scores kept across switches.
+- [x] Half time switch with money reset; overtime with its money and
       switch; end at 13, 16 or 15-15.
-- [ ] Cvars and the `match` mode's config; messages.
-- [ ] No bots in the mode; `mp_match_allow_bots` for tests.
+- [x] Cvars and the `match` mode's config; messages.
+- [x] No bots in the mode; `mp_match_allow_bots` for tests.
 - [ ] Test with bots allowed for the test and short cvars
       (`mp_match_rounds 4`, `mp_match_players 2`) to reach half time,
       overtime and both ends quickly; then a full match of players on the
