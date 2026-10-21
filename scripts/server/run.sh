@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds this checkout's dedicated server (amd64), installs it into the server
-# tree of setup.sh and starts Counter-Strike with Metamod-FWGS, 19 bots and the
-# deathmatch mode (story 034). The options of the dedicated server stories are
+# tree of setup.sh and starts Counter-Strike with Metamod-FWGS and 19 bots in
+# a mode of story 056, deathmatch by default (story 034). The options of the dedicated server stories are
 # added here as they land, every one on (story 049).
 #
 # usage: scripts/server/run.sh [extra server args...]
@@ -10,6 +10,8 @@
 #   XASH_SERVER_ROOT  server tree (default ~/xash-dev/server)
 #   STEAM_HL          Steam Half-Life install, read-only
 #   MAP=de_dust2  PORT=27016  MAXPLAYERS=32  TICRATE=1000
+#   MODE="csdm ffa"   the mode it starts in (sv_mode: match, ffa, csdm ffa,
+#                     csdm team); sv_mode from rcon switches it
 #   RCON_PASSWORD     rcon password (default: none, rcon off)
 #   NO_BUILD=1        start the installed engine as it is
 #   INSTALL_ONLY=1    build and install, don't start
@@ -50,7 +52,7 @@ fi
 
 # shellcheck disable=SC2086
 set -- -game cstrike -port "${PORT:-27016}" +maxplayers "${MAXPLAYERS:-32}" \
-	-sys_ticrate "${TICRATE:-1000}" $features "$@"
+	-sys_ticrate "${TICRATE:-1000}" $features +sv_mode ${MODE:-csdm ffa} "$@"
 [ "${METAMOD:-1}" = 1 ] && set -- -dll addons/metamod/metamod_amd64.so "$@"
 [ -n "${RCON_PASSWORD:-}" ] && set -- "$@" +rcon_password "$RCON_PASSWORD"
 

@@ -509,6 +509,10 @@ CHalfLifeMultiplay::CHalfLifeMultiplay()
 		}
 	}
 
+	// the mode's config after the server's own (story 056)
+	if (!IsCareer())
+		GameModes_MapStart();
+
 	m_fRoundStartTime = 0;
 	m_fRoundStartTimeReal = 0;
 
@@ -2564,6 +2568,7 @@ void EXT_FUNC CHalfLifeMultiplay::__API_HOOK(Think)()
 		if (gpGlobals->time > m_tmNextPeriodicThink)
 		{
 			CheckRestartRound();
+			GameModes_Think();
 			m_tmNextPeriodicThink = gpGlobals->time + 1.0f;
 
 			if (g_psv_accelerate->value != 5.0f)

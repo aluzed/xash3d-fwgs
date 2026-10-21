@@ -7,6 +7,34 @@ the other means editing files and restarting. Counter-Strike 2 has its
 modes chosen in a menu; the set should switch between its own modes with
 one command.
 
+## Status (2026-10-22)
+Done (`dlls/game_modes.cpp` in ReGameDLL_CS, the configs in
+`cs16client-extras/modes`, operators' page `Documentation/game-modes.md`).
+The modes' own rules come with 057 to 060; until then each mode is its
+settings. Differences with the design:
+
+- `mp_mode` isn't saved by the server: the command line sets the starting
+  mode (`+sv_mode csdm ffa`), the cvars keep it over map changes.
+- Each mode has one config (`csdm` two: `csdm_ffa.cfg`, `csdm_team.cfg`);
+  a copy in `cstrike/modes/` overrides the one of `extras.pk3`.
+- Bots: `ffa` and `csdm` execute `modes/bots.cfg` (10 YaPB bots in
+  `extras.pk3`, `scripts/server` has its own with 19 of Counter-Strike's),
+  `match` sets the quotas to 0. Xash3D executes `server.cfg` once at
+  startup, so the quota couldn't stay in it.
+- The announcement waits for a player in the game (6 s at least after the
+  map starts); the centre text is under the team menu right after a
+  restart, the chat line stays.
+
+Tested on 2026-10-22 with the installed set (Windows, YaPB): a dedicated
+server started in `csdm ffa` (10 bots), then `sv_mode match` (rounds, $800,
+dead watch their team, the bots gone), `sv_mode csdm team` (no free for
+all, balance on, the bots back), `sv_mode ffa`, `zombie` and `ffa team`
+refused with the list, `changelevel de_inferno` kept `ffa`; a client on
+the server got "Mode: team deathmatch" after the switch; a listen server
+with `+sv_mode csdm team` ran the mode with its bots. Not tested: the csdm
+plugin's changes (Linux only: Metamod and its build aren't on this
+machine), to check on the Linux server.
+
 ## Goal
 A command that switches the server between three native modes, applied at
 once (the map restarts), each mode a complete set of settings:
@@ -47,12 +75,12 @@ each mode (their own stories).
   the README lists the command.
 
 ## Tasks
-- [ ] `mp_mode`, `mp_csdm_teams` and the `sv_mode` command in ReGameDLL_CS.
-- [ ] `modes/match.cfg`, `ffa.cfg`, `csdm_ffa.cfg`, `csdm_team.cfg`, every
+- [x] `mp_mode`, `mp_csdm_teams` and the `sv_mode` command in ReGameDLL_CS.
+- [x] `modes/match.cfg`, `ffa.cfg`, `csdm_ffa.cfg`, `csdm_team.cfg`, every
       mode setting every cvar of the others.
-- [ ] Mode kept over a map change; announced after a switch.
-- [ ] The csdm plugin enabled only in `csdm`.
-- [ ] `scripts/server` and the installer: a default mode, the command in
+- [x] Mode kept over a map change; announced after a switch.
+- [x] The csdm plugin enabled only in `csdm`.
+- [x] `scripts/server` and the installer: a default mode, the command in
       their README.
 - [ ] Test: each switch from each mode, on a listen server and on the
       dedicated server, with bots.

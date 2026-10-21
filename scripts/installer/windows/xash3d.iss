@@ -97,7 +97,7 @@ Type: files; Name: "{userdesktop}\Counter-Strike (Xash3D).lnk"
 Name: "{group}\{#HLName}"; Filename: "{app}\xash3d.exe"; Parameters: "-game valve"; WorkingDir: "{app}"; IconFilename: "{app}\valve\game.ico"; Components: hl
 Name: "{group}\{#CSName}"; Filename: "{app}\xash3d.exe"; Parameters: "-game cstrike -dll @yapb"; WorkingDir: "{app}"; IconFilename: "{app}\cstrike\game.ico"; Components: cs
 ; the options of the dedicated server stories (038-048), as scripts/server/run.sh
-Name: "{group}\{#CSName} server"; Filename: "{app}\xash-dedicated.exe"; Parameters: "-game cstrike -dll @yapb -port 27015 +maxplayers 20 +sys_scheduler 1 +sv_snapshot_spread 1 +sv_log_async 1 +sv_client_lookup_cache 1 -netthread +sv_a2s_cache 1 -netsend +map de_dust2"; WorkingDir: "{app}"; IconFilename: "{app}\cstrike\game.ico"; Components: server and cs
+Name: "{group}\{#CSName} server"; Filename: "{app}\xash-dedicated.exe"; Parameters: "-game cstrike -dll @yapb -port 27015 +maxplayers 20 +sys_scheduler 1 +sv_snapshot_spread 1 +sv_log_async 1 +sv_client_lookup_cache 1 -netthread +sv_a2s_cache 1 -netsend +sv_mode match +map de_dust2"; WorkingDir: "{app}"; IconFilename: "{app}\cstrike\game.ico"; Components: server and cs
 Name: "{group}\{#HLName} server"; Filename: "{app}\xash-dedicated.exe"; Parameters: "-game valve -port 27016 +maxplayers 16 +map crossfire"; WorkingDir: "{app}"; IconFilename: "{app}\valve\game.ico"; Components: server
 Name: "{group}\Uninstall {#Product}"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\{#HLName}"; Filename: "{app}\xash3d.exe"; Parameters: "-game valve"; WorkingDir: "{app}"; IconFilename: "{app}\valve\game.ico"; Components: hl; Tasks: desktopicon

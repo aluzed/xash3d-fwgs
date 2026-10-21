@@ -47,7 +47,10 @@ the game data of your own Steam copies.
   tracing, are in Configuration, Video, Ray tracing.
 - Shortcuts in the Start menu (and on the desktop when asked):
   - **Half-Life 1.5**, **Counter-Strike 1.7** (with bots: `-dll @yapb`);
-  - **Counter-Strike 1.7 server** (port 27015, de_dust2, bots) and
+  - **Counter-Strike 1.7 server** (port 27015, de_dust2, a competitive
+    match; `sv_mode ffa`, `sv_mode csdm ffa` or `sv_mode csdm team` in its
+    window switch to the other modes, with bots:
+    [game-modes.md](game-modes.md)) and
     **Half-Life 1.5 server** (port 27016) with the dedicated servers. Windows
     asks to let them through its firewall the first time.
 

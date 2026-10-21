@@ -74,6 +74,9 @@ ReGameDLL_CS only registers its bots on a dedicated server with `bot_enable 1`
 in `game_init.cfg`, and needs `BotProfile.db`, which the Steam data lacks
 (cs16-client's `extras.pk3` has it).
 
+How many bots: `modes/bots.cfg`, executed by the game modes that have bots
+([game-modes.md](game-modes.md)).
+
 ## Counters
 
 `net_thread_stats` (network thread, A2S answers), `net_send_stats` (send

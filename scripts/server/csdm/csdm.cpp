@@ -29,6 +29,10 @@ GNU General Public License for more details.
 //   refill_clip_weapons 1), +15 health, +30 health and +30 armor on a
 //   headshot, up to 100, with the medkit sound on a headshot.
 //
+// Story 056: only in the server's "csdm" mode (mp_mode), or always on a
+// server without modes. Story 060: in team deathmatch (mp_freeforall 0) only
+// the enemies keep a spawn point within 450 units.
+//
 // cvars: csdm_spawns, csdm_refill_clip, csdm_heal_kill, csdm_heal_headshot,
 // csdm_armor_headshot.
 
@@ -80,6 +84,27 @@ static cvar_t *RegisterCvar(cvar_t *def)
 	CVAR_REGISTER(def);
 	cvar_t *live = CVAR_GET_POINTER(def->name);
 	return live ? live : def;
+}
+
+// the game library's, read through the engine once it has registered them
+static cvar_t *cv_mode;
+static cvar_t *cv_freeforall;
+
+// the "csdm" mode of story 056, or a server without modes
+static bool IsActive()
+{
+	if (!cv_mode)
+		cv_mode = CVAR_GET_POINTER("mp_mode");
+
+	return !cv_mode || !cv_mode->string || !cv_mode->string[0] || !Q_stricmp(cv_mode->string, "csdm");
+}
+
+static bool IsTeamPlay()
+{
+	if (!cv_freeforall)
+		cv_freeforall = CVAR_GET_POINTER("mp_freeforall");
+
+	return cv_freeforall && cv_freeforall->value == 0.0f;
 }
 
 static const char HEAL_SOUND[] = "items/smallmedkit1.wav";
@@ -160,14 +185,21 @@ static bool IsAlivePlayer(edict_t *ed)
 	return ed && !ed->free && ed->pvPrivateData && ed->v.deadflag == DEAD_NO && ed->v.health > 0.0f;
 }
 
-// a living player other than this one within MIN_SPAWN_RADIUS
+// a living player other than this one within MIN_SPAWN_RADIUS; in teams,
+// an enemy
 static bool IsSpawnOccupied(int self, const Vector &origin)
 {
+	CBasePlayer *selfPlayer = (CBasePlayer *)INDEXENT(self)->pvPrivateData;
+	bool teamPlay = IsTeamPlay() && selfPlayer;
+
 	for (int i = 1; i <= gpGlobals->maxClients; i++)
 	{
 		edict_t *ed = INDEXENT(i);
 
 		if (i == self || !IsAlivePlayer(ed))
+			continue;
+
+		if (teamPlay && ((CBasePlayer *)ed->pvPrivateData)->m_iTeam == selfPlayer->m_iTeam)
 			continue;
 
 		if ((ed->v.origin - origin).Length() < MIN_SPAWN_RADIUS)
@@ -182,7 +214,7 @@ static bool RandomSpawn(CBasePlayer *player)
 	edict_t *ed = player->edict();
 	int index = ENTINDEX(ed);
 
-	if (!cv_spawns->value || g_NumSpawns < 2 || index < 1 || index > MAX_CLIENTS || g_FirstSpawn[index])
+	if (!IsActive() || !cv_spawns->value || g_NumSpawns < 2 || index < 1 || index > MAX_CLIENTS || g_FirstSpawn[index])
 	{
 		if (cv_debug->value)
 			ServerPrintf("[CSDM] %s: map spawn (first %d)\n", STRING(ed->v.netname), index >= 1 && index <= MAX_CLIENTS ? g_FirstSpawn[index] : -1);
@@ -224,7 +256,7 @@ static edict_t *Hook_GetPlayerSpawnSpot(IReGameHook_CSGameRules_GetPlayerSpawnSp
 
 static BOOL Hook_TeamFull(IReGameHook_CSGameRules_TeamFull *chain, int team)
 {
-	if (cv_spawns->value && g_NumSpawns >= 2)
+	if (IsActive() && cv_spawns->value && g_NumSpawns >= 2)
 		return FALSE;
 
 	return chain->callNext(team);
@@ -242,7 +274,7 @@ static void Hook_PlayerKilled(IReGameHook_CSGameRules_PlayerKilled *chain, CBase
 
 	chain->callNext(victim, pevKiller, pevInflictor);
 
-	if (!pevKiller)
+	if (!pevKiller || !IsActive())
 		return;
 
 	edict_t *killerEdict = ENT(pevKiller);

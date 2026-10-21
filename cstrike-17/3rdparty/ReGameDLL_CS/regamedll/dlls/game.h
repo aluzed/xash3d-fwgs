@@ -233,3 +233,11 @@ extern cvar_t scoreboard_showdefkit;
 
 
 void GameDLLInit();
+
+// story 056: the server's game modes (game_modes.cpp)
+extern cvar_t game_mode;
+extern cvar_t csdm_teams;
+void GameModes_Init();
+void GameModes_MapStart();
+void GameModes_Think();
+const char *GameModes_Current();

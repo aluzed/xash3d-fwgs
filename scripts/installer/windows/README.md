@@ -69,9 +69,10 @@ game's title and build) and Counter-Strike's menus without their
   (`-game cstrike -dll @yapb`, which loads the bots before the game
   library).
 - Dedicated servers (component "server"): `xash-dedicated.exe` next to the
-  client, shortcuts "Counter-Strike 1.7 server" (port 27015, YaPB bots, the
-  options of the dedicated server stories, `server-cstrike.cfg` as
-  `cstrike\server.cfg`) and "Half-Life 1.5 server" (port 27016,
+  client, shortcuts "Counter-Strike 1.7 server" (port 27015, in the `match`
+  mode of story 056, `sv_mode` in its console switches it:
+  `Documentation/game-modes.md`; the options of the dedicated server
+  stories, `server-cstrike.cfg` as `cstrike\server.cfg`) and "Half-Life 1.5 server" (port 27016,
   `server-valve.cfg`). Windows asks to let them through its firewall on
   their first start.
 - The uninstaller asks before removing what the player made.

@@ -59,7 +59,8 @@ curl -fsSL -o "$tmp/csdm.tar.gz" "$CSDM_SPAWNS_URL"
 tar xzf "$tmp/csdm.tar.gz" -C "$tmp" --wildcards '*/amxmodx/configs/csdm/*.spawns.cfg'
 cp "$tmp"/CSDM-*/amxmodx/configs/csdm/*.spawns.cfg "$game/addons/csdm/spawns/"
 cp "$HERE/cstrike/metamod-plugins.ini" "$game/addons/metamod/plugins.ini"
-for f in game_init.cfg server.cfg csdm.cfg mapcycle.txt; do
+mkdir -p "$game/modes"
+for f in game_init.cfg server.cfg modes/bots.cfg mapcycle.txt; do
 	cp "$HERE/cstrike/$f" "$game/$f"
 done
 
