@@ -29,6 +29,13 @@ before the modes.
 On the command line, `+sv_mode csdm ffa` before `+map` starts the server in
 a mode.
 
+## Free for all rounds
+
+In `ffa` the last player alive wins the round, a round that runs out of
+time is a draw. Each player gets the money of the round at its end:
+`mp_ffa_win_money` (3250) for the winner, `mp_ffa_loss_money` (1400) for
+the others and for everyone on a draw.
+
 ## The configs
 
 `modes/match.cfg`, `modes/ffa.cfg`, `modes/csdm_ffa.cfg` and

@@ -919,6 +919,15 @@ void EXT_FUNC CHalfLifeMultiplay::__API_HOOK(CheckWinConditions)()
 	if (HasRoundInfinite())
 		return;
 
+#ifdef REGAMEDLL_ADD
+	// rounds in free for all: the last player alive wins, no objectives
+	if (IsFreeForAll())
+	{
+		FreeForAllRoundCheck();
+		return;
+	}
+#endif
+
 	// other player's check
 	m_bNeededPlayers = false;
 	if (!(scenarioFlags & SCENARIO_BLOCK_NEED_PLAYERS) && NeededPlayersCheck())
@@ -3060,6 +3069,16 @@ void CHalfLifeMultiplay::CheckRoundTimeExpired()
 #else
 	// the icc compiler will cut out all of the code which refers to it
 	int scenarioFlags = 0;
+#endif
+
+#ifdef REGAMEDLL_ADD
+	// free for all: the time ran out on more than one player, a draw
+	if (IsFreeForAll())
+	{
+		FreeForAllRoundEnd(nullptr);
+		m_fRoundStartTime = gpGlobals->time + 60.0f;
+		return;
+	}
 #endif
 
 	// New code to get rid of round draws!!

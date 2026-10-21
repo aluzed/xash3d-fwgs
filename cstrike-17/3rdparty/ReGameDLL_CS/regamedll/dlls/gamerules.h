@@ -739,6 +739,10 @@ public:
 
 	// has a style of gameplay when aren't any teams
 	bool IsFreeForAll() const;
+
+	// story 059: rounds in free for all (game_modes.cpp)
+	bool FreeForAllRoundCheck();
+	void FreeForAllRoundEnd(CBasePlayer *pWinner);
 	bool CanPlayerBuy(CBasePlayer *pPlayer) const;
 
 	VFUNC bool HasRoundTimeExpired();

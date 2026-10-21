@@ -144,10 +144,13 @@ static void GameModes_Command_f()
 	SERVER_COMMAND(UTIL_VarArgs("changelevel %s\n", STRING(gpGlobals->mapname)));
 }
 
+void GameModes_RegisterRoundCvars();
+
 void GameModes_Init()
 {
 	CVAR_REGISTER(&game_mode);
 	CVAR_REGISTER(&csdm_teams);
+	GameModes_RegisterRoundCvars();
 
 	ADD_SERVER_COMMAND("sv_mode", GameModes_Command_f);
 }
@@ -193,4 +196,95 @@ void GameModes_Think()
 	s_bAnnounce = false;
 	UTIL_ClientPrintAll(HUD_PRINTCENTER, "Mode: %s1", title);
 	UTIL_ClientPrintAll(HUD_PRINTTALK, "Mode: %s1\n", title);
+}
+
+/*
+Rounds in free for all (story 059): mp_freeforall 1 with rounds. The teams
+only place the players at their spawns; the last player alive wins the
+round, a round whose time runs out on more than one player is a draw.
+Neither team wins: the money of the round goes to each player, the
+winner's to the winner and the loser's to everyone else.
+*/
+
+cvar_t ffa_win_money  = { "mp_ffa_win_money", "3250", FCVAR_SERVER, 3250.0f, nullptr };
+cvar_t ffa_loss_money = { "mp_ffa_loss_money", "1400", FCVAR_SERVER, 1400.0f, nullptr };
+
+void GameModes_RegisterRoundCvars()
+{
+	CVAR_REGISTER(&ffa_win_money);
+	CVAR_REGISTER(&ffa_loss_money);
+}
+
+// a player who plays the round: in a team, with a model chosen
+static bool FFA_InRound(CBasePlayer *pPlayer)
+{
+	return pPlayer && !FNullEnt(pPlayer->edict()) && !pPlayer->has_disconnected
+		&& (pPlayer->m_iTeam == TERRORIST || pPlayer->m_iTeam == CT)
+		&& pPlayer->m_iJoiningState == JOINED;
+}
+
+bool CHalfLifeMultiplay::FreeForAllRoundCheck()
+{
+	int inGame = 0, alive = 0;
+	CBasePlayer *pLastAlive = nullptr;
+
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		CBasePlayer *pPlayer = UTIL_PlayerByIndex(i);
+		if (!FFA_InRound(pPlayer))
+			continue;
+
+		inGame++;
+		if (pPlayer->IsAlive())
+		{
+			alive++;
+			pLastAlive = pPlayer;
+		}
+	}
+
+	// the game starts with two players, whatever their teams
+	m_bNeededPlayers = false;
+	if (inGame < 2)
+	{
+		if (m_bGameStarted)
+			UTIL_ClientPrintAll(HUD_PRINTCONSOLE, "#Game_scoring");
+
+		m_bNeededPlayers = true;
+		m_bGameStarted = false;
+		return false;
+	}
+
+	if (!m_bGameStarted)
+		return OnRoundEnd_Intercept(WINSTATUS_DRAW, ROUND_GAME_COMMENCE, 3);
+
+	if (alive > 1)
+		return false;
+
+	FreeForAllRoundEnd(pLastAlive);
+	return true;
+}
+
+void CHalfLifeMultiplay::FreeForAllRoundEnd(CBasePlayer *pWinner)
+{
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		CBasePlayer *pPlayer = UTIL_PlayerByIndex(i);
+		if (!FFA_InRound(pPlayer))
+			continue;
+
+		pPlayer->AddAccount(int(pPlayer == pWinner ? ffa_win_money.value : ffa_loss_money.value), RT_ROUND_BONUS);
+	}
+
+	if (pWinner)
+	{
+		UTIL_LogPrintf("\"%s<%i><%s><%s>\" triggered \"Round_Win\"\n", STRING(pWinner->pev->netname),
+			GETPLAYERUSERID(pWinner->edict()), GETPLAYERAUTHID(pWinner->edict()), GetTeam(pWinner->m_iTeam));
+		UTIL_LogPrintf("World triggered \"Round_End\"\n");
+		UTIL_ClientPrintAll(HUD_PRINTCENTER, "%s1 wins the round!", STRING(pWinner->pev->netname));
+		Broadcast(pWinner->m_iTeam == CT ? "ctwin" : "terwin");
+		TerminateRound(GetRoundRestartDelay(), WINSTATUS_DRAW);
+		return;
+	}
+
+	Round_Draw(GetRoundRestartDelay());
 }

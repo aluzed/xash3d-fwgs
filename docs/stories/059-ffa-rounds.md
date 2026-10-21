@@ -6,6 +6,27 @@ count, everyone can hurt everyone. The deathmatch of 034 uses it with
 respawn; the `ffa` mode of [056](056-server-game-modes.md) keeps the
 rounds of Counter-Strike instead.
 
+## Status (2026-10-22)
+Done in ReGameDLL_CS (`CHalfLifeMultiplay::FreeForAllRoundCheck`,
+`FreeForAllRoundEnd` in `dlls/game_modes.cpp`), the settings in
+`modes/ffa.cfg` (056). With `mp_freeforall 1` and rounds, the win checks of
+the teams and objectives (bomb, hostages, VIP, escape) are skipped: the
+game starts with two players whatever their teams, the last player alive
+wins the round ("<name> wins the round!", the sound of their team's win, a
+`Round_Win` line in the log), a round whose time runs out on more than one
+player is a draw. Money of a round, given to each player at its end:
+`mp_ffa_win_money` (3250, a team's win in CS) to the winner,
+`mp_ffa_loss_money` (1400, CS2's first loss bonus) to everyone else and to
+all on a draw; $300 a kill as usual. Dead players watch anyone
+(`mp_forcecamera 0`, `mp_forcechasecam 0`).
+
+Tested on 2026-10-22 on the dedicated server of the installed set with 10
+YaPB bots on de_dust2: the bots fight everyone, teammates included; each
+round ended on its last player alive (`Round_Win`), then with
+`mp_roundtime 0.25` every round ran out of time as a draw. Not checked by a
+player on the server: the money and the spectator camera; the economy
+needs playing to tune (as the notes said).
+
 ## Goal
 Rounds where everyone plays against everyone: buy at the start, no
 respawn, the round ends when one player is left (or the round time runs
@@ -32,10 +53,10 @@ Out: objectives (no bomb, no hostages), deathmatch with respawn
 - Score: frags; the board sorted as in 055 (damage, then frags).
 
 ## Tasks
-- [ ] The `ffa` mode's config.
-- [ ] Round end and winner in free for all in ReGameDLL_CS (check what
+- [x] The `ffa` mode's config.
+- [x] Round end and winner in free for all in ReGameDLL_CS (check what
       `mp_freeforall` already does with rounds).
-- [ ] Spectating anyone while dead.
+- [x] Spectating anyone while dead.
 - [ ] Test with bots on de_dust2 and a small map.
 
 ## Acceptance criteria
