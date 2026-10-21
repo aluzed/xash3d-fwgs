@@ -88,6 +88,11 @@ the regression harness shows no new diff outside the story's scope.
 | 065 | [Dust2: small crates to climb alone](065-dust2-mid-step-crate.md) | Game - Counter-Strike |
 | 066 | [A console of today: selectable, copyable, readable](066-new-console.md) | Engine |
 
+Status (2026-10-22): 051 to 066 done (each story's Status section says how
+it was tested and what wasn't), but 052's CI job (no CI) and 050, the
+field validation with players. Still to check on the Linux server: the
+csdm plugin's changes of 056 and 060.
+
 Phases 0 to 5 deliver a renderer that is a drop-in replacement for `ref_gl`.
 Phases 6 and 7 can be developed in parallel once phase 5 is signed off.
 Story 028 is designed early and lands before parity sign-off (020).
