@@ -1,24 +1,37 @@
-; xash3d.iss - Windows installer of Xash3D FWGS with Half-Life and
-; Counter-Strike (story 052). stage.ps1 gathers the files into stage\ first;
-; the game data is copied at install time from the player's Steam folder.
+; xash3d.iss - Windows installer of Half-Life 1.5 and Counter-Strike 1.7,
+; Xash3D FWGS with Half-Life and Counter-Strike (stories 052, 053).
+; stage.ps1 gathers the files into stage\ first; the game data is copied at
+; install time from the player's Steam folder.
 ;
 ;   iscc /DVersion=<version> xash3d.iss
 
 #ifndef Version
   #define Version "0.21"
 #endif
+; the names the player reads (story 053); the game folders stay valve and
+; cstrike, the ones servers and demos name
+#ifndef HLName
+  #define HLName "Half-Life 1.5"
+#endif
+#ifndef CSName
+  #define CSName "Counter-Strike 1.7"
+#endif
+#define Product HLName + " and " + CSName
 
 [Setup]
 AppId={{6C2F4E1A-8B7D-4C3E-9A15-2D0F7B4E9C61}
-AppName=Xash3D FWGS
+AppName={#Product}
 AppVersion={#Version}
+AppVerName={#Product} (unofficial build {#Version})
 AppPublisher=aluzed
 AppPublisherURL=https://github.com/aluzed/xash3d-fwgs
 ; per user: the engine writes its settings, saves and screenshots next to itself
 PrivilegesRequired=lowest
-DefaultDirName={userpf}\Xash3D FWGS
+; an earlier set (052, "Xash3D FWGS") is upgraded in its own folder: same AppId
+DefaultDirName={userpf}\{#HLName}
 DisableProgramGroupPage=yes
-DefaultGroupName=Xash3D FWGS
+DefaultGroupName={#Product}
+UsePreviousGroup=no
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
@@ -26,10 +39,10 @@ LicenseFile=license.txt
 SetupIconFile=installer.ico
 WizardSmallImageFile=wizard-small-55.bmp,wizard-small-110.bmp
 UninstallDisplayIcon={app}\installer.ico
-UninstallDisplayName=Xash3D FWGS (Half-Life, Counter-Strike)
+UninstallDisplayName={#Product}
 WizardStyle=modern
 OutputDir=output
-OutputBaseFilename=Xash3D-FWGS-Setup-{#Version}
+OutputBaseFilename={#Product} Setup
 Compression=lzma2/max
 SolidCompression=yes
 
@@ -38,14 +51,14 @@ SolidCompression=yes
 StatusExtractFiles=Copying files...
 
 [Types]
-Name: "full"; Description: "Half-Life and Counter-Strike"
-Name: "hl"; Description: "Half-Life only"
+Name: "full"; Description: "{#HLName} and {#CSName}"
+Name: "hl"; Description: "{#HLName} only"
 Name: "custom"; Description: "Custom"; Flags: iscustom
 
 [Components]
-Name: "hl"; Description: "Half-Life (needed by Counter-Strike too)"; Types: full hl custom; Flags: fixed
-Name: "cs"; Description: "Counter-Strike, with bots"; Types: full custom
-Name: "server"; Description: "Dedicated servers (Half-Life, Counter-Strike)"; Types: full custom
+Name: "hl"; Description: "{#HLName} (needed by {#CSName} too)"; Types: full hl custom; Flags: fixed
+Name: "cs"; Description: "{#CSName}, with bots"; Types: full custom
+Name: "server"; Description: "Dedicated servers ({#HLName}, {#CSName})"; Types: full custom
 
 [Tasks]
 Name: "desktopicon"; Description: "Desktop shortcuts"; GroupDescription: "Shortcuts:"
@@ -65,7 +78,7 @@ Source: "{code:GetGameDir}\cstrike\config.cfg"; DestDir: "{app}\cstrike"; \
   Flags: external onlyifdoesntexist skipifsourcedoesntexist uninsneveruninstall; Components: cs
 ; the engine and Half-Life's libraries
 Source: "installer.ico"; DestDir: "{app}"; Flags: ignoreversion; Components: hl
-Source: "stage\*"; DestDir: "{app}"; Excludes: "\cstrike\*,\tools\*,\xash-dedicated.exe"; Flags: recursesubdirs createallsubdirs ignoreversion; Components: hl
+Source: "stage\*"; DestDir: "{app}"; Excludes: "\cstrike,\tools,\xash-dedicated.exe"; Flags: recursesubdirs createallsubdirs ignoreversion; Components: hl
 ; the dedicated server, next to the client: same filesystem and game libraries
 Source: "stage\xash-dedicated.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: server
 ; Counter-Strike's libraries, its extras and bots
@@ -74,22 +87,28 @@ Source: "stage\cstrike\*"; DestDir: "{app}\cstrike"; Flags: recursesubdirs creat
 ; next to xash3d.exe for the MSVC runtime, removed once installed
 Source: "stage\tools\patch_dust2.exe"; DestDir: "{app}"; Flags: ignoreversion deleteafterinstall; Components: cs
 
+[InstallDelete]
+; the shortcuts of an earlier set, under the names of 052
+Type: filesandordirs; Name: "{userprograms}\Xash3D FWGS"
+Type: files; Name: "{userdesktop}\Half-Life (Xash3D).lnk"
+Type: files; Name: "{userdesktop}\Counter-Strike (Xash3D).lnk"
+
 [Icons]
-Name: "{group}\Half-Life"; Filename: "{app}\xash3d.exe"; Parameters: "-game valve"; WorkingDir: "{app}"; IconFilename: "{app}\valve\game.ico"; Components: hl
-Name: "{group}\Counter-Strike"; Filename: "{app}\xash3d.exe"; Parameters: "-game cstrike -dll @yapb"; WorkingDir: "{app}"; IconFilename: "{app}\cstrike\game.ico"; Components: cs
+Name: "{group}\{#HLName}"; Filename: "{app}\xash3d.exe"; Parameters: "-game valve"; WorkingDir: "{app}"; IconFilename: "{app}\valve\game.ico"; Components: hl
+Name: "{group}\{#CSName}"; Filename: "{app}\xash3d.exe"; Parameters: "-game cstrike -dll @yapb"; WorkingDir: "{app}"; IconFilename: "{app}\cstrike\game.ico"; Components: cs
 ; the options of the dedicated server stories (038-048), as scripts/server/run.sh
-Name: "{group}\Counter-Strike server"; Filename: "{app}\xash-dedicated.exe"; Parameters: "-game cstrike -dll @yapb -port 27015 +maxplayers 20 +sys_scheduler 1 +sv_snapshot_spread 1 +sv_log_async 1 +sv_client_lookup_cache 1 -netthread +sv_a2s_cache 1 -netsend +map de_dust2"; WorkingDir: "{app}"; IconFilename: "{app}\cstrike\game.ico"; Components: server and cs
-Name: "{group}\Half-Life server"; Filename: "{app}\xash-dedicated.exe"; Parameters: "-game valve -port 27016 +maxplayers 16 +map crossfire"; WorkingDir: "{app}"; IconFilename: "{app}\valve\game.ico"; Components: server
-Name: "{group}\Uninstall Xash3D FWGS"; Filename: "{uninstallexe}"
-Name: "{userdesktop}\Half-Life (Xash3D)"; Filename: "{app}\xash3d.exe"; Parameters: "-game valve"; WorkingDir: "{app}"; IconFilename: "{app}\valve\game.ico"; Components: hl; Tasks: desktopicon
-Name: "{userdesktop}\Counter-Strike (Xash3D)"; Filename: "{app}\xash3d.exe"; Parameters: "-game cstrike -dll @yapb"; WorkingDir: "{app}"; IconFilename: "{app}\cstrike\game.ico"; Components: cs; Tasks: desktopicon
+Name: "{group}\{#CSName} server"; Filename: "{app}\xash-dedicated.exe"; Parameters: "-game cstrike -dll @yapb -port 27015 +maxplayers 20 +sys_scheduler 1 +sv_snapshot_spread 1 +sv_log_async 1 +sv_client_lookup_cache 1 -netthread +sv_a2s_cache 1 -netsend +map de_dust2"; WorkingDir: "{app}"; IconFilename: "{app}\cstrike\game.ico"; Components: server and cs
+Name: "{group}\{#HLName} server"; Filename: "{app}\xash-dedicated.exe"; Parameters: "-game valve -port 27016 +maxplayers 16 +map crossfire"; WorkingDir: "{app}"; IconFilename: "{app}\valve\game.ico"; Components: server
+Name: "{group}\Uninstall {#Product}"; Filename: "{uninstallexe}"
+Name: "{userdesktop}\{#HLName}"; Filename: "{app}\xash3d.exe"; Parameters: "-game valve"; WorkingDir: "{app}"; IconFilename: "{app}\valve\game.ico"; Components: hl; Tasks: desktopicon
+Name: "{userdesktop}\{#CSName}"; Filename: "{app}\xash3d.exe"; Parameters: "-game cstrike -dll @yapb"; WorkingDir: "{app}"; IconFilename: "{app}\cstrike\game.ico"; Components: cs; Tasks: desktopicon
 
 [Run]
 ; a de_dust2 that isn't Counter-Strike's own is left as it is
 Filename: "{app}\patch_dust2.exe"; Parameters: """{code:GetGameDir}\cstrike\maps\de_dust2.bsp"" ""{app}\cstrike\maps\de_dust2.bsp"""; \
   WorkingDir: "{app}"; StatusMsg: "Adding the crates to de_dust2..."; Flags: runhidden waituntilterminated; Components: cs
-Filename: "{app}\xash3d.exe"; Parameters: "-game cstrike -dll @yapb"; WorkingDir: "{app}"; Description: "Launch Counter-Strike"; Flags: nowait postinstall skipifsilent; Components: cs
-Filename: "{app}\xash3d.exe"; Parameters: "-game valve"; WorkingDir: "{app}"; Description: "Launch Half-Life"; Flags: nowait postinstall skipifsilent unchecked; Components: hl
+Filename: "{app}\xash3d.exe"; Parameters: "-game cstrike -dll @yapb"; WorkingDir: "{app}"; Description: "Launch {#CSName}"; Flags: nowait postinstall skipifsilent; Components: cs
+Filename: "{app}\xash3d.exe"; Parameters: "-game valve"; WorkingDir: "{app}"; Description: "Launch {#HLName}"; Flags: nowait postinstall skipifsilent unchecked; Components: hl
 
 [UninstallDelete]
 ; what the engine makes as it runs, always regenerated
@@ -173,6 +192,8 @@ begin
     'Where is Half-Life installed by Steam?',
     'The game data (the valve and cstrike folders) is copied from there. ' +
     'Counter-Strike is in the same folder when you own it.' + #13#10#13#10 +
+    '{#Product} is an unofficial set made by fans, not by Valve: it needs ' +
+    'your own Steam copy of the games.' + #13#10#13#10 +
     'Click Next to use this folder, or Browse to pick another one.',
     False, '' );
   GamePage.Add( 'Half-Life folder (it has the "valve" folder):' );
@@ -243,6 +264,30 @@ begin
   SaveStringToFile( Cfg, Text, False );
 end;
 
+// the game's name in the installed copy of liblist.gam (the window, the
+// menus), and its version: Valve's file in Steam is never touched, the
+// game folder and every other key stay as they are
+procedure WriteGameTitle( GameDir, Title, Version: String );
+var
+  List: String;
+  Lines: TArrayOfString;
+  I: Integer;
+  Key: String;
+begin
+  List := ExpandConstant( '{app}\' ) + GameDir + '\liblist.gam';
+  if not LoadStringsFromFile( List, Lines ) then
+    Exit;
+  for I := 0 to GetArrayLength( Lines ) - 1 do
+  begin
+    Key := Lowercase( Trim( Lines[I] ));
+    if ( Pos( 'game ', Key ) = 1 ) or ( Pos( 'game' + #9, Key ) = 1 ) or ( Pos( 'game"', Key ) = 1 ) or ( Pos( '"game"', Key ) = 1 ) then
+      Lines[I] := 'game "' + Title + '"'
+    else if ( Version <> '' ) and (( Pos( 'version ', Key ) = 1 ) or ( Pos( 'version' + #9, Key ) = 1 ) or ( Pos( '"version"', Key ) = 1 )) then
+      Lines[I] := 'version "' + Version + '"';
+  end;
+  SaveStringsToFile( List, Lines, False );
+end;
+
 var
   HadValveConfig, HadCstrikeConfig: Boolean;
 
@@ -255,10 +300,12 @@ begin
   end;
   if CurStep = ssPostInstall then
   begin
+    WriteGameTitle( 'valve', '{#HLName}', '' );
     WriteVideoConfig( 'valve' );
     WriteGameConfig( 'valve', HadValveConfig );
     if WizardIsComponentSelected( 'cs' ) then
     begin
+      WriteGameTitle( 'cstrike', '{#CSName}', '1.7' );
       WriteVideoConfig( 'cstrike' );
       WriteGameConfig( 'cstrike', HadCstrikeConfig );
     end;

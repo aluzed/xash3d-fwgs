@@ -1,5 +1,11 @@
-Xash3D FWGS with Half-Life and Counter-Strike game libraries
-==========================================================
+Half-Life 1.5 and Counter-Strike 1.7
+====================================
+
+Half-Life 1.5 and Counter-Strike 1.7 are an unofficial set made by fans:
+the Xash3D FWGS engine with Half-Life and Counter-Strike game libraries.
+They are not made, endorsed or supported by Valve Corporation, and need
+your own Steam copy of Half-Life (and of Counter-Strike for Counter-Strike
+1.7). Half-Life and Counter-Strike are trademarks of Valve Corporation.
 
 This installer puts together free software and copies the game data of
 Half-Life and Counter-Strike from your own Steam installation.

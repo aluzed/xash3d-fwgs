@@ -211,6 +211,7 @@ void CMenuBackgroundBitmap::Draw()
 	else
 		DrawSteamBackgroundLayout( p, xOffset, yOffset, xScale, yScale );
 
+#ifndef MAINUI_NO_CLIENT_BUILD_LINE
 	// print CS16Client version
 	char version[32];
 	int stringLen, charH;
@@ -219,7 +220,7 @@ void CMenuBackgroundBitmap::Draw()
 
 	EngFuncs::engfuncs.pfnDrawConsoleStringLen( version, &stringLen, &charH );
 	EngFuncs::engfuncs.pfnDrawConsoleString( stringLen * 0.05f, ScreenHeight - charH * 1.05f, version );
-
+#endif
 }
 
 bool CMenuBackgroundBitmap::LoadSteamBackground( bool gamedirOnly )

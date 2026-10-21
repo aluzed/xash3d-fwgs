@@ -8,6 +8,51 @@ show the names of the original releases: "Half-Life", "Counter-Strike",
 renderer with ray tracing, new menus and utilities. It gets its own names:
 **Half-Life 1.5** and **Counter-Strike 1.7**.
 
+## Status (2026-10-22)
+Done and tested with the installer, except the GoldSrc server check (see
+below). The names are defined once in `xash3d.iss` (`HLName`, `CSName`,
+`/D` to change them) and reach the games through their `liblist.gam`:
+
+- Installer: "Half-Life 1.5 and Counter-Strike 1.7" (product, programs
+  list, Start menu folder, `Half-Life 1.5 and Counter-Strike 1.7
+  Setup.exe`), components and shortcuts "Half-Life 1.5", "Counter-Strike
+  1.7", "... server", folder `%LOCALAPPDATA%\Programs\Half-Life 1.5`. Same
+  `AppId`: a 052 set installed as "Xash3D FWGS" is upgraded in its folder,
+  its settings kept, its old Start menu folder and desktop shortcuts
+  removed (`UsePreviousGroup=no`, `[InstallDelete]`). The notice that the
+  set is unofficial, made by fans, not by Valve, and needs the player's
+  Steam copy is on the Steam folder page and at the top of `license.txt`.
+- Game titles: the installer rewrites `game` (and Counter-Strike's
+  `version "1.7"`) in the installed copy of `liblist.gam` rather than
+  writing a `gameinfo.txt`: a `gameinfo.txt` would need every key of
+  `liblist.gam` translated to its own names, and the engine rewrites it
+  from `liblist.gam` when that one is newer. The window, the taskbar and
+  the menus (Half-Life's "Learn how to play Half-Life 1.5") read it.
+- Engine: `waf configure --branded` (off by default) makes the corner line
+  of the menus and screenshots "<game title> (unofficial build N)"; the
+  console's banner, `version`, the server, master and HTTP strings keep
+  Xash3D FWGS, its protocol and build number. Counter-Strike's menus:
+  `-DMAINUI_CLIENT_BUILD_LINE=OFF` drops their "cs16-client build N" line.
+  `stage.ps1` builds both so.
+
+Tested on 2026-10-22: the 052 installer (0.22) installed silently, then
+this one over it without `/DIR`: same folder, the old shortcuts gone, the
+new ones in "Half-Life 1.5 and Counter-Strike 1.7" and on the desktop,
+`config.cfg` kept; window titles "Counter-Strike 1.7" and "Half-Life 1.5",
+menu corners "Counter-Strike 1.7 (unofficial build 4221)" and "Half-Life
+1.5 (unofficial build 4221)", no cs16-client line; the set's client joined
+the set's dedicated server (team menu); a fresh install of Half-Life alone
+went to `Programs\Half-Life 1.5` (no empty `cstrike` or `tools` folder any
+more); both uninstalls left nothing in the Start menu, desktop or programs
+list.
+
+Not checked: joining a GoldSrc (ReHLDS) server and an Xash3D server over
+the network, both offline that night; nothing on the network path
+changed. Demos: a de_dust2 demo recorded before 065 (`arte.dem`) refuses
+the set's de_dust2 with the crates ("Your map [de_dust2] differs from the
+server's"), as it would in the 065 play set: a consequence of 065, not of
+the names.
+
 ## Goal
 Everywhere a player reads a name or a version, the set says Half-Life 1.5
 or Counter-Strike 1.7, while servers, demos and game folders keep working
@@ -36,23 +81,23 @@ Out, kept as they are (compatibility):
   only overridden in the installed set (see tasks), never edited in place.
 
 ## Tasks
-- [ ] List every place a name or version is shown: installer (`xash3d.iss`,
+- [x] List every place a name or version is shown: installer (`xash3d.iss`,
       `license.txt`), engine (`XASH_ENGINE_NAME`, version strings of
       `host.c` / `console.c`, window title), menus (`mainui_cpp`
       BackgroundBitmap version line, banners), `cs16-client` (game title,
       HUD texts), `hlsdk-portable` if it shows any.
-- [ ] Define the names once: a product name and a version per game,
+- [x] Define the names once: a product name and a version per game,
       passed to the builds (waf / CMake options, defaulting to the current
       names so upstream builds are unchanged) and to `iscc` (`/D`).
-- [ ] Installer: product "Half-Life 1.5 & Counter-Strike 1.7", components
+- [x] Installer: product "Half-Life 1.5 & Counter-Strike 1.7", components
       and shortcuts renamed, `Setup.exe` named after it, install folder
       `%LOCALAPPDATA%\Programs\Half-Life 1.5`; keep the same `AppId` so an
       installed 052 set is upgraded, not duplicated.
-- [ ] Game titles: the installer writes a `gameinfo.txt` in `valve` and
+- [x] Game titles: the installer writes a `gameinfo.txt` in `valve` and
       `cstrike` of the installed set with `title "Half-Life 1.5"` /
       `"Counter-Strike 1.7"` (it takes precedence over `liblist.gam`),
       keeping every other key of the original.
-- [ ] Engine and menus: the version line reads "Counter-Strike 1.7
+- [x] Engine and menus: the version line reads "Counter-Strike 1.7
       (build N)" / "Half-Life 1.5 (build N)" in the menus; the engine keeps
       its protocol and build number where servers read them.
 - [ ] Check: a server browser, a GoldSrc and an Xash3D server, demos

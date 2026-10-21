@@ -67,10 +67,12 @@ if( -not $NoBuild )
 	Push-Location $Repo
 	try
 	{
-		# the engine, client: its own lock file and build directory
+		# the engine, client: its own lock file and build directory; branded,
+		# the menus show the game's title and build (story 053)
 		$env:WAFLOCK = ".lock-waf-x64"
-		if( -not ( Test-Path "$Repo\build-x64" )) {
-			Invoke-Checked "configure the engine" { .\waf.bat configure -o build-x64 -s SDL2_VC -T release -8 --msvc_targets=x64 --enable-tui --enable-vk }
+		$cache = "$Repo\build-x64\c4che\_cache.py"
+		if( -not (( Test-Path $cache ) -and ( Select-String -Quiet -SimpleMatch "XASH_BRANDED_VERSION" $cache ))) {
+			Invoke-Checked "configure the engine" { .\waf.bat configure -o build-x64 -s SDL2_VC -T release -8 --msvc_targets=x64 --enable-tui --enable-vk --branded }
 		}
 		Invoke-Checked "build the engine" { .\waf.bat build install "--destdir=$client" }
 
@@ -85,7 +87,7 @@ if( -not $NoBuild )
 	finally { Pop-Location }
 
 	# the games, installed under one prefix: valve\..., cstrike\...
-	foreach( $g in @( @( "halflife-15", "-D64BIT=ON" ), @( "cstrike-17", "-DENABLE_YY_THUNKS=OFF" )))
+	foreach( $g in @( @( "halflife-15", "-D64BIT=ON" ), @( "cstrike-17", @( "-DENABLE_YY_THUNKS=OFF", "-DMAINUI_CLIENT_BUILD_LINE=OFF" ))))
 	{
 		$b = "$Build\$( $g[0] )-win64"
 		Invoke-Checked "configure $( $g[0] )" { & $cmake -S "$Repo\$( $g[0] )" -B $b -G "Visual Studio 18 2026" -A x64 $g[1] }

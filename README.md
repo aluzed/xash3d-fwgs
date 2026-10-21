@@ -60,7 +60,7 @@ This set is a new game more than a Counter-Strike 1.6 kept as it was: heavier th
 Not aimed at: Intel Atom, Intel integrated graphics (UHD, Iris Xe) and other low power chips.
 
 ## Installation & Running
-On Windows, the installer sets up Half-Life and Counter-Strike from your Steam copies: see [Documentation/windows-installer.md](Documentation/windows-installer.md). By hand:
+On Windows, the installer sets up Half-Life 1.5 and Counter-Strike 1.7, this set's unofficial Half-Life and Counter-Strike, from your Steam copies: see [Documentation/windows-installer.md](Documentation/windows-installer.md). By hand:
 
 0) Get Xash3D FWGS binaries: you can use [testing](https://github.com/FWGS/xash3d-fwgs/releases/tag/continuous) build or you can compile engine from source code.
 1) Copy engine binaries to some directory.

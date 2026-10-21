@@ -28,6 +28,7 @@ set(CMAKE_CXX_STANDARD 11)
 option(MAINUI_USE_CUSTOM_FONT_RENDER "Use custom font rendering" ON)
 option(MAINUI_USE_STB "Use stb_truetype.h for rendering(*nix-only)" OFF)
 option(MAINUI_FONT_SCALE "Scale fonts by height" OFF)
+option(MAINUI_CLIENT_BUILD_LINE "Show the cs16-client build in the corner of the menu (an engine built --branded shows the game's own)" ON)
 
 if(NOT XASH_SDK)
 	set(XASH_SDK "sdk_includes/")
@@ -46,6 +47,10 @@ endif()
 
 if(MAINUI_FONT_SCALE)
 	add_definitions(-DMAINUI_FONT_SCALE)
+endif()
+
+if(NOT MAINUI_CLIENT_BUILD_LINE)
+	add_definitions(-DMAINUI_NO_CLIENT_BUILD_LINE)
 endif()
 
 add_definitions(-DSTDINT_H=<cstdint>)

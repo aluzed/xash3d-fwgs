@@ -2188,8 +2188,12 @@ void Con_DrawVersion( void )
 
 	if( cls.key_dest == key_menu )
 	{
+#if XASH_BRANDED_VERSION
+		Q_snprintf( curbuild, sizeof( curbuild ), "%s (unofficial build %i)", GI->title, Q_buildnum( ));
+#else
 		Q_snprintf( curbuild, sizeof( curbuild ),
 			"v%i/" XASH_VERSION " (%s-%s build %i)", PROTOCOL_VERSION, Q_buildos(), Q_buildarch(), Q_buildnum( ));
+#endif
 	}
 	else
 	{
@@ -2209,8 +2213,12 @@ void Con_DrawVersion( void )
 		if( !draw_version )
 			return;
 
+#if XASH_BRANDED_VERSION
+		Q_snprintf( curbuild, sizeof( curbuild ), "%s (unofficial build %i)", GI->title, Q_buildnum( ));
+#else
 		Q_snprintf( curbuild, sizeof( curbuild ),
 			XASH_ENGINE_NAME " v%i/" XASH_VERSION " (%s-%s build %i)", PROTOCOL_VERSION, Q_buildos(), Q_buildarch(), Q_buildnum( ));
+#endif
 	}
 
 	int stringLen, charH = 0;
