@@ -17,8 +17,14 @@ wizard, Steam detection, copy without Valve's libraries, first-run
 bots, uninstaller. A silent install found the Steam folder on its own,
 installed 806 MB in 9 seconds, Counter-Strike started with Vulkan, ray
 tracing and bots, Half-Life started c1a0; the uninstall removed everything
-but the player's `video.cfg`. Left: the CI job, the fresh Windows 10 and
-11 machines of the acceptance criteria, the players' page.
+but the player's `video.cfg`. 
+2026-10-21: de_dust2 with story 065's crates written at install time
+(`patch_dust2.exe`); the player's Steam `config.cfg` on a first install
+only, with `hud_utf8 1` and F12 for a screenshot, kept on a reinstall and
+by the uninstaller unless asked; the progress bar checked and a cancel in
+the middle of the copy leaving nothing; the players' page,
+`Documentation/windows-installer.md`. Left: the CI job (not for now), the
+fresh Windows 10 and 11 machines of the acceptance criteria.
 
 ## Goal
 One `Setup.exe` for Windows 10 and 11, 64-bit: the player picks the Steam
@@ -73,15 +79,15 @@ Out:
         `dlls\*.dll`, `hl.dll`, `vgui*.dll`, Steam's `*.exe`). Copied, not
         read in place with `-rodir`: the set must keep working when Steam
         updates, moves or uninstalls the game.
-  - [ ] A progress bar for the copy; cancelling leaves nothing behind.
-- [ ] Out of the box settings, written as the default configuration of a
+  - [x] A progress bar for the copy; cancelling leaves nothing behind.
+- [x] Out of the box settings, written as the default configuration of a
       first run (never over an existing one, so a reinstall keeps the
       player's settings):
-  - [ ] renderer Vulkan when a Vulkan device is there, else OpenGL (the
+  - [x] renderer Vulkan when a Vulkan device is there, else OpenGL (the
         engine already falls back on its own when Vulkan fails);
-  - [ ] preset `classic`, `cl_charset utf-8`, `hud_utf8 1`, screen
+  - [x] preset `classic`, `cl_charset utf-8`, `hud_utf8 1`, screen
         resolution of the desktop, fullscreen;
-  - [ ] `bind F12 snapshot` as well as F5.
+  - [x] `bind F12 snapshot` as well as F5.
 - [x] Runtime dependencies: link the MSVC runtime statically (`/MT`) or
       ship the VC++ redistributable and run it silently when missing;
       check a fresh Windows 10 has every DLL the set imports (`dumpbin
@@ -96,7 +102,7 @@ Out:
       `glslc`), `hlsdk-portable` and `cs16-client` x64 (CMake), stage the
       files, run `iscc`, publish `Xash3D-FWGS-Setup-<version>.exe` as an
       artifact and on releases.
-- [ ] A page in `Documentation/` for players: what the installer does, what
+- [x] A page in `Documentation/` for players: what the installer does, what
       it needs (Steam copies of the games), where things go.
 
 ## Acceptance criteria

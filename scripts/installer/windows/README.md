@@ -45,6 +45,10 @@ installer is `output\Xash3D-FWGS-Setup-<version>.exe`.
 - Writes Counter-Strike 1.7's `de_dust2` (the small crates of story 065)
   from the copied map with `patch_dust2.exe` (`cstrike-17/tools`), run
   once and removed; a map that isn't Counter-Strike's own stays as it is.
+- Copies the player's Steam `config.cfg` (keys, mouse) on a first install
+  only, or writes one that runs Valve's `default.cfg`, then adds
+  `hud_utf8 1` and `bind F12 snapshot` (unless F12 is taken). A reinstall
+  keeps the set's own; the uninstaller asks before removing it.
 - Writes a first-run `video.cfg` in each game folder: the Vulkan renderer
   (the engine falls back to OpenGL by itself), fullscreen at the desktop's
   resolution. Never over an existing one.
@@ -63,3 +67,5 @@ installer is `output\Xash3D-FWGS-Setup-<version>.exe`.
 
 Silent install, as used in tests:
 `Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /DIR="C:\Games\Xash3D" /COMPONENTS="hl,cs"`.
+
+Players' page: [`Documentation/windows-installer.md`](../../../Documentation/windows-installer.md).

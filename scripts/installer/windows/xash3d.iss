@@ -33,6 +33,10 @@ OutputBaseFilename=Xash3D-FWGS-Setup-{#Version}
 Compression=lzma2/max
 SolidCompression=yes
 
+[Messages]
+; most of the install is the copy of the game data from Steam
+StatusExtractFiles=Copying files...
+
 [Types]
 Name: "full"; Description: "Half-Life and Counter-Strike"
 Name: "hl"; Description: "Half-Life only"
@@ -49,10 +53,16 @@ Name: "desktopicon"; Description: "Desktop shortcuts"; GroupDescription: "Shortc
 [Files]
 ; the game data first, from the player's Steam folder, without Valve's
 ; libraries: the 64-bit ones below replace them
-Source: "{code:GetGameDir}\valve\*"; DestDir: "{app}\valve"; Excludes: "*.dll,*.so,*.dylib,*.exe"; \
+Source: "{code:GetGameDir}\valve\*"; DestDir: "{app}\valve"; Excludes: "*.dll,*.so,*.dylib,*.exe,\config.cfg"; \
   Flags: external recursesubdirs createallsubdirs ignoreversion; ExternalSize: 540000000; Components: hl
-Source: "{code:GetGameDir}\cstrike\*"; DestDir: "{app}\cstrike"; Excludes: "*.dll,*.so,*.dylib,*.exe"; \
+Source: "{code:GetGameDir}\cstrike\*"; DestDir: "{app}\cstrike"; Excludes: "*.dll,*.so,*.dylib,*.exe,\config.cfg"; \
   Flags: external recursesubdirs createallsubdirs ignoreversion; ExternalSize: 310000000; Components: cs
+; the player's Steam settings (keys, mouse...) on a first install only: a
+; reinstall keeps the ones of this set, and the uninstaller asks for them
+Source: "{code:GetGameDir}\valve\config.cfg"; DestDir: "{app}\valve"; \
+  Flags: external onlyifdoesntexist skipifsourcedoesntexist uninsneveruninstall; Components: hl
+Source: "{code:GetGameDir}\cstrike\config.cfg"; DestDir: "{app}\cstrike"; \
+  Flags: external onlyifdoesntexist skipifsourcedoesntexist uninsneveruninstall; Components: cs
 ; the engine and Half-Life's libraries
 Source: "installer.ico"; DestDir: "{app}"; Flags: ignoreversion; Components: hl
 Source: "stage\*"; DestDir: "{app}"; Excludes: "\cstrike\*,\tools\*,\xash-dedicated.exe"; Flags: recursesubdirs createallsubdirs ignoreversion; Components: hl
@@ -213,13 +223,45 @@ begin
     'height "' + IntToStr( GetSystemMetrics( 1 )) + '"' + #13#10, False );
 end;
 
+// config.cfg of a first install: the player's Steam one, or Valve's
+// default keys when the game never ran under Steam, with the settings of
+// this set: the HUD in UTF-8, F12 for a screenshot as well as F5 (unless
+// the player uses F12). A reinstall keeps the set's own config.cfg.
+procedure WriteGameConfig( GameDir: String; Existed: Boolean );
+var
+  Cfg: String;
+  Text: AnsiString;
+begin
+  Cfg := ExpandConstant( '{app}\' ) + GameDir + '\config.cfg';
+  if Existed or not DirExists( ExpandConstant( '{app}\' ) + GameDir ) then
+    Exit;
+  if not LoadStringFromFile( Cfg, Text ) then
+    Text := 'exec default.cfg' + #13#10;
+  Text := Text + #13#10 + '// settings of the installer' + #13#10 + 'hud_utf8 "1"' + #13#10;
+  if ( Pos( 'bind "f12"', Lowercase( Text )) = 0 ) and ( Pos( 'bind f12', Lowercase( Text )) = 0 ) then
+    Text := Text + 'bind "F12" "snapshot"' + #13#10;
+  SaveStringToFile( Cfg, Text, False );
+end;
+
+var
+  HadValveConfig, HadCstrikeConfig: Boolean;
+
 procedure CurStepChanged( CurStep: TSetupStep );
 begin
+  if CurStep = ssInstall then
+  begin
+    HadValveConfig := FileExists( ExpandConstant( '{app}\valve\config.cfg' ));
+    HadCstrikeConfig := FileExists( ExpandConstant( '{app}\cstrike\config.cfg' ));
+  end;
   if CurStep = ssPostInstall then
   begin
     WriteVideoConfig( 'valve' );
+    WriteGameConfig( 'valve', HadValveConfig );
     if WizardIsComponentSelected( 'cs' ) then
+    begin
       WriteVideoConfig( 'cstrike' );
+      WriteGameConfig( 'cstrike', HadCstrikeConfig );
+    end;
   end;
 end;
 
