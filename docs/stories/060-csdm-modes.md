@@ -6,6 +6,20 @@ ReGameDLL_CS cvars in `csdm.cfg` and a Metamod plugin
 (`scripts/server/csdm`: CSDM spawn points, health and reload on a kill).
 The `csdm` mode of [056](056-server-game-modes.md) offers it in two forms.
 
+## Status (2026-10-22)
+Done with 056: `modes/csdm_ffa.cfg` is the old `csdm.cfg` (removed from
+`scripts/server`), `modes/csdm_team.cfg` the same with `mp_freeforall 0`,
+`mp_autoteambalance 1`, `mp_limitteams 2` (friendly fire off in both). The
+csdm plugin acts only in `csdm` and, in team deathmatch, only an enemy
+within 450 units keeps a spawn point.
+
+Tested on 2026-10-22 on the Windows dedicated server of the installed set
+with 10 YaPB bots: `sv_mode csdm team` gave 23 kills in a minute, none
+between teammates, the bots respawning and fighting without objectives;
+`csdm ffa` as the deathmatch of 034 (bots killing teammates). Not tested:
+the plugin (Linux only, its Metamod build isn't on this machine); to check
+on the Linux server with `MODE="csdm team" scripts/server/run.sh`.
+
 ## Goal
 Deathmatch with respawn, chosen by the mode:
 - `sv_mode csdm ffa`: everyone against everyone, as today;
@@ -32,8 +46,8 @@ weapon menus of CSDM-ReAPI.
   set.
 
 ## Tasks
-- [ ] `csdm_ffa.cfg` from `csdm.cfg`, `csdm_team.cfg`.
-- [ ] The plugin: spawns away from enemies only in team deathmatch.
+- [x] `csdm_ffa.cfg` from `csdm.cfg`, `csdm_team.cfg`.
+- [x] The plugin: spawns away from enemies only in team deathmatch.
 - [ ] Test both with bots.
 
 ## Acceptance criteria
