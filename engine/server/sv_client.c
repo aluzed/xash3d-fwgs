@@ -1162,8 +1162,15 @@ void SV_RemoteCommand( netadr_t from, sizebuf_t *msg )
 
 	adr = NET_AdrToString( from );
 
-	Con_Printf( "Rcon from %s:\n%s\n", adr, MSG_GetData( msg ) + 4 );
-	Log_Printf( "Rcon: \"%s\" from \"%s\"\n", MSG_GetData( msg ) + 4, adr );
+	// the packet isn't terminated: only its own bytes, not the ones a longer
+	// packet left in the buffer
+	int len = Q_max( 0, MSG_GetMaxBytes( msg ) - 4 );
+	const char *text = (const char *)MSG_GetData( msg ) + 4;
+	while( len > 0 && ( text[len - 1] == '\0' || text[len - 1] == '\n' ))
+		len--;
+
+	Con_Printf( "Rcon from %s:\n%.*s\n", adr, len, text );
+	Log_Printf( "Rcon: \"%.*s\" from \"%s\"\n", len, text, adr );
 
 	remaining[0] = 0;
 	for( int i = 2; i < Cmd_Argc(); i++ )
