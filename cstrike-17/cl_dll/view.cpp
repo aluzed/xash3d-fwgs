@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "hud.h"
+#include "interlude.h"
 #include "pm_math.h"
 #include "cl_util.h"
 #include "cvardef.h"
@@ -1898,6 +1899,9 @@ void DLLEXPORT V_CalcRefdef( struct ref_params_s *pparams )
 	{
 		V_CalcNormalRefdef ( pparams );
 	}
+
+	// a match's interlude: the camera that shows the teams (story 058)
+	Interlude_CalcRefdef( pparams );
 }
 
 /*

@@ -6,6 +6,39 @@ round, and closes it on the winners. The `match` mode of
 [057](057-match-mr13.md) has the moments for it: the start, the half time
 switch, the start of overtime, its switch, the end.
 
+## Status (2026-10-22)
+Done: server in ReGameDLL_CS (`dlls/game_modes.cpp`, `MatchRoundStarted`,
+`MatchPlayerThink`), client in `cs16-client` (`cl_dll/interlude.cpp`).
+
+- Server: at the match's start, half time, overtime's start and switch,
+  the round's freeze gets `mp_match_interlude_time` (6 s) more at its
+  start; the players' buttons are cleared and their angles held every frame,
+  weapon, buy, drop and team commands refused, `CanPlayerBuy` false. The
+  message `Interlude` (kind, duration, up to 20 players: index, team,
+  origin, yaw) goes to everyone; the shown players get
+  `EF_FORCEVISIBILITY` so that clients far from them still receive them.
+  The match's end plays one more round start for the winners' interlude:
+  the losers hidden (`EF_NODRAW`, not solid), then the intermission.
+- Client: during the interlude the view is the camera, the local player is
+  drawn among the others (`CL_IsThirdPerson`), the HUD (crosshair, money,
+  timer, chat of the HUD) is replaced by the shown players' names under
+  their feet in their team's colour. The camera: a group (a team, or both
+  when their centres are within 1400 units) seen from one of 8 sides, at
+  the usual height or from above, the one with the most players in view
+  from where it ends (traced against the world), then the least pulled in,
+  in front of the players when as good; it starts close and travels back,
+  every position traced so that it never enters a wall. Teams farther
+  apart are shown one after the other, half the time each.
+
+Tested on 2026-10-22 with the installed set, a client joined to the
+dedicated server with 6 YaPB bots and the short test match of 057: the
+start on de_dust2 (terrorists, then counter-terrorists, the local player
+among them, names in their colours), half time, the end showing only the
+3 winning terrorists then the scoreboard; the start on de_nuke and
+de_inferno. Seen: a few lines of VGUI2 text (chat, "joining the
+terrorist force") stay at the bottom and top of the screen during an
+interlude; the camera on de_nuke's open spawn stays far.
+
 ## Goal
 A short interlude, a few seconds, at each of these moments:
 - start of the match, half time, start of overtime, overtime switch: the
@@ -45,13 +78,13 @@ weapon), music, a camera per map made by hand.
 - Spectators and dead players see the same interlude.
 
 ## Tasks
-- [ ] Server: the interlude's freeze at the five moments, players held
+- [x] Server: the interlude's freeze at the five moments, players held
       still and their inputs ignored,
       losers kept out at the end; `Interlude` message.
-- [ ] Client: the camera from the players' positions, its travel, the
+- [x] Client: the camera from the players' positions, its travel, the
       checks against the walls.
-- [ ] Client: names under the models; HUD hidden.
-- [ ] Test on de_dust2, de_inferno, de_nuke (spawns far apart, indoors) with
+- [x] Client: names under the models; HUD hidden.
+- [x] Test on de_dust2, de_inferno, de_nuke (spawns far apart, indoors) with
       bots and `mp_match_rounds 4`.
 
 ## Acceptance criteria

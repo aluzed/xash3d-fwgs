@@ -36,6 +36,7 @@
 
 #include "draw_util.h"
 #include "events/smoke_volume.h"
+#include "interlude.h"
 
 #if _WIN32
 #define strncasecmp _strnicmp
@@ -294,6 +295,7 @@ void CHud :: Init( void )
 	HOOK_COMMAND_FUNC( "gunsmoke", __CmdFunc_GunSmoke, );
 
 	SmokeVolume_Init();
+	Interlude_Init();
 
 #ifdef __ANDROID__
 	HOOK_COMMAND_FUNC( "evdev_mouseopen", __CmdFunc_MouseSucksOpen );
@@ -465,6 +467,7 @@ void CHud :: VidInit( void )
 {
 	static bool firstinit = true;
 	SmokeVolume_Reset();
+	Interlude_Reset();
 	m_scrinfo.iSize = sizeof( m_scrinfo );
 	GetScreenInfo( &m_scrinfo );
 

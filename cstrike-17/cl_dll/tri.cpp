@@ -17,6 +17,7 @@
 #include "particleman.h"
 #include "environment.h"
 #include "events/smoke_volume.h"
+#include "interlude.h"
 
 extern int g_iWaterLevel;
 
@@ -74,4 +75,5 @@ void DLLEXPORT HUD_DrawTransparentTriangles( void )
 	}
 
 	SmokeVolume_Draw();
+	Interlude_Project();
 }

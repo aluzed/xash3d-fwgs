@@ -25,6 +25,7 @@ int gmsgScoreAttrib = 0;
 int gmsgScoreInfo = 0;
 int gmsgScoreDmg = 0;
 int gmsgSmokeBlast = 0;
+int gmsgInterlude = 0;
 int gmsgTeamInfo = 0;
 int gmsgTeamScore = 0;
 int gmsgGameMode = 0;
@@ -169,6 +170,7 @@ void LinkUserMessages()
 	gmsgScoreInfo     = REG_USER_MSG("ScoreInfo", 9);
 	gmsgScoreDmg      = REG_USER_MSG("ScoreDmg", 5);
 	gmsgSmokeBlast    = REG_USER_MSG("SmokeBlast", 9);
+	gmsgInterlude     = REG_USER_MSG("Interlude", -1);
 	gmsgTeamInfo      = REG_USER_MSG("TeamInfo", -1);
 	gmsgTeamScore     = REG_USER_MSG("TeamScore", -1);
 	gmsgGameMode      = REG_USER_MSG("GameMode", 1);
@@ -2806,6 +2808,10 @@ void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *pa
 	const char *pstr = nullptr;
 	entvars_t *pev = &pEntity->v;
 	CBasePlayer *pPlayer = GetClassPtr<CCSPlayer>((CBasePlayer *)pev);
+
+	// a match's interlude holds the players: no weapon, no buying (story 058)
+	if (GameModes_InterludeBlocksCommand(pcmd))
+		return;
 
 	if (FStrEq(pcmd, "say"))
 	{

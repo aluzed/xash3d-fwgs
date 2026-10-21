@@ -241,3 +241,5 @@ void GameModes_Init();
 void GameModes_MapStart();
 void GameModes_Think();
 const char *GameModes_Current();
+bool GameModes_InterludeBlocksCommand(const char *pcmd);
+bool GameModes_InterludeActive();

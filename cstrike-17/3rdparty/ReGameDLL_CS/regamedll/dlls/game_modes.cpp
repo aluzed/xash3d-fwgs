@@ -324,7 +324,19 @@ enum MatchState
 	MATCH_SECOND_HALF,
 	MATCH_OT_FIRST_HALF,
 	MATCH_OT_SECOND_HALF,
+	MATCH_ENDING,        // the winners' interlude
 	MATCH_ENDED,
+};
+
+// the interludes of story 058, at the start of a round
+enum InterludeKind
+{
+	INTERLUDE_NONE = -1,
+	INTERLUDE_START,
+	INTERLUDE_HALF_TIME,
+	INTERLUDE_OVERTIME,
+	INTERLUDE_OVERTIME_SWITCH,
+	INTERLUDE_END,
 };
 
 static MatchState s_MatchState = MATCH_OFF;
@@ -334,6 +346,10 @@ static float s_flNextWarmupMessage;
 static bool s_bRoundEvaluated;       // the scores of the ended round looked at
 static bool s_bSwitchSides;          // at the next round's start
 static int s_iSetMoney;              // the same, 0: nothing to set
+static InterludeKind s_PendingInterlude = INTERLUDE_NONE;
+static int s_iWinningTeam;           // at the end: TERRORIST, CT, or 0 on a draw
+
+void GameModes_RegisterInterludeCvars();
 
 void GameModes_RegisterMatchCvars()
 {
@@ -345,6 +361,7 @@ void GameModes_RegisterMatchCvars()
 	CVAR_REGISTER(&match_ot_money);
 	CVAR_REGISTER(&match_end_delay);
 	CVAR_REGISTER(&match_allow_bots);
+	GameModes_RegisterInterludeCvars();
 }
 
 static void Match_Announce(const char *text)
@@ -365,7 +382,13 @@ void Match_MapStart()
 	s_bRoundEvaluated = false;
 	s_bSwitchSides = false;
 	s_iSetMoney = 0;
+	s_PendingInterlude = INTERLUDE_NONE;
+	s_iWinningTeam = 0;
 }
+
+static void Interlude_Clear();
+static void Interlude_Fallback(CHalfLifeMultiplay *pRules);
+void GameModes_RegisterInterludeCvars();
 
 // the players of the match: in a team, bots only for tests
 static int Match_CountPlayers()
@@ -420,7 +443,10 @@ static void Match_ApplyWarmup()
 
 void CHalfLifeMultiplay::MatchThink()
 {
-	if (s_MatchState == MATCH_OFF || s_MatchState == MATCH_ENDED)
+	if (s_MatchState == MATCH_ENDING)
+		Interlude_Fallback(this);
+
+	if (s_MatchState == MATCH_OFF || s_MatchState == MATCH_ENDED || s_MatchState == MATCH_ENDING)
 		return;
 
 	// the mode's config has run (queued by the game rules), then the warmup
@@ -479,6 +505,8 @@ void CHalfLifeMultiplay::MatchThink()
 		// the match's rules, a complete restart: scores, money, weapons
 		s_MatchState = MATCH_FIRST_HALF;
 		s_bRoundEvaluated = true;
+		s_PendingInterlude = INTERLUDE_START;
+		m_bGameStarted = true; // no "game commencing" restart over the interlude
 		SERVER_COMMAND("exec modes/match.cfg\n");
 		SERVER_COMMAND("sv_restartround 3\n");
 		Match_Announce(UTIL_VarArgs("The match starts: first to %d", Q_max(1, int(match_rounds.value) / 2) + 1));
@@ -507,6 +535,7 @@ void CHalfLifeMultiplay::MatchThink()
 		s_MatchState = MATCH_SECOND_HALF;
 		s_bSwitchSides = true;
 		s_iSetMoney = int(startmoney.value);
+		s_PendingInterlude = INTERLUDE_HALF_TIME;
 		Match_Announce("Half time, switching sides");
 		return;
 	}
@@ -518,6 +547,7 @@ void CHalfLifeMultiplay::MatchThink()
 		{
 			s_MatchState = MATCH_OT_FIRST_HALF;
 			s_iSetMoney = int(match_ot_money.value);
+			s_PendingInterlude = INTERLUDE_OVERTIME;
 			Match_Announce(UTIL_VarArgs("%d-%d: overtime, first to %d", m_iNumCTWins, m_iNumTerroristWins, half + otHalf + 1));
 			return;
 		}
@@ -527,6 +557,7 @@ void CHalfLifeMultiplay::MatchThink()
 		s_MatchState = MATCH_OT_SECOND_HALF;
 		s_bSwitchSides = true;
 		s_iSetMoney = int(match_ot_money.value);
+		s_PendingInterlude = INTERLUDE_OVERTIME_SWITCH;
 		Match_Announce("Overtime half time, switching sides");
 		return;
 	}
@@ -537,8 +568,11 @@ void CHalfLifeMultiplay::MatchThink()
 	else
 		return;
 
-	// the end of the match
-	s_MatchState = MATCH_ENDED;
+	// the end of the match: the winners' interlude at the next round's
+	// start, then the intermission
+	s_MatchState = MATCH_ENDING;
+	s_PendingInterlude = INTERLUDE_END;
+	s_iWinningTeam = draw ? 0 : (m_iNumCTWins > m_iNumTerroristWins ? CT : TERRORIST);
 
 	if (draw)
 		Match_Announce(UTIL_VarArgs("Draw %d-%d", m_iNumCTWins, m_iNumTerroristWins));
@@ -549,15 +583,14 @@ void CHalfLifeMultiplay::MatchThink()
 
 	if (match_end_delay.value > 0.0f)
 		CVAR_SET_FLOAT("mp_chattime", match_end_delay.value);
-
-	GoToIntermission();
 }
 
 void CHalfLifeMultiplay::MatchRoundRestart()
 {
 	s_bRoundEvaluated = false;
+	Interlude_Clear();
 
-	if (s_MatchState < MATCH_FIRST_HALF || s_MatchState == MATCH_ENDED)
+	if (s_MatchState < MATCH_FIRST_HALF || s_MatchState >= MATCH_ENDING)
 	{
 		s_bSwitchSides = false;
 		s_iSetMoney = 0;
@@ -599,4 +632,204 @@ void CHalfLifeMultiplay::MatchRoundRestart()
 bool CHalfLifeMultiplay::MatchHoldsIntermission()
 {
 	return s_MatchState == MATCH_ENDED && match_end_delay.value <= 0.0f;
+}
+
+/*
+The match's interludes (story 058): at the match's start, half time, the
+start of overtime and its switch, the round starts with
+mp_match_interlude_time (6) more seconds of freeze during which the players
+stand still in their spawns, inputs ignored (no turning, shooting, buying,
+weapon switch); everyone's view is the interlude's camera, drawn by the
+client from the Interlude message (the players shown, their positions and
+facing). At the end of the match the winners are shown the same way, the
+losers hidden, then the intermission. The shown players are sent to every
+client whatever their PVS (EF_FORCEVISIBILITY), the camera being far from
+the viewer.
+*/
+
+cvar_t match_interlude_time = { "mp_match_interlude_time", "6", FCVAR_SERVER, 6.0f, nullptr };
+
+enum { INTERLUDE_MAX_SHOWN = 20 };  // the message's size
+
+static InterludeKind s_Interlude = INTERLUDE_NONE;
+static float s_flInterludeEnd;
+static bool s_bShown[MAX_CLIENTS + 1];
+static bool s_bHidden[MAX_CLIENTS + 1];
+static Vector s_vecHeldAngles[MAX_CLIENTS + 1];
+
+void GameModes_RegisterInterludeCvars()
+{
+	CVAR_REGISTER(&match_interlude_time);
+}
+
+static void Interlude_Clear()
+{
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		CBasePlayer *pPlayer = UTIL_PlayerByIndex(i);
+
+		if (pPlayer && !FNullEnt(pPlayer->edict()))
+		{
+			if (s_bShown[i])
+				pPlayer->pev->effects &= ~EF_FORCEVISIBILITY;
+		}
+
+		s_bShown[i] = false;
+		s_bHidden[i] = false;
+	}
+
+	s_Interlude = INTERLUDE_NONE;
+}
+
+bool GameModes_InterludeActive()
+{
+	return s_Interlude != INTERLUDE_NONE;
+}
+
+bool GameModes_InterludeBlocksCommand(const char *pcmd)
+{
+	if (s_Interlude == INTERLUDE_NONE || !pcmd)
+		return false;
+
+	static const char *s_Blocked[] = { "lastinv", "drop", "jointeam", "chooseteam", "buy", "buyequip", "buyammo1", "buyammo2",
+		"primammo", "secammo", "cl_autobuy", "cl_rebuy", "nightvision", "radio1", "radio2", "radio3" };
+
+	if (!Q_strnicmp(pcmd, "weapon_", 7))
+		return true;
+
+	for (auto cmd : s_Blocked)
+	{
+		if (!Q_stricmp(pcmd, cmd))
+			return true;
+	}
+
+	return false;
+}
+
+// the interlude is over: the round goes on, or the match ends
+static void Interlude_Finish(CHalfLifeMultiplay *pRules)
+{
+	InterludeKind kind = s_Interlude;
+	Interlude_Clear();
+
+	if (kind == INTERLUDE_END && s_MatchState == MATCH_ENDING)
+	{
+		s_MatchState = MATCH_ENDED;
+		pRules->GoToIntermission();
+	}
+}
+
+void CHalfLifeMultiplay::MatchRoundStarted()
+{
+	if (s_PendingInterlude == INTERLUDE_NONE)
+		return;
+
+	InterludeKind kind = s_PendingInterlude;
+	s_PendingInterlude = INTERLUDE_NONE;
+
+	float duration = Q_max(1.0f, Q_min(25.0f, match_interlude_time.value));
+
+	s_Interlude = kind;
+	s_flInterludeEnd = gpGlobals->time + duration;
+
+	// the round's freeze starts after the interlude
+	if (kind != INTERLUDE_END)
+	{
+		m_iIntroRoundTime += int(duration);
+		m_iRoundTimeSecs = m_iIntroRoundTime;
+		SyncRoundTimerForAll();
+	}
+
+	CBasePlayer *pShown[INTERLUDE_MAX_SHOWN];
+	int count = 0;
+
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		s_bShown[i] = s_bHidden[i] = false;
+
+		CBasePlayer *pPlayer = UTIL_PlayerByIndex(i);
+		if (!pPlayer || FNullEnt(pPlayer->edict()) || pPlayer->has_disconnected || !pPlayer->IsAlive())
+			continue;
+
+		if (pPlayer->m_iTeam != TERRORIST && pPlayer->m_iTeam != CT)
+			continue;
+
+		// the end shows the winners only, both teams on a draw
+		if (kind == INTERLUDE_END && s_iWinningTeam && pPlayer->m_iTeam != s_iWinningTeam)
+		{
+			s_bHidden[i] = true;
+			pPlayer->pev->effects |= EF_NODRAW;
+			pPlayer->pev->solid = SOLID_NOT;
+			pPlayer->pev->takedamage = DAMAGE_NO;
+			continue;
+		}
+
+		s_bShown[i] = true;
+		s_vecHeldAngles[i] = pPlayer->pev->angles;
+		s_vecHeldAngles[i].x = 0.0f;
+		pPlayer->pev->effects |= EF_FORCEVISIBILITY;
+
+		if (count < INTERLUDE_MAX_SHOWN)
+			pShown[count++] = pPlayer;
+	}
+
+	MESSAGE_BEGIN(MSG_ALL, gmsgInterlude);
+		WRITE_BYTE(kind);
+		WRITE_BYTE(int(duration * 10.0f));
+		WRITE_BYTE(count);
+		for (int i = 0; i < count; i++)
+		{
+			WRITE_BYTE(pShown[i]->entindex());
+			WRITE_BYTE(pShown[i]->m_iTeam);
+			WRITE_COORD(pShown[i]->pev->origin.x);
+			WRITE_COORD(pShown[i]->pev->origin.y);
+			WRITE_COORD(pShown[i]->pev->origin.z);
+			WRITE_ANGLE(pShown[i]->pev->angles.y);
+		}
+	MESSAGE_END();
+
+	UTIL_LogPrintf("Match: interlude %d, %d players shown\n", int(kind), count);
+}
+
+// every frame for each player: held still while the interlude lasts
+void CHalfLifeMultiplay::MatchPlayerThink(CBasePlayer *pPlayer)
+{
+	if (s_Interlude == INTERLUDE_NONE)
+		return;
+
+	if (gpGlobals->time >= s_flInterludeEnd)
+	{
+		Interlude_Finish(this);
+		return;
+	}
+
+	int i = pPlayer->entindex();
+	if (i < 1 || i > MAX_CLIENTS)
+		return;
+
+	pPlayer->pev->button = 0;
+	pPlayer->m_afButtonPressed = 0;
+	pPlayer->pev->velocity = g_vecZero;
+
+	if (s_bShown[i])
+	{
+		pPlayer->pev->angles = s_vecHeldAngles[i];
+		pPlayer->pev->v_angle = s_vecHeldAngles[i];
+		pPlayer->pev->fixangle = 1;
+	}
+}
+
+// without players to think, the end's interlude still finishes
+static void Interlude_Fallback(CHalfLifeMultiplay *pRules)
+{
+	if (s_Interlude != INTERLUDE_NONE)
+	{
+		if (gpGlobals->time >= s_flInterludeEnd + 1.0f)
+			Interlude_Finish(pRules);
+	}
+	else if (s_PendingInterlude == INTERLUDE_NONE && s_MatchState == MATCH_ENDING)
+	{
+		s_MatchState = MATCH_ENDED;
+		pRules->GoToIntermission();
+	}
 }

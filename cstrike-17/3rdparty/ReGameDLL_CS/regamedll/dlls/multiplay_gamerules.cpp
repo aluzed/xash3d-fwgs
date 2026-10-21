@@ -2111,6 +2111,9 @@ void EXT_FUNC CHalfLifeMultiplay::__API_HOOK(RestartRound)()
 	m_bLevelInitialized = false;
 	m_bCompleteReset = false;
 
+	// a match's interlude at the round's start (story 058)
+	MatchRoundStarted();
+
 #ifdef REGAMEDLL_ADD
 	FireTargets("game_round_start", nullptr, nullptr, USE_TOGGLE, 0.0);
 #endif
@@ -3754,6 +3757,8 @@ BOOL EXT_FUNC CHalfLifeMultiplay::__API_HOOK(FPlayerCanTakeDamage)(CBasePlayer *
 
 void CHalfLifeMultiplay::PlayerThink(CBasePlayer *pPlayer)
 {
+	MatchPlayerThink(pPlayer);
+
 	if (m_bGameOver)
 	{
 		// check for button presses
@@ -5235,6 +5240,10 @@ void CHalfLifeMultiplay::ChangePlayerTeam(CBasePlayer *pPlayer, const char *pTea
 
 bool CHalfLifeMultiplay::CanPlayerBuy(CBasePlayer *pPlayer) const
 {
+	// a match's interlude (story 058)
+	if (GameModes_InterludeActive())
+		return false;
+
 	if (pPlayer->m_iTeam == CT && m_bCTCantBuy)
 	{
 		return false;

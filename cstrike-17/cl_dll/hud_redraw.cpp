@@ -17,6 +17,7 @@
 //
 #include <math.h>
 #include "hud.h"
+#include "interlude.h"
 #include "cl_util.h"
 #include "triangleapi.h"
 
@@ -102,7 +103,10 @@ int CHud :: Redraw( float flTime, int intermission )
 
 	UpdateDefaultHUDColor();
 
-	if ( m_pCvarDraw->value && (intermission || !(m_iHideHUDDisplay & HIDEHUD_ALL) ) )
+	// a match's interlude: only the names of the players shown (story 058)
+	if ( Interlude_Active() )
+		Interlude_DrawNames();
+	else if ( m_pCvarDraw->value && (intermission || !(m_iHideHUDDisplay & HIDEHUD_ALL) ) )
 	{
 		for( HUDLIST *pList = m_pHudList; pList; pList = pList->pNext )
 		{

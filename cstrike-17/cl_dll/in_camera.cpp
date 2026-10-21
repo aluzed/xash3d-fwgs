@@ -6,6 +6,7 @@
 //=============================================================================
 
 #include "hud.h"
+#include "interlude.h"
 #include "cl_util.h"
 #include "camera.h"
 #include "kbutton.h"
@@ -548,7 +549,8 @@ void CAM_EndDistance(void)
 
 int DLLEXPORT CL_IsThirdPerson( void )
 {
-	return (cam_thirdperson ? 1 : 0) || (g_iUser1 && gEngfuncs.GetLocalPlayer() && (g_iUser2 == gEngfuncs.GetLocalPlayer()->index) );
+	// a match's interlude shows the local player among the others (story 058)
+	return (cam_thirdperson ? 1 : 0) || (g_iUser1 && gEngfuncs.GetLocalPlayer() && (g_iUser2 == gEngfuncs.GetLocalPlayer()->index) ) || Interlude_Active();
 }
 
 void DLLEXPORT CL_CameraOffset( float *ofs )

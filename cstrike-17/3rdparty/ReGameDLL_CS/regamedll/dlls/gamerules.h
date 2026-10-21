@@ -748,6 +748,8 @@ public:
 	void MatchThink();
 	void MatchRoundRestart();
 	bool MatchHoldsIntermission();
+	void MatchRoundStarted();
+	void MatchPlayerThink(CBasePlayer *pPlayer);
 	bool CanPlayerBuy(CBasePlayer *pPlayer) const;
 
 	VFUNC bool HasRoundTimeExpired();
