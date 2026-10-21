@@ -243,3 +243,6 @@ void GameModes_Think();
 const char *GameModes_Current();
 bool GameModes_InterludeBlocksCommand(const char *pcmd);
 bool GameModes_InterludeActive();
+class CBasePlayer;
+bool Csdm_SpawnPlayer(CBasePlayer *pPlayer);
+void Csdm_PlayerKilled(CBasePlayer *pVictim, entvars_t *pevKiller, bool headshot);

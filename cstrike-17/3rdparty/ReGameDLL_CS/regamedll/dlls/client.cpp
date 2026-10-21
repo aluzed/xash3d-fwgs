@@ -4111,6 +4111,7 @@ void ClientPrecache()
 	int i;
 
 	PRECACHE_SOUND("weapons/dryfire_pistol.wav");
+	PRECACHE_SOUND("items/smallmedkit1.wav"); // the deathmatch's headshot reward (story 067)
 	PRECACHE_SOUND("weapons/dryfire_rifle.wav");
 	PRECACHE_SOUND("player/pl_shot1.wav");
 	PRECACHE_SOUND("player/pl_die1.wav");

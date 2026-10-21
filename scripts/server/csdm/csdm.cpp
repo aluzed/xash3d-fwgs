@@ -30,7 +30,8 @@ GNU General Public License for more details.
 //   headshot, up to 100, with the medkit sound on a headshot.
 //
 // Story 056: only in the server's "csdm" mode (mp_mode), or always on a
-// server without modes. Story 060: in team deathmatch (mp_freeforall 0) only
+// server without modes. Story 067: nothing with a game library that has
+// these rules itself (mp_csdm_heal_kill), this repository's ReGameDLL_CS. Story 060: in team deathmatch (mp_freeforall 0) only
 // the enemies keep a spawn point within 450 units.
 //
 // cvars: csdm_spawns, csdm_refill_clip, csdm_heal_kill, csdm_heal_headshot,
@@ -90,9 +91,16 @@ static cvar_t *RegisterCvar(cvar_t *def)
 static cvar_t *cv_mode;
 static cvar_t *cv_freeforall;
 
-// the "csdm" mode of story 056, or a server without modes
+// the "csdm" mode of story 056, or a server without modes; never with a
+// game library that does it itself (story 067: mp_csdm_heal_kill)
 static bool IsActive()
 {
+	static int native = -1;
+	if (native < 0)
+		native = CVAR_GET_POINTER("mp_csdm_heal_kill") ? 1 : 0;
+	if (native)
+		return false;
+
 	if (!cv_mode)
 		cv_mode = CVAR_GET_POINTER("mp_mode");
 

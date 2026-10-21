@@ -146,7 +146,9 @@ static void GameModes_Command_f()
 
 void GameModes_RegisterRoundCvars();
 void GameModes_RegisterMatchCvars();
+void GameModes_RegisterCsdmCvars();
 void Match_MapStart();
+void Csdm_MapStart();
 
 void GameModes_Init()
 {
@@ -154,6 +156,7 @@ void GameModes_Init()
 	CVAR_REGISTER(&csdm_teams);
 	GameModes_RegisterRoundCvars();
 	GameModes_RegisterMatchCvars();
+	GameModes_RegisterCsdmCvars();
 
 	ADD_SERVER_COMMAND("sv_mode", GameModes_Command_f);
 }
@@ -162,6 +165,7 @@ void GameModes_Init()
 void GameModes_MapStart()
 {
 	Match_MapStart();
+	Csdm_MapStart();
 
 	const char *cfg = GameModes_ConfigFile();
 	if (!cfg)
@@ -831,5 +835,215 @@ static void Interlude_Fallback(CHalfLifeMultiplay *pRules)
 	{
 		s_MatchState = MATCH_ENDED;
 		pRules->GoToIntermission();
+	}
+}
+
+/*
+The deathmatch's spawns and rewards (story 067), in the game library: what
+the Metamod plugin of story 034 (scripts/server/csdm) did for the Linux
+server, for every server, the installer's on Windows included. Only in the
+mode "csdm"; the plugin leaves them to the game library when it finds
+these cvars.
+
+- Spawns (mp_csdm_spawns): the CSDM spawn file of the map
+  (addons/csdm/spawns/<map>.spawns.cfg, CSDM-ReAPI's), else in free for all
+  every spawn point of the map, both teams'; a random one other than the
+  player's last, with no living player within 450 units (in teams, no
+  enemy). A player joining keeps the map's spawn points, and so does team
+  deathmatch without a spawn file.
+- On a kill: the killer's weapon reloaded (mp_csdm_refill_clip), health
+  (mp_csdm_heal_kill, mp_csdm_heal_headshot) and on a headshot armor
+  (mp_csdm_armor_headshot), up to 100, the medkit's sound on a headshot.
+*/
+
+cvar_t csdm_spawns          = { "mp_csdm_spawns", "1", FCVAR_SERVER, 1.0f, nullptr };
+cvar_t csdm_refill_clip     = { "mp_csdm_refill_clip", "1", FCVAR_SERVER, 1.0f, nullptr };
+cvar_t csdm_heal_kill       = { "mp_csdm_heal_kill", "15", FCVAR_SERVER, 15.0f, nullptr };
+cvar_t csdm_heal_headshot   = { "mp_csdm_heal_headshot", "30", FCVAR_SERVER, 30.0f, nullptr };
+cvar_t csdm_armor_headshot  = { "mp_csdm_armor_headshot", "30", FCVAR_SERVER, 30.0f, nullptr };
+
+static const float CSDM_SPAWN_RADIUS = 450.0f;
+static const char CSDM_HEAL_SOUND[] = "items/smallmedkit1.wav";
+
+enum { CSDM_MAX_SPAWNS = 128 };
+
+static struct
+{
+	Vector origin;
+	Vector angles;
+} s_CsdmSpawns[CSDM_MAX_SPAWNS];
+
+static int s_iCsdmSpawns = -1;      // -1: not looked for on this map yet
+static bool s_bCsdmSpawnFile;       // from a spawn file, not the map's points
+static int s_iCsdmLastSpawn[MAX_CLIENTS + 1];
+
+void GameModes_RegisterCsdmCvars()
+{
+	CVAR_REGISTER(&csdm_spawns);
+	CVAR_REGISTER(&csdm_refill_clip);
+	CVAR_REGISTER(&csdm_heal_kill);
+	CVAR_REGISTER(&csdm_heal_headshot);
+	CVAR_REGISTER(&csdm_armor_headshot);
+}
+
+void Csdm_MapStart()
+{
+	s_iCsdmSpawns = -1;
+	s_bCsdmSpawnFile = false;
+
+	for (int i = 0; i <= MAX_CLIENTS; i++)
+		s_iCsdmLastSpawn[i] = -1;
+}
+
+static bool Csdm_Active()
+{
+	const char *mode = GameModes_Current();
+	return mode && !Q_strcmp(mode, "csdm");
+}
+
+static void Csdm_AddSpawn(const Vector &origin, const Vector &angles)
+{
+	if (s_iCsdmSpawns >= CSDM_MAX_SPAWNS)
+		return;
+
+	s_CsdmSpawns[s_iCsdmSpawns].origin = origin;
+	s_CsdmSpawns[s_iCsdmSpawns].angles = angles;
+	s_iCsdmSpawns++;
+}
+
+static void Csdm_LoadSpawns()
+{
+	s_iCsdmSpawns = 0;
+
+	char path[256];
+	Q_snprintf(path, sizeof(path), "addons/csdm/spawns/%s.spawns.cfg", STRING(gpGlobals->mapname));
+
+	int length = 0;
+	byte *file = LOAD_FILE_FOR_ME(path, &length);
+	if (file)
+	{
+		// origin, angles, team (ignored), view angles: 10 numbers per line
+		char *line = (char *)file;
+		while (line && *line && s_iCsdmSpawns < CSDM_MAX_SPAWNS)
+		{
+			char *next = Q_strchr(line, '\n');
+			if (next)
+				*next++ = '\0';
+
+			float v[10];
+			if (line[0] != '/' && line[0] != ';'
+				&& sscanf(line, "%f %f %f %f %f %f %f %f %f %f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &v[7], &v[8], &v[9]) == 10)
+			{
+				Csdm_AddSpawn(Vector(v[0], v[1], v[2]), Vector(v[3], v[4], 0.0f));
+			}
+
+			line = next;
+		}
+
+		FREE_FILE(file);
+		s_bCsdmSpawnFile = true;
+		CONSOLE_ECHO("CSDM: %d spawn points from %s\n", s_iCsdmSpawns, path);
+		return;
+	}
+
+	// both teams' points of the map
+	static const char *s_SpawnClasses[] = { "info_player_start", "info_player_deathmatch" };
+	for (auto classname : s_SpawnClasses)
+	{
+		CBaseEntity *pSpot = nullptr;
+		while ((pSpot = UTIL_FindEntityByClassname(pSpot, classname)))
+			Csdm_AddSpawn(pSpot->pev->origin, pSpot->pev->angles);
+	}
+
+	CONSOLE_ECHO("CSDM: no spawn file for %s, its %d spawn points\n", STRING(gpGlobals->mapname), s_iCsdmSpawns);
+}
+
+// a living player other than this one, in teams an enemy, near the point
+static bool Csdm_SpawnOccupied(CBasePlayer *pPlayer, const Vector &origin, bool teams)
+{
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		CBasePlayer *pOther = UTIL_PlayerByIndex(i);
+		if (!pOther || pOther == pPlayer || FNullEnt(pOther->edict()) || pOther->has_disconnected || !pOther->IsAlive())
+			continue;
+
+		if (teams && pOther->m_iTeam == pPlayer->m_iTeam)
+			continue;
+
+		if ((pOther->pev->origin - origin).Length() < CSDM_SPAWN_RADIUS)
+			return true;
+	}
+
+	return false;
+}
+
+// places the player at a deathmatch spawn point, false to leave it to the map's
+bool Csdm_SpawnPlayer(CBasePlayer *pPlayer)
+{
+	if (!Csdm_Active() || !csdm_spawns.value)
+		return false;
+
+	if (pPlayer->m_iTeam != TERRORIST && pPlayer->m_iTeam != CT)
+		return false;
+
+	if (s_iCsdmSpawns < 0)
+		Csdm_LoadSpawns();
+
+	const bool teams = !CSGameRules()->IsFreeForAll();
+	if (s_iCsdmSpawns < 2 || (teams && !s_bCsdmSpawnFile))
+		return false;
+
+	int index = pPlayer->entindex();
+	if (index < 1 || index > MAX_CLIENTS)
+		return false;
+
+	// CSDM-ReAPI's walk: a random start, then the next points
+	int spot = RANDOM_LONG(0, s_iCsdmSpawns - 1);
+	for (int attempts = 0; attempts < s_iCsdmSpawns; attempts++, spot = (spot + 1) % s_iCsdmSpawns)
+	{
+		if (spot == s_iCsdmLastSpawn[index] || Csdm_SpawnOccupied(pPlayer, s_CsdmSpawns[spot].origin, teams))
+			continue;
+
+		pPlayer->pev->origin = s_CsdmSpawns[spot].origin + Vector(0, 0, 1);
+		UTIL_SetOrigin(pPlayer->pev, pPlayer->pev->origin);
+		pPlayer->pev->velocity = g_vecZero;
+		pPlayer->pev->v_angle = g_vecZero;
+		pPlayer->pev->angles = s_CsdmSpawns[spot].angles;
+		pPlayer->pev->punchangle = g_vecZero;
+		pPlayer->pev->fixangle = 1;
+		s_iCsdmLastSpawn[index] = spot;
+		return true;
+	}
+
+	return false;
+}
+
+void Csdm_PlayerKilled(CBasePlayer *pVictim, entvars_t *pevKiller, bool headshot)
+{
+	if (!Csdm_Active() || !pevKiller)
+		return;
+
+	CBaseEntity *pKillerEntity = CBaseEntity::Instance(pevKiller);
+	if (!pKillerEntity || !pKillerEntity->IsPlayer() || pKillerEntity == pVictim || !pKillerEntity->IsAlive())
+		return;
+
+	CBasePlayer *pKiller = static_cast<CBasePlayer *>(pKillerEntity);
+
+	if (csdm_refill_clip.value && pKiller->m_pActiveItem)
+		pKiller->ReloadWeapons(pKiller->m_pActiveItem, true, true);
+
+	float maxHealth = pKiller->pev->max_health > 0.0f ? pKiller->pev->max_health : 100.0f;
+	pKiller->pev->health = Q_min(pKiller->pev->health + (headshot ? csdm_heal_headshot.value : csdm_heal_kill.value), maxHealth);
+
+	if (headshot)
+	{
+		if (csdm_armor_headshot.value > 0.0f)
+		{
+			pKiller->pev->armorvalue = Q_min(pKiller->pev->armorvalue + csdm_armor_headshot.value, 100.0f);
+			if (pKiller->m_iKevlar == ARMOR_NONE)
+				pKiller->m_iKevlar = ARMOR_KEVLAR;
+		}
+
+		EMIT_SOUND(pKiller->edict(), CHAN_ITEM, CSDM_HEAL_SOUND, VOL_NORM, ATTN_NORM);
 	}
 }

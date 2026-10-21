@@ -3973,6 +3973,9 @@ LINK_HOOK_CLASS_VOID_CUSTOM_CHAIN(CHalfLifeMultiplay, CSGameRules, PlayerKilled,
 // Someone/something killed this player
 void EXT_FUNC CHalfLifeMultiplay::__API_HOOK(PlayerKilled)(CBasePlayer *pVictim, entvars_t *pKiller, entvars_t *pInflictor)
 {
+	// the deathmatch's rewards for the killer (story 067)
+	Csdm_PlayerKilled(pVictim, pKiller, pVictim->m_LastHitGroup == HITGROUP_HEAD);
+
 	DeathNotice(pVictim, pKiller, pInflictor);
 #ifdef REGAMEDLL_FIXES
 	pVictim->pev->flags &= ~FL_FROZEN;
@@ -4415,6 +4418,10 @@ LINK_HOOK_CLASS_CUSTOM_CHAIN(edict_t *, CHalfLifeMultiplay, CSGameRules, GetPlay
 
 edict_t *EXT_FUNC CHalfLifeMultiplay::__API_HOOK(GetPlayerSpawnSpot)(CBasePlayer *pPlayer)
 {
+	// the deathmatch's own spawn points (story 067)
+	if (Csdm_SpawnPlayer(pPlayer))
+		return pPlayer->edict();
+
 	// gat valid spawn point
 	edict_t *pentSpawnSpot = CGameRules::GetPlayerSpawnSpot(pPlayer);
 

@@ -67,7 +67,17 @@ Counter-Strike's bots).
 ## Servers
 
 - The installer's "Counter-Strike 1.7 server" starts in `match`.
-- `scripts/server/run.sh` starts in `MODE` (default `csdm ffa`). Its csdm
-  Metamod plugin (spawn points, rewards on a kill) only works in `csdm`; in
-  `csdm team` an enemy within 450 units keeps a spawn point, a teammate
-  doesn't.
+- `scripts/server/run.sh` starts in `MODE` (default `csdm ffa`).
+
+## Deathmatch
+
+In `csdm` the game library (story 067) respawns players at random points
+away from the others: the map's CSDM spawn file
+(`addons/csdm/spawns/<map>.spawns.cfg`) or, in free for all, every spawn
+point of the map; in `csdm team` an enemy within 450 units keeps a point, a
+teammate doesn't, and without a spawn file the teams keep their own points.
+A kill reloads the killer's weapon and gives health back
+(`mp_csdm_heal_kill` 15, `mp_csdm_heal_headshot` 30, plus
+`mp_csdm_armor_headshot` 30 armor); `mp_csdm_spawns` and
+`mp_csdm_refill_clip` turn the rest off. The Metamod plugin of
+`scripts/server` does nothing with this game library.
