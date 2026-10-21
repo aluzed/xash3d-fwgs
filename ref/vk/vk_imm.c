@@ -30,6 +30,21 @@ GNU General Public License for more details.
 
 // a range of the batch whose vertices are written later, by a job of
 // vk_studio.c: told where they go in the dynamic ring when the batch flushes
+//
+// The hand-off with the jobs (stories 028, 051), what keeps it race free:
+// - the vertices of a reserved range are garbage in the batch: VK_ImmFlush
+//   copies the batch into the ring first, then places the ranges, never the
+//   other way round (f4c4dc48: the copy overwrote vertices a worker had
+//   just written);
+// - placed() hands the range in the ring over: a job may start as soon as
+//   its last range is placed, and nothing on the main thread writes there
+//   again this frame;
+// - every range is placed exactly once, with NULL when the frame draws
+//   nothing, so that each job's count of unplaced ranges reaches zero;
+// - VK_StudioJoin flushes and waits for every job before the frame is
+//   submitted: the GPU never reads a range before its job wrote it.
+// Checked by captures of a crowded demo with r_vk_threads 0 and 1 at full
+// frame rate, pixel for pixel (story 051).
 typedef struct
 {
 	int start, count;

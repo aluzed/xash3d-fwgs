@@ -147,11 +147,14 @@ R_StudioInit
 
 ====================
 */
+static void VK_StudioStats_f( void );
+
 void R_StudioInit( void )
 {
 	gEngfuncs.Cvar_RegisterVariable( &r_studio_sort_textures );
 	gEngfuncs.Cvar_RegisterVariable( &r_studio_drawelements );
 	gEngfuncs.Cvar_RegisterVariable( &r_vk_threads );
+	gEngfuncs.Cmd_AddCommand( "r_vk_studio_stats", VK_StudioStats_f, "the studio vertices made on the worker threads since the last call (r_vk_threads), \"reset\" to start over" );
 	gEngfuncs.Cvar_RegisterVariable( &r_studio_builtin_renderer );
 	gEngfuncs.Cvar_RegisterVariable( &r_shadows );
 
@@ -2675,21 +2678,65 @@ VK_StudioJoin
 the vertices of the frame are all made: before it is submitted
 =================
 */
+// story 051: what the deferred path does, frame after frame
+static struct
+{
+	int frames;
+	int jobs;          // made by the deferred path
+	int joined;        // taken back by the join: no worker had taken them
+	double join_time;  // seconds in the join, its runs and its waits
+	double start;
+} vk_sjstats;
+
 void VK_StudioJoin( void )
 {
+	const double start = gEngfuncs.pfnTime();
+
 	VK_ImmFlush(); // the last ranges get their place
 
 	for( int i = 0; i < vk_sjobs.num_jobs; i++ )
 	{
 		vk_studio_job_t *job = vk_sjobs.jobs[i];
 
+		if( VK_AtomicGet( &job->state ) == VK_SJOB_QUEUED )
+			vk_sjstats.joined++;
 		VK_StudioJobWorker( job );
 
 		while( VK_AtomicGet( &job->state ) != VK_SJOB_DONE )
 			; // a worker is on it: microseconds
 	}
 
+	vk_sjstats.jobs += vk_sjobs.num_jobs;
+	vk_sjstats.frames++;
+	vk_sjstats.join_time += gEngfuncs.pfnTime() - start;
 	vk_sjobs.num_jobs = 0;
+}
+
+/*
+=================
+r_vk_studio_stats
+
+the deferred studio vertices since the last call: jobs a frame, how many
+the join ran itself, the main thread's time in the join; "reset" starts
+over without printing
+=================
+*/
+static void VK_StudioStatsPrint( void )
+{
+	const double now = gEngfuncs.pfnTime();
+	const int frames = Q_max( vk_sjstats.frames, 1 );
+	gEngfuncs.Con_Printf( "studio jobs (r_vk_threads %d): %d frames in %.1f s, %.1f jobs a frame, %.1f%% run by the join, join %.3f ms a frame\n",
+		(int)r_vk_threads.value, vk_sjstats.frames, now - vk_sjstats.start, (double)vk_sjstats.jobs / frames,
+		vk_sjstats.jobs ? 100.0 * vk_sjstats.joined / vk_sjstats.jobs : 0.0, vk_sjstats.join_time * 1000.0 / frames );
+}
+
+static void VK_StudioStats_f( void )
+{
+	if( gEngfuncs.Cmd_Argc() < 2 || Q_stricmp( gEngfuncs.Cmd_Argv( 1 ), "reset" ))
+		VK_StudioStatsPrint();
+
+	memset( &vk_sjstats, 0, sizeof( vk_sjstats ));
+	vk_sjstats.start = gEngfuncs.pfnTime();
 }
 
 // r_vk_threads and what the deferred path can draw
@@ -2702,6 +2749,11 @@ static qboolean R_StudioCanDefer( void )
 void VK_StudioShutdownJobs( void )
 {
 	VK_StudioJoin();
+	gEngfuncs.Cmd_RemoveCommand( "r_vk_studio_stats" );
+
+	// the last numbers, for a -timedemo run that quits at its end
+	if( vk_sjstats.jobs )
+		VK_StudioStatsPrint();
 
 	for( int i = 0; i < vk_sjobs.max_jobs; i++ )
 	{
