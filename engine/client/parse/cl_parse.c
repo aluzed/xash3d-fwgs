@@ -878,8 +878,13 @@ static void CL_ParseServerData( sizebuf_t *msg, connprotocol_t proto )
 	Q_snprintf( mapfile, sizeof( mapfile ), "maps/%s.bsp", clgame.mapname );
 	if( CRC32_MapFile( &cl.worldmapCRC, mapfile, cl.maxclients > 1 ))
 	{
-		// validate map checksum
-		if( cl.worldmapCRC != cl.checksum )
+		// validate map checksum; a demo still plays on a map changed since it
+		// was recorded (de_dust2's crates of story 065), on the map as it is
+		if( cl.worldmapCRC != cl.checksum && cls.demoplayback )
+		{
+			Con_Printf( S_WARN "Your map [%s] differs from the one this demo was recorded on.\n", clgame.mapname );
+		}
+		else if( cl.worldmapCRC != cl.checksum )
 		{
 			Con_Printf( S_ERROR "Your map [%s] differs from the server's.\n", clgame.mapname );
 			CL_Disconnect_f(); // for local game, call EndGame

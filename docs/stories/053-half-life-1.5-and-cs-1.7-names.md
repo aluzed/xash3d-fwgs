@@ -51,7 +51,9 @@ the network, both offline that night; nothing on the network path
 changed. Demos: a de_dust2 demo recorded before 065 (`arte.dem`) refuses
 the set's de_dust2 with the crates ("Your map [de_dust2] differs from the
 server's"), as it would in the 065 play set: a consequence of 065, not of
-the names.
+the names. Since then (2026-10-22), a demo plays on a map changed
+since it was recorded, with a warning: `arte.dem` plays to its end on the
+de_dust2 with the crates.
 
 ## Goal
 Everywhere a player reads a name or a version, the set says Half-Life 1.5
