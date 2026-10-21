@@ -125,7 +125,7 @@ Copy-Item "$PSScriptRoot\server-valve.cfg" "$Out\valve\server.cfg"
 foreach( $f in 'xash3d.exe', 'xash.dll', 'xash-dedicated.exe', 'ref_vk.dll', 'ref_gl.dll', 'filesystem_stdio.dll', 'SDL2.dll',
 	'valve\cl_dlls\client_amd64.dll', 'valve\dlls\hl_amd64.dll', 'valve\server.cfg',
 	'cstrike\cl_dlls\client_amd64.dll', 'cstrike\cl_dlls\menu_amd64.dll', 'cstrike\dlls\mp_amd64.dll', 'cstrike\dlls\yapb_amd64.dll',
-	'cstrike\extras.pk3', 'cstrike\server.cfg' )
+	'cstrike\extras.pk3', 'cstrike\server.cfg', 'tools\patch_dust2.exe' )
 {
 	if( -not ( Test-Path "$Out\$f" )) { throw "missing in the staging folder: $f" }
 }

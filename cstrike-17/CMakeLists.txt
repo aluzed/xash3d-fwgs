@@ -98,6 +98,16 @@ if(BUILD_MAINUI)
 	yy_thunks_apply(menu)
 endif()
 
+if(NOT ANDROID AND NOT VITA)
+	# de_dust2 with story 065's crates from the player's own map, run by the
+	# Windows installer (scripts/maps/patch_dust2.py without Python)
+	add_executable(patch_dust2 tools/patch_dust2.c)
+	if(UNIX)
+		target_link_libraries(patch_dust2 m)
+	endif()
+	install(TARGETS patch_dust2 RUNTIME DESTINATION tools)
+endif()
+
 set(GRAPHS_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/graphs")
 
 execute_process(

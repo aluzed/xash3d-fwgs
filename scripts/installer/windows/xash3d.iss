@@ -55,11 +55,14 @@ Source: "{code:GetGameDir}\cstrike\*"; DestDir: "{app}\cstrike"; Excludes: "*.dl
   Flags: external recursesubdirs createallsubdirs ignoreversion; ExternalSize: 310000000; Components: cs
 ; the engine and Half-Life's libraries
 Source: "installer.ico"; DestDir: "{app}"; Flags: ignoreversion; Components: hl
-Source: "stage\*"; DestDir: "{app}"; Excludes: "\cstrike\*,\xash-dedicated.exe"; Flags: recursesubdirs createallsubdirs ignoreversion; Components: hl
+Source: "stage\*"; DestDir: "{app}"; Excludes: "\cstrike\*,\tools\*,\xash-dedicated.exe"; Flags: recursesubdirs createallsubdirs ignoreversion; Components: hl
 ; the dedicated server, next to the client: same filesystem and game libraries
 Source: "stage\xash-dedicated.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: server
 ; Counter-Strike's libraries, its extras and bots
 Source: "stage\cstrike\*"; DestDir: "{app}\cstrike"; Flags: recursesubdirs createallsubdirs ignoreversion; Components: cs
+; writes de_dust2 with the small crates of story 065 from the player's map;
+; next to xash3d.exe for the MSVC runtime, removed once installed
+Source: "stage\tools\patch_dust2.exe"; DestDir: "{app}"; Flags: ignoreversion deleteafterinstall; Components: cs
 
 [Icons]
 Name: "{group}\Half-Life"; Filename: "{app}\xash3d.exe"; Parameters: "-game valve"; WorkingDir: "{app}"; IconFilename: "{app}\valve\game.ico"; Components: hl
@@ -72,6 +75,9 @@ Name: "{userdesktop}\Half-Life (Xash3D)"; Filename: "{app}\xash3d.exe"; Paramete
 Name: "{userdesktop}\Counter-Strike (Xash3D)"; Filename: "{app}\xash3d.exe"; Parameters: "-game cstrike -dll @yapb"; WorkingDir: "{app}"; IconFilename: "{app}\cstrike\game.ico"; Components: cs; Tasks: desktopicon
 
 [Run]
+; a de_dust2 that isn't Counter-Strike's own is left as it is
+Filename: "{app}\patch_dust2.exe"; Parameters: """{code:GetGameDir}\cstrike\maps\de_dust2.bsp"" ""{app}\cstrike\maps\de_dust2.bsp"""; \
+  WorkingDir: "{app}"; StatusMsg: "Adding the crates to de_dust2..."; Flags: runhidden waituntilterminated; Components: cs
 Filename: "{app}\xash3d.exe"; Parameters: "-game cstrike -dll @yapb"; WorkingDir: "{app}"; Description: "Launch Counter-Strike"; Flags: nowait postinstall skipifsilent; Components: cs
 Filename: "{app}\xash3d.exe"; Parameters: "-game valve"; WorkingDir: "{app}"; Description: "Launch Half-Life"; Flags: nowait postinstall skipifsilent unchecked; Components: hl
 

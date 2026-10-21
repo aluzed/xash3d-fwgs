@@ -42,6 +42,9 @@ installer is `output\Xash3D-FWGS-Setup-<version>.exe`.
 - Copies `valve` and `cstrike` without Valve's libraries (`*.dll`, `*.so`,
   `*.dylib`, `*.exe`): the 64-bit ones replace them. The set keeps working
   when Steam updates, moves or removes the game.
+- Writes Counter-Strike 1.7's `de_dust2` (the small crates of story 065)
+  from the copied map with `patch_dust2.exe` (`cstrike-17/tools`), run
+  once and removed; a map that isn't Counter-Strike's own stays as it is.
 - Writes a first-run `video.cfg` in each game folder: the Vulkan renderer
   (the engine falls back to OpenGL by itself), fullscreen at the desktop's
   resolution. Never over an existing one.
