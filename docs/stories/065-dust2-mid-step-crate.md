@@ -74,11 +74,11 @@ changed).
   where it still fits).
 
 ## Tasks
-- [ ] The patch: the brush model, its faces, lightmaps, clip nodes.
-- [ ] In game: climbing alone, the crate lit as its neighbours, ref_gl and
+- [x] The patch: the brush model, its faces, lightmaps, clip nodes.
+- [x] In game: climbing alone, the crate lit as its neighbours, ref_gl and
       ref_vk (rt), no hole in the collision.
-- [ ] YaPB graph, ReGameDLL_CS nav.
-- [ ] The installer's step, `lot64`.
+- [x] YaPB graph, ReGameDLL_CS nav.
+- [x] The installer's step, `lot64`.
 
 ## Acceptance criteria
 - From the mid's floor a player alone reaches the catwalk over the two

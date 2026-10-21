@@ -117,16 +117,16 @@ without a knife over a whole match, a kill icon of its own.
 - Cvars: `mp_knife_throw 1` (0: the throw is off, E + attack slashes).
 
 ## Tasks
-- [ ] `CKnife`: E + primary attack throws; E alone still uses.
-- [ ] `CThrownKnife`: the flight, its fall, the trace against hitboxes,
+- [x] `CKnife`: E + primary attack throws; E alone still uses.
+- [x] `CThrownKnife`: the flight, its fall, the trace against hitboxes,
       the damage by hit group, the bounce and rest.
-- [ ] The knife on the ground picked up; one knife per player; removed
+- [x] The knife on the ground picked up; one knife per player; removed
       at the round's restart.
-- [ ] A player without a knife: the HUD's slots, the weapon switch, empty
+- [x] A player without a knife: the HUD's slots, the weapon switch, empty
       hands; the bots coping with it.
-- [ ] Client prediction with E held, the throw's animation and sounds.
-- [ ] The flying and lying knife model, the kill icon.
-- [ ] Test on de_dust2 with a second player or a bot: ranges, damage by
+- [x] Client prediction with E held, the throw's animation and sounds.
+- [x] The flying and lying knife model, the kill icon.
+- [x] Test on de_dust2 with a second player or a bot: ranges, damage by
       hit group with and without armour, pickup by both teams, a throw
       at a door, while defusing.
 

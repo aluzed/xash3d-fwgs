@@ -99,11 +99,11 @@ than one smoke on an older GPU (net_graph 4), bullets thinning a smoke.
 - [x] Client: the smoke as a volume of cells filling the place, drawn as
       many small puffs; its fade and end unchanged.
 - [x] Client: the blast's hole, held, refilled from the outside in.
-- [ ] Performance: several smokes at once on ref_vk and ref_gl, measured
+- [x] Performance: several smokes at once on ref_vk and ref_gl, measured
       (net_graph 4) on this machine and an older GPU.
 - [x] Bots of ReGameDLL_CS seeing through the hole.
-- [ ] YaPB looked at.
-- [ ] Test: a smoke on de_dust2's mid, an HE in it, from outside and from
+- [x] YaPB looked at.
+- [x] Test: a smoke on de_dust2's mid, an HE in it, from outside and from
       inside; timings tuned against CS2 (captures).
 
 ## Acceptance criteria

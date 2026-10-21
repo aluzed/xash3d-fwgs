@@ -62,7 +62,7 @@ the test server with players.
       fall back to frags without it.
 - [x] Test on a local server with bots: damage without kills climbs the
       board; restart clears it (frags untouched by the change).
-- [ ] Test server with players; documentation of the cvar.
+- [x] Test server with players; documentation of the cvar.
 
 ## Acceptance criteria
 - A player who dealt the most damage to the enemies is first of their team,

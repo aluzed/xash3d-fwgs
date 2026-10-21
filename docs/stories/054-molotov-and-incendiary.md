@@ -106,11 +106,11 @@ the view and the hand of both teams.
       round reset, drop on death, `mp_` cvars.
 - [x] Client: weapon prediction, HUD (weapon list, selection, the icon of
       each team), buy menu entry and picture, text menus.
-- [ ] Client: kill icon, burst and fire effects.
-- [ ] Test on a local server, then on the test server with players.
+- [x] Client: kill icon, burst and fire effects.
+- [x] Test on a local server, then on the test server with players.
 - [x] Models: a bottle for the terrorists, an incendiary canister for the
       counter-terrorists (v_, p_, w_).
-- [ ] Documentation: `cs16-client` README, cvars.
+- [x] Documentation: `cs16-client` README, cvars.
 
 ## Acceptance criteria
 - Bought in the equipment menu by both teams at their price; thrown, it

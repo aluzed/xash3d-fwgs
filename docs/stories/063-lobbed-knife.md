@@ -45,10 +45,10 @@ measured on a player, a lob over a cover in play.
   its pickup, one knife per player, the kill icon.
 
 ## Tasks
-- [ ] `CKnife`: E + secondary attack lobs; without E, the stab.
-- [ ] The lob's speed and gravity; damage by phase and hit group.
-- [ ] Client prediction, the lob's animation (062's throw, played higher).
-- [ ] Test: a lob over the double doors of de_dust2's long A, rising hits
+- [x] `CKnife`: E + secondary attack lobs; without E, the stab.
+- [x] The lob's speed and gravity; damage by phase and hit group.
+- [x] Client prediction, the lob's animation (062's throw, played higher).
+- [x] Test: a lob over the double doors of de_dust2's long A, rising hits
       at close range, falling hits from a height.
 
 ## Acceptance criteria
