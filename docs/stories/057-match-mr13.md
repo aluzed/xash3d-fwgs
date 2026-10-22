@@ -36,7 +36,13 @@ YaPB bots and a test `cstrike/modes/match.cfg` (`mp_match_rounds 4`,
 time, the server held on the result; then with rounds forced by
 `endround`: half time, 2-2 overtime, its switch and a 3-3 draw, and a 4-2
 overtime win; with `mp_match_players 10` and 6 bots the warmup waited, and
-started once lowered to 6. Not checked by a player: the money after a
+started once lowered to 6. Soak test the same night with the installer's
+set and only `mp_match_allow_bots 1`, `mp_match_players 2`,
+`mp_match_warmup_time 10` changed: a whole MR12 match of 10 YaPB bots,
+25 minutes, half time after 12 rounds, "The Terrorists win the match
+13-8", the interludes of 058 (10 players at the start and half time, the 5
+winners at the end), no error, the server held on the result. Not checked
+by a player: the money after a
 switch and the camera of the dead; a full MR12 match with ten players.
 
 ## Goal
